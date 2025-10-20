@@ -146,6 +146,22 @@ def load_asset(mods):
         if df is None or df.empty:
             return None
         df = normalize_ohlc(pd, df)
+        # Ensure 'Close' exists
+        if "Close" not in df.columns:
+            # try Adj Close
+            if "Adj Close" in df.columns:
+                df["Close"] = df["Adj Close"]
+            else:
+                # case-insensitive search
+                for c in df.columns:
+                    if str(c).strip().lower() == "close":
+                        df["Close"] = df[c]
+                        break
+        if "Close" not in df.columns:
+            # fallback: first numeric column
+            num_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+            if num_cols:
+                df["Close"] = df[num_cols[0]]
         df.index.name = "Date"
         return df
     else:
@@ -168,6 +184,18 @@ def load_asset(mods):
             if c in df.columns:
                 df[c] = num(pd, mods["np"], df[c])
         df = normalize_ohlc(pd, df)
+        if "Close" not in df.columns:
+            if "Adj Close" in df.columns:
+                df["Close"] = df["Adj Close"]
+            else:
+                for c in df.columns:
+                    if str(c).strip().lower() == "close":
+                        df["Close"] = df[c]
+                        break
+        if "Close" not in df.columns:
+            num_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+            if num_cols:
+                df["Close"] = df[num_cols[0]]
         return df
 
 # ---------- ANALIZ ----------
@@ -187,6 +215,9 @@ with tab_an:
         if c in df.columns:
             df[c] = num(pd, np, df[c])
 
+    if "Close" not in df.columns:
+        st.error("Veride 'Close' kolonu bulunamadı. CSV kullanıyorsanız 'Close' veya 'Adj Close' kolonu ekleyin.")
+        st.stop()
     data = df.copy()
     data["EMA_Short"] = ema(pd, data["Close"], ema_short)
     data["EMA_Long"]  = ema(pd, data["Close"], ema_long)
