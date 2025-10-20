@@ -96,19 +96,16 @@ def fib_levels(a, b):
 
 def resolve_ticker(user_text: str):
     if not user_text:
-        return "BTC-USD", COMMON_TICKERS
+        return "BTC-USD", sorted(COMMON_TICKERS)
     t = user_text.strip().upper()
-    # If user already typed a full Yahoo-style ticker, accept
     if t.endswith("-USD"):
         matches = [x for x in COMMON_TICKERS if t.split("-")[0] in x]
         return t, sorted(matches)
-    # Otherwise find best match from COMMON_TICKERS
     starts = [x for x in COMMON_TICKERS if x.startswith(t)]
     contains = [x for x in COMMON_TICKERS if t in x and x not in starts]
     ordered = sorted(starts) + sorted(contains)
     if ordered:
         return ordered[0], ordered
-    # fallback
     return "BTC-USD", sorted(COMMON_TICKERS)
 
 # =========================
@@ -201,15 +198,41 @@ if have_ohlc:
 else:
     data["ATR"] = np.nan
 
-# Fib from lookback window
-recent = data.tail(int(fib_lookback))
-swing_high = float(recent["High"].max()) if "High" in recent else float(recent["Close"].max())
-swing_low  = float(recent["Low"].min())  if "Low" in recent else float(recent["Close"].min())
-trend_up = recent["Close"].iloc[-1] > (swing_low + swing_high) / 2
-fa, fb = (swing_low, swing_high) if trend_up else (swing_high, swing_low)
-fibs = fib_levels(fa, fb)
+# =========================
+# Fibonacci (robust)
+# =========================
+lb = max(int(fib_lookback), 20)
+recent = data.tail(lb)
 
-# Signal rules
+# Safe swings
+if "High" in recent:
+    hi_series = pd.to_numeric(recent["High"], errors="coerce").dropna()
+else:
+    hi_series = pd.to_numeric(recent["Close"], errors="coerce").dropna()
+
+if "Low" in recent:
+    lo_series = pd.to_numeric(recent["Low"], errors="coerce").dropna()
+else:
+    lo_series = pd.to_numeric(recent["Close"], errors="coerce").dropna()
+
+close_series = pd.to_numeric(recent["Close"], errors="coerce").dropna()
+
+if hi_series.empty or lo_series.empty or close_series.empty:
+    swing_high = swing_low = last_close = np.nan
+    fibs = {}
+    trend_up_bool = False
+else:
+    swing_high = float(hi_series.max())
+    swing_low  = float(lo_series.min())
+    last_close = float(close_series.iloc[-1])
+    mid = (swing_low + swing_high) / 2.0
+    trend_up_bool = bool(last_close > mid)
+    a, b = (swing_low, swing_high) if trend_up_bool else (swing_high, swing_low)
+    fibs = fib_levels(a, b)
+
+# =========================
+# Signals
+# =========================
 bull = data["EMA_Short"] > data["EMA_Long"]
 macd_cross_up = (data["MACD"] > data["MACD_Signal"]) & (data["MACD"].shift(1) <= data["MACD_Signal"].shift(1))
 rsi_ok = (data["RSI"] >= rsi_buy_min) & (data["RSI"] <= rsi_buy_max)
@@ -217,7 +240,9 @@ rsi_ok = (data["RSI"] >= rsi_buy_min) & (data["RSI"] <= rsi_buy_max)
 buy_now = bool(bull.iloc[-1] and (macd_cross_up.iloc[-1] or rsi_ok.iloc[-1]))
 sell_now = bool((not bull.iloc[-1]) and (data["MACD"].iloc[-1] < data["MACD_Signal"].iloc[-1]))
 
-last_close = float(data["Close"].iloc[-1])
+if not np.isfinite(last_close):
+    last_close = float(data["Close"].iloc[-1])
+
 entry_price = last_close
 atr_val = float(data["ATR"].iloc[-1]) if np.isfinite(data["ATR"].iloc[-1]) else np.nan
 
@@ -276,18 +301,28 @@ st.markdown(f"""
 """)
 
 with st.expander("🔍 Detaylar (Gerekçeler)"):
-    bb_pos = "alt band yakınında" if last_close <= recent["BB_Down"].iloc[-1] else ("üst band yakınında" if last_close >= recent["BB_Up"].iloc[-1] else "band içinde")
-    ema_state = "EMA kısa > EMA uzun (trend ↑)" if bull.iloc[-1] else "EMA kısa < EMA uzun (trend ↓)"
-    macd_state = "MACD signal üstü" if data["MACD"].iloc[-1] > data["MACD_Signal"].iloc[-1] else "MACD signal altı"
-    macd_x = "Son bar kesişim ↑ var" if macd_cross_up.iloc[-1] else "Son bar kesişim yok"
-    rsi_state = f"RSI {data['RSI'].iloc[-1]:.2f} ({'alım için uygun' if rsi_ok.iloc[-1] else 'nötr/aşırı'})"
-    fib_side = "yukarı trend fib seti" if trend_up else "aşağı trend fib seti"
-    fib_near = min(fibs.items(), key=lambda kv: abs(kv[1]-last_close))
+    bb_pos = "hesaplanamadı"
+    if "BB_Up" in data and "BB_Down" in data and np.isfinite(last_close):
+        try:
+            bb_pos = "alt band yakınında" if last_close <= data["BB_Down"].iloc[-1] else ("üst band yakınında" if last_close >= data["BB_Up"].iloc[-1] else "band içinde")
+        except Exception:
+            pass
+    ema_state = "EMA kısa > EMA uzun (trend ↑)" if bool(bull.iloc[-1]) else "EMA kısa < EMA uzun (trend ↓)"
+    macd_state = "MACD signal üstü" if float(data["MACD"].iloc[-1]) > float(data["MACD_Signal"].iloc[-1]) else "MACD signal altı"
+    macd_x = "Son bar kesişim ↑ var" if bool(macd_cross_up.iloc[-1]) else "Son bar kesişim yok"
+    rsi_val = float(data["RSI"].iloc[-1])
+    rsi_state = f"RSI {rsi_val:.2f} ({'alım için uygun' if bool(rsi_ok.iloc[-1]) else 'nötr/aşırı'})"
+    if fibs:
+        side = "yukarı trend fib seti" if trend_up_bool else "aşağı trend fib seti"
+        near = min(fibs.items(), key=lambda kv: abs(kv[1]-last_close))
+        fib_text = f"{side}; fiyata en yakın: **{near[0]} = {fmt(near[1])}**"
+    else:
+        fib_text = "yetersiz veri"
     st.write(f"- **Bollinger:** {bb_pos}")
     st.write(f"- **EMA:** {ema_state}")
     st.write(f"- **MACD:** {macd_state} | {macd_x}")
     st.write(f"- **RSI:** {rsi_state}")
-    st.write(f"- **Fibonacci:** {fib_side}; fiyata en yakın seviye: **{fib_near[0]} = {fmt(fib_near[1])}**")
+    st.write(f"- **Fibonacci:** {fib_text}")
     if np.isfinite(atr_val):
         st.write(f"- **ATR(14):** {fmt(atr_val)} (stop için ATR×{atr_k})")
     else:
@@ -297,7 +332,7 @@ with st.expander("🔍 Detaylar (Gerekçeler)"):
 st.markdown("---")
 st.subheader("🔎 Eşleşen Coinler")
 if matches:
-    st.write(", ".join(matches))
+    st.write(", ".join(sorted(matches)))
 else:
     st.write("Eşleşme bulunamadı.")
 
