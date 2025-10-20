@@ -10,14 +10,6 @@ st.caption("Eğitim amaçlıdır; yatırım tavsiyesi değildir.")
 # =========================
 # Helpers
 # =========================
-COMMON_TICKERS = [
-    "BTC-USD","ETH-USD","BNB-USD","SOL-USD","XRP-USD","ADA-USD","DOGE-USD","TRX-USD","TON-USD","AVAX-USD",
-    "LINK-USD","DOT-USD","MATIC-USD","LTC-USD","APT-USD","ATOM-USD","FIL-USD","XLM-USD","ICP-USD","ETC-USD",
-    "HBAR-USD","OKB-USD","NEAR-USD","ALGO-USD","INJ-USD","SUI-USD","AR-USD","AAVE-USD","OP-USD","THETA-USD",
-    "RUNE-USD","FTM-USD","GRT-USD","EGLD-USD","KAS-USD","SAND-USD","MANA-USD","APE-USD","IMX-USD","SEI-USD",
-    "PEPE-USD","BONK-USD","WIF-USD","PYTH-USD","JUP-USD","JASMY-USD","ORDI-USD","TAO-USD","TIA-USD","ENA-USD"
-]
-
 @st.cache_data(ttl=1800, show_spinner=True)
 def load_yf(ticker: str, period="6mo", interval="1d"):
     try:
@@ -103,26 +95,12 @@ def fib_levels(a, b):
         "1.0": a,
     }
 
-def resolve_ticker(user_text: str):
-    if not user_text:
-        return "BTC-USD", sorted(COMMON_TICKERS)
-    t = user_text.strip().upper()
-    if t.endswith("-USD"):
-        matches = [x for x in COMMON_TICKERS if t.split("-")[0] in x]
-        return t, sorted(matches)
-    starts = [x for x in COMMON_TICKERS if x.startswith(t)]
-    contains = [x for x in COMMON_TICKERS if t in x and x not in starts]
-    ordered = sorted(starts) + sorted(contains)
-    if ordered:
-        return ordered[0], ordered
-    return "BTC-USD", sorted(COMMON_TICKERS)
-
 # =========================
 # Sidebar — Inputs
 # =========================
 st.sidebar.header("📥 Veri Kaynağı")
 src = st.sidebar.radio("Kaynak", ["YFinance (internet)", "CSV Yükle"], index=0)
-user_ticker_text = st.sidebar.text_input("🔎 Kripto Değer", value="THETA", help="Örn: THETA, BTC-USD")
+ticker = st.sidebar.text_input("🪙 Kripto Değer (ör. BTC-USD, THETA-USD)", value="THETA-USD")
 period = st.sidebar.selectbox("Periyot", ["3mo","6mo","1y","2y","5y"], index=1)
 interval = st.sidebar.selectbox("Zaman Dilimi", ["1d","4h","1h"], index=0)
 uploaded = st.sidebar.file_uploader("CSV (opsiyonel, Date/Open/High/Low/Close/Volume)", type=["csv"]) if src == "CSV Yükle" else None
@@ -154,9 +132,6 @@ tp2_r       = st.sidebar.slider("TP2", 0.5, 10.0, 2.0, 0.1)
 tp3_r       = st.sidebar.slider("TP3", 0.5, 15.0, 3.0, 0.1)
 tp_pct      = st.sidebar.slider("TP %", 0.5, 50.0, 5.0, 0.5)
 
-# Resolve ticker & matches
-ticker, matches = resolve_ticker(user_ticker_text)
-
 # =========================
 # Load data
 # =========================
@@ -185,7 +160,7 @@ else:
             st.error(f"CSV okunamadı: {e}")
 
 if df is None or df.empty:
-    st.warning("Veri alınamadı. Farklı period/interval deneyin veya CSV yükleyin.")
+    st.warning("Veri alınamadı. Ticker'ı tam (ör. BTC-USD) yazdığınızdan emin olun veya CSV yükleyin.")
     st.stop()
 
 for c in ["Open","High","Low","Close","Volume"]:
@@ -316,14 +291,15 @@ with st.expander("🔍 Detaylar (Gerekçeler)"):
     macd_x = "Son bar kesişim ↑ var" if bool(macd_cross_up.iloc[-1]) else "Son bar kesişim yok"
     rsi_val = float(data["RSI"].iloc[-1])
     rsi_state = f"RSI {rsi_val:.2f} ({'alım için uygun' if bool(rsi_ok.iloc[-1]) else 'nötr/aşırı'})"
-    if fibs:
+    if np.isfinite(swing_high) and np.isfinite(swing_low):
         side = "yukarı trend fib seti" if trend_up_bool else "aşağı trend fib seti"
+        fibs = fib_levels(swing_low, swing_high) if trend_up_bool else fib_levels(swing_high, swing_low)
         near = min(fibs.items(), key=lambda kv: abs(kv[1]-last_close))
         fib_text = f"{side}; fiyata en yakın: **{near[0]} = {fmt(near[1])}**"
     else:
         fib_text = "yetersiz veri"
     st.write(f"- **Bollinger:** {bb_pos}")
-    st.write(f("- **EMA:** {ema_state}"))
+    st.write(f"- **EMA:** {ema_state}")
     st.write(f"- **MACD:** {macd_state} | {macd_x}")
     st.write(f"- **RSI:** {rsi_state}")
     st.write(f"- **Fibonacci:** {fib_text}")
@@ -332,13 +308,5 @@ with st.expander("🔍 Detaylar (Gerekçeler)"):
     else:
         st.write(f"- **ATR:** — (OHLC eksik; stop sabit % ile)")
 
-# Matching list (display only)
 st.markdown("---")
-st.subheader("🔎 Eşleşen Coinler")
-if matches:
-    st.write(", ".join(sorted(matches)))
-else:
-    st.write("Eşleşme bulunamadı.")
-
-st.markdown("---")
-st.caption("Not: Tek bir 'Kripto Değer' kutusu vardır; yazdıkça otomatik eşleşen semboller listelenir ve en iyi eşleşme analiz edilir. Grafik yoktur; özet sinyal ve gerekçeler gösterilir.")
+st.caption("Not: Tek bir 'Kripto Değer' kutusu vardır; manuel yazın (ör. BTC-USD). Grafik yoktur; özet sinyal ve gerekçeler gösterilir.")
