@@ -5,16 +5,24 @@ import numpy as np
 import plotly.subplots as sp
 import plotly.graph_objects as go
 
-st.set_page_config(page_title="Trading Strategy – Flexible CSV Support", layout="wide")
-st.title("📈 Trading Strategy – Flexible CSV Support (OHLC Otomatik Eşleştirme)")
+st.set_page_config(page_title="Trading Strategy – Robust TP/SL", layout="wide")
+st.title("📈 Trading Strategy – Robust TP/SL (Safe)")
 st.caption("Eğitim amaçlıdır; yatırım tavsiyesi değildir.")
 
-# ---------- Helpers ----------
+# ---------------- Helpers ----------------
+def to_str_cols(cols):
+    safe = []
+    for c in list(cols):
+        try:
+            safe.append(str(c))
+        except Exception:
+            safe.append(f"col_{len(safe)}")
+    return safe
+
 def dedup_columns(cols):
     seen = {}
     new = []
     for c in cols:
-        c = str(c)
         if c not in seen:
             seen[c] = 0
             new.append(c)
@@ -23,38 +31,17 @@ def dedup_columns(cols):
             new.append(f"{c}.{seen[c]}")
     return new
 
-def ensure_numeric(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    # Normalize column names
-    df.columns = dedup_columns([str(c).strip() for c in df.columns])
-    # Try to coerce numeric where appropriate later
-    return df
-
-def coerce_numeric(series: pd.Series) -> pd.Series:
-    s = series.astype(str)
+def ensure_numeric_series(s: pd.Series) -> pd.Series:
+    # force to string then clean commas/spaces and coerce
+    try:
+        s = s.astype(str)
+    except Exception:
+        s = s.copy()
+        s = s.apply(lambda x: str(x) if x is not None else "")
     s = (s.str.replace(",", "", regex=False)
            .str.replace(" ", "", regex=False)
-           .replace({"": np.nan, "None": np.nan, "nan": np.nan, "NaN": np.nan}))
+           .replace({"": np.nan, "None": np.nan, "none": np.nan, "NaN": np.nan, "nan": np.nan}))
     return pd.to_numeric(s, errors="coerce")
-
-def try_auto_map(df: pd.DataFrame):
-    # Common synonyms (lower)
-    syn = {
-        "date": ["date","time","datetime","timestamp"],
-        "open": ["open","o","opening","opn","open price","price open"],
-        "high": ["high","h","max","hi","high price","price high"],
-        "low":  ["low","l","min","lo","low price","price low"],
-        "close":["close","c","closing","adj close","close price","price close","last"],
-        "volume":["volume","vol","v","volumne","amount"]
-    }
-    cols_lower = {c.lower(): c for c in df.columns}
-    mapping = {}
-    for key, cands in syn.items():
-        for cand in cands:
-            if cand in cols_lower:
-                mapping[key] = cols_lower[cand]
-                break
-    return mapping
 
 def ema(s, n): return s.ewm(span=n, adjust=False).mean()
 
@@ -95,23 +82,43 @@ def fmt(x, n=6):
         pass
     return "—"
 
-# ---------- Sidebar: Data ----------
-st.sidebar.header("📥 Veri")
-source = st.sidebar.radio("Veri Kaynağı", ["YFinance", "CSV Yükle"], index=1)
-df = None
+def try_auto_map(df: pd.DataFrame):
+    # Safe stringified columns
+    scols = to_str_cols(df.columns)
+    cols_lower = {c.lower(): c for c in scols}
+    syn = {
+        "date": ["date","time","datetime","timestamp"],
+        "open": ["open","o","opening","opn","open price","price open"],
+        "high": ["high","h","max","hi","high price","price high"],
+        "low":  ["low","l","min","lo","low price","price low"],
+        "close":["close","c","closing","adj close","close price","price close","last"],
+        "volume":["volume","vol","v","volumne","amount"]
+    }
+    mapping = {}
+    for key, cands in syn.items():
+        for cand in cands:
+            if cand in cols_lower:
+                mapping[key] = cols_lower[cand]
+                break
+    return mapping
 
+# ---------------- Data Loading ----------------
 @st.cache_data(ttl=1800, show_spinner=True)
 def load_yf(ticker: str, period="1y", interval="1d"):
     try:
         import yfinance as yf
         tdf = yf.download(ticker, period=period, interval=interval, auto_adjust=False)
-        if tdf.empty:
+        if tdf is None or tdf.empty:
             return None
         tdf = tdf.rename(columns=str.title)
         tdf.index.name = "Date"
         return tdf
     except Exception:
         return None
+
+st.sidebar.header("📥 Veri")
+source = st.sidebar.radio("Veri Kaynağı", ["YFinance", "CSV Yükle"], index=1)
+df = None
 
 if source == "YFinance":
     ticker = st.sidebar.text_input("Ticker", "BTC-USD")
@@ -121,47 +128,53 @@ if source == "YFinance":
         df = load_yf(ticker, period, interval)
 else:
     up = st.sidebar.file_uploader("CSV yükle", type=["csv"])
-    if up:
+    if up is not None:
         raw = pd.read_csv(up)
-        df = ensure_numeric(raw)
-        # Detect date column
-        auto = try_auto_map(df)
-        date_col = st.sidebar.selectbox("Tarih Sütunu", options=list(df.columns),
-                                        index=list(df.columns).index(auto.get("date", df.columns[0])) if df is not None else 0)
-        df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
-        df = df.set_index(date_col).sort_index()
+        # Normalize columns safe
+        raw.columns = dedup_columns(to_str_cols(raw.columns))
+        df = raw.copy()
 
-if df is None or df.empty:
+if df is None or len(df) == 0:
     st.info("Veri yükleyin (YFinance veya CSV).")
     st.stop()
 
-# ---------- Column Mapping UI ----------
+# If Date column exists, set index; else let user pick one
 st.sidebar.header("🧭 Sütun Eşleştirme")
+scols = dedup_columns(to_str_cols(df.columns))
+df.columns = scols
+
 auto = try_auto_map(df)
+date_col_default = auto.get("date", scols[0])
+date_col = st.sidebar.selectbox("Tarih Sütunu", scols, index=scols.index(date_col_default) if date_col_default in scols else 0)
+
+# Parse datetime safely
+df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+df = df.dropna(subset=[date_col]).set_index(date_col).sort_index()
+
 cols = list(df.columns)
-open_col  = st.sidebar.selectbox("Open",  options=["(Yok)"] + cols, index=(cols.index(auto["open"])+1) if "open" in auto else 0)
-high_col  = st.sidebar.selectbox("High",  options=["(Yok)"] + cols, index=(cols.index(auto["high"])+1) if "high" in auto else 0)
-low_col   = st.sidebar.selectbox("Low",   options=["(Yok)"] + cols, index=(cols.index(auto["low"])+1) if "low" in auto else 0)
-close_col = st.sidebar.selectbox("Close", options=cols, index=(cols.index(auto["close"])) if "close" in auto else 0)
-vol_col   = st.sidebar.selectbox("Volume",options=["(Yok)"] + cols, index=(cols.index(auto["volume"])+1) if "volume" in auto else 0)
+open_col  = st.sidebar.selectbox("Open",  options=["(Yok)"] + cols, index=(cols.index(auto["open"])+1) if "open" in auto and auto["open"] in cols else 0)
+high_col  = st.sidebar.selectbox("High",  options=["(Yok)"] + cols, index=(cols.index(auto["high"])+1) if "high" in auto and auto["high"] in cols else 0)
+low_col   = st.sidebar.selectbox("Low",   options=["(Yok)"] + cols, index=(cols.index(auto["low"])+1) if "low" in auto and auto["low"] in cols else 0)
+close_col = st.sidebar.selectbox("Close", options=cols, index=(cols.index(auto["close"])) if "close" in auto and auto["close"] in cols else 0)
+vol_col   = st.sidebar.selectbox("Volume",options=["(Yok)"] + cols, index=(cols.index(auto["volume"])+1) if "volume" in auto and auto["volume"] in cols else 0)
 
 derive_missing = st.sidebar.checkbox("Eksik OHLC'yi türet (Close'tan)", value=True)
 
 data = pd.DataFrame(index=df.index.copy())
-# Close zorunlu
-data["Close"] = coerce_numeric(df[close_col])
+# Mandatory Close
+data["Close"] = ensure_numeric_series(df[close_col])
 
-# Open/High/Low/Volume opsiyonel
+# Optional OHLCV
 if open_col != "(Yok)":
-    data["Open"] = coerce_numeric(df[open_col])
+    data["Open"] = ensure_numeric_series(df[open_col])
 if high_col != "(Yok)":
-    data["High"] = coerce_numeric(df[high_col])
+    data["High"] = ensure_numeric_series(df[high_col])
 if low_col != "(Yok)":
-    data["Low"] = coerce_numeric(df[low_col])
+    data["Low"] = ensure_numeric_series(df[low_col])
 if vol_col != "(Yok)":
-    data["Volume"] = coerce_numeric(df[vol_col])
+    data["Volume"] = ensure_numeric_series(df[vol_col])
 
-# Derive missing OHLC if requested
+# Derive missing OHLC
 if derive_missing:
     if "Open" not in data.columns:
         data["Open"] = data["Close"].shift(1).fillna(data["Close"])
@@ -170,10 +183,10 @@ if derive_missing:
     if "Low" not in data.columns:
         data["Low"] = np.minimum(data["Open"], data["Close"])
 
-# Drop rows where Close is NaN
+# Drop rows with missing Close
 data = data[pd.notnull(data["Close"])].copy()
 
-# ---------- Indicators & Params ----------
+# ---------------- Parameters ----------------
 st.sidebar.header("⚙️ Parametreler")
 ema_short = st.sidebar.number_input("EMA Kısa", 3, 50, 9)
 ema_long  = st.sidebar.number_input("EMA Uzun", 10, 300, 21)
@@ -181,16 +194,22 @@ ema_trend = st.sidebar.number_input("EMA Trend", 50, 400, 200, step=10)
 rsi_len   = st.sidebar.number_input("RSI Periyot", 5, 50, 14)
 bb_len    = st.sidebar.number_input("Bollinger Periyot", 5, 100, 20)
 bb_std    = st.sidebar.slider("BB Std", 1.0, 3.5, 2.0, 0.1)
-atr_len   = st.sidebar.number_input("ATR Periyot (Stop için)", 5, 50, 14)
+atr_len   = st.sidebar.number_input("ATR Periyot", 5, 50, 14)
 
 stop_mode = st.sidebar.selectbox("Stop Tipi", ["ATR x K", "Sabit %"], index=0)
 atr_k     = st.sidebar.slider("ATR çarpanı", 0.5, 5.0, 2.0, 0.1)
 stop_pct  = st.sidebar.slider("Zarar %", 0.5, 10.0, 2.0, 0.1)
 
-# Compute indicators
-data["EMA_Short"] = ema(data["Close"], ema_short)
-data["EMA_Long"]  = ema(data["Close"], ema_long)
-data["EMA_Trend"] = ema(data["Close"], ema_trend)
+# ---------------- Indicators ----------------
+def safe_ema(col, n):
+    try:
+        return ema(col, n)
+    except Exception:
+        return pd.Series(index=col.index, dtype=float)
+
+data["EMA_Short"] = safe_ema(data["Close"], ema_short)
+data["EMA_Long"]  = safe_ema(data["Close"], ema_long)
+data["EMA_Trend"] = safe_ema(data["Close"], ema_trend)
 data["RSI"] = rsi(data["Close"], rsi_len)
 data["BB_Mid"], data["BB_Up"], data["BB_Down"] = bollinger(data["Close"], bb_len, bb_std)
 
@@ -200,13 +219,13 @@ if have_ohlc:
 else:
     data["ATR"] = np.nan
 
-# Signals
+# ---------------- Signals ----------------
 bull = data["EMA_Short"] > data["EMA_Long"]
 buy  = bull & bull.ne(bull.shift(1))
 sell = (~bull) & bull.ne(bull.shift(1))
 data["BUY"], data["SELL"] = buy, sell
 
-# Last BUY & TP/SL
+# ---------------- Last BUY & TP/SL ----------------
 last_buy = data.index[data["BUY"]].max() if data["BUY"].any() else None
 entry_price, stop_price, tp_levels = None, None, []
 
@@ -221,14 +240,13 @@ if last_buy is not None and pd.notnull(last_buy):
         stop_price = entry_price - atr_k * atr_val
         risk = entry_price - stop_price
     else:
-        # Fallback: sabit % stop kullan
         stop_price = entry_price * (1 - stop_pct/100.0)
         risk = entry_price - stop_price
     tp_levels = [("TP1", entry_price + 1*risk),
                  ("TP2", entry_price + 2*risk),
                  ("TP3", entry_price + 3*risk)]
 
-# ---------- Plot ----------
+# ---------------- Plot ----------------
 fig = sp.make_subplots(rows=3, cols=1, shared_xaxes=True,
                        row_heights=[0.6,0.2,0.2], vertical_spacing=0.04)
 
@@ -265,7 +283,7 @@ fig.add_trace(_hline(data.index, 30, "RSI 30", "green"), row=3, col=1)
 fig.update_layout(height=900, xaxis_rangeslider_visible=False, legend=dict(orientation="h"))
 st.plotly_chart(fig, use_container_width=True)
 
-# ---------- Info ----------
+# ---------------- Info ----------------
 col1, col2 = st.columns([2,1])
 latest = data.iloc[-1]
 with col2:
@@ -294,4 +312,4 @@ with col1:
         st.write("Son dönemde işlem sinyali yok.")
 
 st.markdown("---")
-st.caption("CSV sütunlarını soldan eşleştirin. Eksik OHLC varsa Close'tan türetme seçeneği ile çizim/sinyal çalışır. ATR yalnızca OHLC mevcutsa sağlıklıdır; aksi halde sabit % stop önerilir.")
+st.caption("CSV sütunlarını soldan eşleştirin. Eksik OHLC varsa Close'tan türetme seçeneği ile çalışır. ATR yalnızca gerçek OHLC mevcutsa sağlıklıdır; aksi halde sabit % stop kullanın.")
