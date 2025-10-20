@@ -1,7 +1,7 @@
 
 import streamlit as st
 
-BUILD = "v7.0 clean"
+BUILD = "v7.1 guide+tooltips"
 
 st.set_page_config(page_title="TradeMaster", layout="wide")
 st.title(f"🧭 TradeMaster — {BUILD}")
@@ -117,14 +117,14 @@ def fmt(x, n=6):
 # Sidebar
 # =========================
 st.sidebar.header("📥 Veri Kaynağı")
-src = st.sidebar.radio("Kaynak", ["YFinance (internet)", "CSV Yükle"], index=0)
-ticker = st.sidebar.text_input("🪙 Kripto Değer", value="THETA-USD")
+src = st.sidebar.radio("Kaynak", ["YFinance (internet)", "CSV Yükle"], index=0, help="YFinance: İnternetten otomatik veri çeker. CSV: Kendi verinizi yükleyin (Date, Open, High, Low, Close, Volume).")
+ticker = st.sidebar.text_input("🪙 Kripto Değer", value="THETA-USD", help="Sembol formatı: BTC-USD, ETH-USD, THETA-USD vb. Yahoo Finance ile uyumlu.")
 
 preset = st.sidebar.selectbox(
     "Zaman Dilimi",
     ["Kısa (4h)", "Orta (1g)", "Uzun (1hft)"],
     index=1,
-    help="Veri çözünürlüğü: kısa=4 saat, orta=günlük, uzun=haftalık."
+    help="Veri çözünürlüğü ve geçmiş: Kısa=4h/180g, Orta=1d/1y, Uzun=1wk/5y."
 )
 if preset.startswith("Kısa"):
     interval, period = "4h", "180d"
@@ -133,33 +133,33 @@ elif preset.startswith("Orta"):
 else:
     interval, period = "1wk", "5y"
 
-uploaded = st.sidebar.file_uploader("CSV (opsiyonel)", type=["csv"]) if src == "CSV Yükle" else None
+uploaded = st.sidebar.file_uploader("CSV (opsiyonel)", type=["csv"], help="Zorunlu kolonlar: Date, Open, High, Low, Close, Volume. Tarihi otomatik algılar.") if src == "CSV Yükle" else None
 
 st.sidebar.header("⚙️ Strateji Ayarları")
-ema_short = st.sidebar.number_input("EMA Kısa", 3, 50, 9)
-ema_long  = st.sidebar.number_input("EMA Uzun", 10, 300, 21)
-ema_trend = st.sidebar.number_input("EMA Trend (uzun)", 50, 400, 200, step=10)
-rsi_len   = st.sidebar.number_input("RSI Periyot", 5, 50, 14)
-rsi_buy_min = st.sidebar.slider("RSI Alım Alt Sınır", 10, 60, 35)
-rsi_buy_max = st.sidebar.slider("RSI Alım Üst Sınır", 40, 90, 60)
-macd_fast = st.sidebar.number_input("MACD Hızlı", 3, 50, 12)
-macd_slow = st.sidebar.number_input("MACD Yavaş", 6, 200, 26)
-macd_sig  = st.sidebar.number_input("MACD Sinyal", 3, 50, 9)
-bb_len    = st.sidebar.number_input("Bollinger Periyot", 5, 100, 20)
-bb_std    = st.sidebar.slider("Bollinger Std", 1.0, 3.5, 2.0, 0.1)
+ema_short = st.sidebar.number_input("EMA Kısa", 3, 50, 9, help="Kısa vadeli eğilim. Büyükse daha yavaş, küçükse daha hızlı tepki verir.")
+ema_long  = st.sidebar.number_input("EMA Uzun", 10, 300, 21, help="Orta vadeli eğilim. EMA Kısa bunun üzerine çıktığında yükseliş sinyali üretir.")
+ema_trend = st.sidebar.number_input("EMA Trend (uzun)", 50, 400, 200, step=10, help="Uzun dönem eğilim filtresi (200 önerilir). Fiyat bunun üstünde ise yapısal olarak daha güçlü kabul edilir.")
+rsi_len   = st.sidebar.number_input("RSI Periyot", 5, 50, 14, help="RSI hesap periyodu. 14 klasik değerdir; düşürmek sinyali hızlandırır.")
+rsi_buy_min = st.sidebar.slider("RSI Alım Alt Sınır", 10, 60, 35, help="RSI bu seviyenin üzerinde ise aşırı satım riski azalır (alım için daha uygundur).")
+rsi_buy_max = st.sidebar.slider("RSI Alım Üst Sınır", 40, 90, 60, help="RSI bu seviyenin altında ise aşırı alımda değildir. 60 üstü güçlü momentum demektir.")
+macd_fast = st.sidebar.number_input("MACD Hızlı", 3, 50, 12, help="MACD hızlı EMA süresi (varsayılan 12).")
+macd_slow = st.sidebar.number_input("MACD Yavaş", 6, 200, 26, help="MACD yavaş EMA süresi (varsayılan 26).")
+macd_sig  = st.sidebar.number_input("MACD Sinyal", 3, 50, 9, help="MACD sinyal çizgisi (varsayılan 9). Kesişimler tetikleyici kabul edilir.")
+bb_len    = st.sidebar.number_input("Bollinger Periyot", 5, 100, 20, help="Bollinger orta bant periyodu (20 klasik).")
+bb_std    = st.sidebar.slider("Bollinger Std", 1.0, 3.5, 2.0, 0.1, help="Bant genişliği katsayısı. 2.0 standart sapma yaygındır.")
 
 st.sidebar.header("💰 Risk / Pozisyon")
-equity      = st.sidebar.number_input("Sermaye (USD)", min_value=100.0, value=10000.0, step=100.0)
-risk_pct    = st.sidebar.slider("İşlem başına risk (%)", 0.2, 5.0, 1.0, 0.1)
-max_alloc   = st.sidebar.slider("Maks. Pozisyon (%)", 1.0, 100.0, 20.0, 1.0)
-stop_mode   = st.sidebar.selectbox("Stop Tipi", ["ATR x K","Sabit %"], index=0)
-atr_k       = st.sidebar.slider("ATR çarpanı", 0.5, 5.0, 2.0, 0.1)
-stop_pct    = st.sidebar.slider("Sabit Zarar %", 0.5, 20.0, 3.0, 0.5)
-tp_mode     = st.sidebar.selectbox("TP modu", ["R-multiple","Sabit %"], index=0)
-tp1_r       = st.sidebar.slider("TP1 (R)", 0.5, 5.0, 1.0, 0.1)
-tp2_r       = st.sidebar.slider("TP2 (R)", 0.5, 10.0, 2.0, 0.1)
-tp3_r       = st.sidebar.slider("TP3 (R)", 0.5, 15.0, 3.0, 0.1)
-tp_pct      = st.sidebar.slider("TP %", 0.5, 50.0, 5.0, 0.5)
+equity      = st.sidebar.number_input("Sermaye (USD)", min_value=100.0, value=10000.0, step=100.0, help="Toplam hesap büyüklüğü. Pozisyon büyüklüğü bunun yüzdesiyle sınırlandırılır.")
+risk_pct    = st.sidebar.slider("İşlem başına risk (%)", 0.2, 5.0, 1.0, 0.1, help="Bir işlemde kaybetmeyi göze aldığınız maksimum oran (örn. %1).")
+max_alloc   = st.sidebar.slider("Maks. Pozisyon (%)", 1.0, 100.0, 20.0, 1.0, help="Tek bir pozisyon için üst sınır (çeşitlendirme için).")
+stop_mode   = st.sidebar.selectbox("Stop Tipi", ["ATR x K","Sabit %"], index=0, help="ATR tabanlı dinamik stop veya sabit yüzde stop.")
+atr_k       = st.sidebar.slider("ATR çarpanı", 0.5, 5.0, 2.0, 0.1, help="Stop mesafesi = ATR × K. Örn. 2×ATR.")
+stop_pct    = st.sidebar.slider("Sabit Zarar %", 0.5, 20.0, 3.0, 0.5, help="Sabit yüzde stop (ATR kapalıysa kullanılır).")
+tp_mode     = st.sidebar.selectbox("TP modu", ["R-multiple","Sabit %"], index=0, help="R-multiple: TP = Entry + k×Risk. Sabit %: Yüzdesel hedef.")
+tp1_r       = st.sidebar.slider("TP1 (R)", 0.5, 5.0, 1.0, 0.1, help="İlk hedef için riskin kaç katı (ör. 1R).")
+tp2_r       = st.sidebar.slider("TP2 (R)", 0.5, 10.0, 2.0, 0.1, help="İkinci hedef: 2R vb.")
+tp3_r       = st.sidebar.slider("TP3 (R)", 0.5, 15.0, 3.0, 0.1, help="Üçüncü hedef: 3R vb. Kademeli realizasyon için.")
+tp_pct      = st.sidebar.slider("TP %", 0.5, 50.0, 5.0, 0.5, help="Sabit yüzde TP modunda, hedef yüzdesi.")
 
 # =========================
 # Tabs
@@ -469,22 +469,46 @@ with tab_graf:
 # =========================
 # REHBER
 # =========================
+
 with tab_guide:
-    st.subheader("📘 Rehber – Kısa Notlar")
-    st.markdown("""
-### EMA – Üssel Hareketli Ortalama
+    st.subheader("📘 Rehber – Ayrıntılı Notlar")
+    st.markdown(r'''
+### 1) Trend ve Ortalamalar (EMA)
 - **Sinyal:** **EMA Kısa > EMA Uzun → yükseliş**, tersi **düşüş**.
+- **200-EMA** (Trend): Fiyat bunun **üstünde** ise yapısal **boğa**, **altında** ise **ayı** eğilimi.
+- **Trend gücü**: (EMA kısa − EMA uzun) / fiyata oran. Mutlak değer yükseldikçe eğilim güçlenir.
 
-### RSI (0–100)
-- **35–45:** Alım bölgesi (onayla güçlenir). **>70:** Aşırı alım; **<30:** Aşırı satım.
+### 2) RSI (Relative Strength Index)
+- **Aşırı Satım <30**, **Alım Bölgesi 35–45**, **Güçlü Momentum 60–70**, **Aşırı Alım >70**.
+- Düşük RSI tek başına **alım sebebi değildir**; trend ve fiyat yapısıyla **onay** arayın.
 
-### MACD
-- **MACD > Sinyal:** Pozitif momentum. Kesişimler tetikleyici olabilir.
+### 3) MACD
+- **MACD > Sinyal** → pozitif momentum. **Kesişimler** (yukarı/aşağı) tetikleyici kabul edilir.
+- **Histogram eğimi** (artıyor/azalıyor) momentumun güçlenip güçlenmediğini gösterir.
 
-### Bollinger
-- **Üst banda yakın:** ısınma riski; **Alt banda yakın:** tepki potansiyeli.
+### 4) Bollinger Bantları
+- **Üst banda yakın**: ısınma; **Alt banda yakın**: tepki potansiyeli.
+- **Sıkışma**: Bant genişliği düşük → kırılım potansiyeli artar. Kırılım yönünü trend ve hacimle teyit edin.
 
-### Risk / R-Multiple
-- **R = Entry − Stop** (long).
-- **TP1 = Entry + 1R**, **TP2 = +2R**, **TP3 = +3R**.
-""")
+### 5) ATR ve Volatilite
+- **ATR**: Ortalama gerçek aralık. Stop mesafesini volatiliteye uydurur.
+- **ATR tabanlı stop**: Stop = Entry − (ATR × K) (long). K değeri genelde **1.5–3.0** arası.
+- **ATR%** = ATR / Fiyat. Tarihsel medyanın çok **altında** → düşük volatilite (trend takip zor), **üstünde** → yüksek volatilite (stop geniş).
+
+### 6) R-Multiple & Pozisyon Boyutu
+- **R = Entry − Stop** (long). **TP1 = Entry + 1R**, **TP2 = +2R**, **TP3 = +3R**.
+- **R:R** hedef/riske oranı. **≥1:2** tipik olarak daha sağlıklıdır.
+- **Pozisyon boyutu**: İşlem başına risk $=\text{Sermaye}×\%\text{risk}$. Adet $= \frac{\text{Risk Tutarı}}{\text{Risk/Fiyat}}$.
+
+### 7) BTC Bağlamı, Dominance, DXY, VIX
+- Altcoinler genelde **BTC trendi**yle hareket eder. BTC **yukarı** trendde ise altlar için **destekleyici**.
+- **BTC Dominance** ↑: Sermaye BTC'ye kayma eğiliminde → altlar **zayıflayabilir**. Dominance ↓ → altlar **güçlenebilir**.
+- **DXY (Dolar Endeksi)** ↑: Kripto üzerinde **baskı** eğilimli. ↓ → **destekleyici**.
+- **VIX** ↑: Risk iştahı düşer (kripto negatif etkilenebilir). Düşük VIX → daha sakin ortam.
+
+### 8) Kademeli Alım / Çıkış
+- **Kademeli alım**: Dalgalanmayı yumuşatır. **Kısmi TP** ile kazançları kilitleyin.
+- Stop'u **maliyet altına taşıma**: TP1 görülünce kalan pozisyonun riskini azaltmak için.
+
+> **Uyarı:** Bu araç eğitim amaçlıdır; strateji **backtest** ve **risk yönetimi** olmadan kullanılmamalıdır.
+    ''')
