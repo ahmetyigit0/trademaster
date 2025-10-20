@@ -1,62 +1,41 @@
 
-# app_with_tp_sl_fixed.py
-# Run: streamlit run app_with_tp_sl_fixed.py
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.subplots as sp
 import plotly.graph_objects as go
 
-st.set_page_config(page_title="Strategy + TP/SL Signals (Fixed)", layout="wide")
-st.title("📈 Strategy + TP/SL Signals (Fixed)")
+st.set_page_config(page_title="Trading Strategy – TP/SL Signals", layout="wide")
+st.title("📈 Trading Strategy – TP/SL Signals (Safe Version)")
 st.caption("Eğitim amaçlıdır; yatırım tavsiyesi değildir.")
 
-# ---------------- Data Loading ----------------
-@st.cache_data(show_spinner=True, ttl=1800)
-def load_yf(ticker: str, period: str = "1y", interval: str = "1d"):
+# ---------- Veri Yükleme ----------
+@st.cache_data(ttl=1800, show_spinner=True)
+def load_yf(ticker: str, period="1y", interval="1d"):
     try:
         import yfinance as yf
+        df = yf.download(ticker, period=period, interval=interval, auto_adjust=False)
+        if df.empty:
+            return None
+        df = df.rename(columns=str.title)
+        df.index.name = "Date"
+        return df
     except Exception:
-        st.error("yfinance kurulu değil. requirements.txt ile yükleyin veya CSV kullanın.")
         return None
-    df = yf.download(ticker, period=period, interval=interval, auto_adjust=False)
-    if df is None or df.empty:
-        return None
-    df = df.rename(columns=str.title)
-    df.index.name = "Date"
+
+def ensure_numeric(df: pd.DataFrame) -> pd.DataFrame:
+    for c in ["Open", "High", "Low", "Close", "Volume"]:
+        if c in df.columns:
+            df[c] = (
+                df[c].astype(str)
+                .str.replace(",", "", regex=False)
+                .str.replace(" ", "", regex=False)
+                .replace({"": np.nan, "None": np.nan, "nan": np.nan})
+            )
+            df[c] = pd.to_numeric(df[c], errors="coerce")
     return df
 
-src = st.sidebar.radio("Veri Kaynağı", ["YFinance", "CSV Yükle"], index=0)
-df = None
-if src == "YFinance":
-    tkr = st.sidebar.text_input("Ticker", "BTC-USD")
-    period = st.sidebar.selectbox("Periyot", ["3mo","6mo","1y","2y","5y","max"], index=2)
-    interval = st.sidebar.selectbox("Zaman Dilimi", ["1d","4h","1h"], index=0)
-    if st.sidebar.button("Veriyi Çek"):
-        df = load_yf(tkr, period, interval)
-else:
-    up = st.sidebar.file_uploader("CSV (Date,Open,High,Low,Close,Volume)", type=["csv"])
-    if up is not None:
-        try:
-            raw = pd.read_csv(up)
-            cols = [c.lower() for c in raw.columns]
-            mapping = dict(zip(cols, raw.columns))
-            need = ["date","open","high","low","close","volume"]
-            if all(c in mapping for c in need):
-                df = raw[[mapping[c] for c in need]].copy()
-                df.columns = ["Date","Open","High","Low","Close","Volume"]
-            else:
-                df = raw[["Date","Open","High","Low","Close","Volume"]].copy()
-            df["Date"] = pd.to_datetime(df["Date"])
-            df = df.sort_values("Date").set_index("Date")
-        except Exception as e:
-            st.error(f"CSV okunamadı: {e}")
-
-if df is None:
-    st.info("Soldan veri kaynağını seçin ve yükleyin.")
-    st.stop()
-
-# ---------------- Indicators ----------------
+# ---------- İndikatör Fonksiyonları ----------
 def ema(s, n): return s.ewm(span=n, adjust=False).mean()
 
 def rsi(close, n=14):
@@ -87,173 +66,135 @@ def atr(df, n=14):
     tr = pd.concat([(high-low).abs(), (high-prev_close).abs(), (low-prev_close).abs()], axis=1).max(axis=1)
     return tr.ewm(alpha=1/n, adjust=False).mean()
 
-# Sidebar params
+def fmt(x, n=6):
+    try:
+        x = float(x)
+        if np.isfinite(x):
+            return f"{x:.{n}f}"
+    except Exception:
+        pass
+    return "—"
+
+# ---------- Sidebar Parametreleri ----------
 st.sidebar.header("⚙️ Parametreler")
+source = st.sidebar.radio("Veri Kaynağı", ["YFinance", "CSV Yükle"], index=0)
+df = None
+
+if source == "YFinance":
+    ticker = st.sidebar.text_input("Ticker", "BTC-USD")
+    period = st.sidebar.selectbox("Periyot", ["3mo","6mo","1y","2y","5y"], index=2)
+    interval = st.sidebar.selectbox("Zaman Dilimi", ["1d","4h","1h"], index=0)
+    if st.sidebar.button("Veriyi Çek"):
+        df = load_yf(ticker, period, interval)
+else:
+    up = st.sidebar.file_uploader("CSV (Date,Open,High,Low,Close,Volume)", type=["csv"])
+    if up:
+        try:
+            raw = pd.read_csv(up)
+            raw.columns = [c.title() for c in raw.columns]
+            df = ensure_numeric(raw)
+            if "Date" in df.columns:
+                df["Date"] = pd.to_datetime(df["Date"])
+                df = df.set_index("Date").sort_index()
+        except Exception as e:
+            st.error(f"CSV okunamadı: {e}")
+
+if df is None or df.empty:
+    st.info("Soldan veri kaynağını seçin ve yükleyin.")
+    st.stop()
+
+df = ensure_numeric(df)
+
 ema_short = st.sidebar.number_input("EMA Kısa", 3, 50, 9)
-ema_long  = st.sidebar.number_input("EMA Uzun", 10, 300, 21)
+ema_long = st.sidebar.number_input("EMA Uzun", 10, 300, 21)
 ema_trend = st.sidebar.number_input("EMA Trend", 50, 400, 200, step=10)
-
-m_fast = st.sidebar.number_input("MACD Hızlı", 3, 50, 12)
-m_slow = st.sidebar.number_input("MACD Yavaş", 6, 200, 26)
-m_sig  = st.sidebar.number_input("MACD Sinyal", 3, 50, 9)
-
 rsi_len = st.sidebar.number_input("RSI Periyot", 5, 50, 14)
-bb_len  = st.sidebar.number_input("BB Periyot", 5, 100, 20)
-bb_std  = st.sidebar.slider("BB Std", 1.0, 3.5, 2.0, 0.1)
-
+bb_len = st.sidebar.number_input("Bollinger Periyot", 5, 100, 20)
+bb_std = st.sidebar.slider("BB Std", 1.0, 3.5, 2.0, 0.1)
 atr_len = st.sidebar.number_input("ATR Periyot", 5, 50, 14)
 
-st.sidebar.header("🎯 Sinyal Kuralları")
-combine = st.sidebar.selectbox("Sinyal modu", ["EMA Crossover", "EMA + MACD", "EMA + MACD + RSI"], index=2)
-rsi_min = st.sidebar.slider("RSI alt sınır (alım için)", 10, 60, 40)
-rsi_max = st.sidebar.slider("RSI üst sınır (alım için)", 40, 90, 70)
+stop_mode = st.sidebar.selectbox("Stop Tipi", ["ATR x K", "Sabit %"], index=0)
+atr_k = st.sidebar.slider("ATR çarpanı", 0.5, 5.0, 2.0, 0.1)
+stop_pct = st.sidebar.slider("Zarar %", 0.5, 10.0, 2.0, 0.1)
 
-st.sidebar.header("🛡️ Stop & TP")
-stop_mode = st.sidebar.selectbox("Stop tipi", ["ATR x K", "Sabit %"], index=0)
-atr_k     = st.sidebar.slider("ATR çarpanı (K)", 0.5, 5.0, 2.0, 0.1)
-stop_pct  = st.sidebar.slider("Sabit zarar %", 0.5, 10.0, 2.0, 0.1)
-
-tp_mode   = st.sidebar.selectbox("TP seviyesi", ["R-multiple", "Sabit %"], index=0)
-tp1_r     = st.sidebar.slider("TP1 (R)", 0.5, 5.0, 1.0, 0.1)
-tp2_r     = st.sidebar.slider("TP2 (R)", 1.0, 8.0, 2.0, 0.1)
-tp3_r     = st.sidebar.slider("TP3 (R)", 1.5, 12.0, 3.0, 0.1)
-tp_pct    = st.sidebar.slider("TP %", 0.5, 50.0, 5.0, 0.5)
-
-# Calculate indicators
+# ---------- Hesaplamalar ----------
 data = df.copy()
 data["EMA_Short"] = ema(data["Close"], ema_short)
-data["EMA_Long"]  = ema(data["Close"], ema_long)
+data["EMA_Long"] = ema(data["Close"], ema_long)
 data["EMA_Trend"] = ema(data["Close"], ema_trend)
-
-data["MACD"], data["MACD_Signal"], data["MACD_Hist"] = macd(data["Close"], m_fast, m_slow, m_sig)
 data["RSI"] = rsi(data["Close"], rsi_len)
 data["BB_Mid"], data["BB_Up"], data["BB_Down"] = bollinger(data["Close"], bb_len, bb_std)
 data["ATR"] = atr(data, atr_len)
 
-# Entry/exit logic
-bull = data["EMA_Short"] > data["EMA_Long"]
-macd_cross_up = (data["MACD"] > data["MACD_Signal"]) & (data["MACD"].shift(1) <= data["MACD_Signal"].shift(1))
-rsi_ok = (data["RSI"] >= rsi_min) & (data["RSI"] <= rsi_max)
+buy = (data["EMA_Short"] > data["EMA_Long"]) & (data["EMA_Short"].shift(1) <= data["EMA_Long"].shift(1))
+sell = (data["EMA_Short"] < data["EMA_Long"]) & (data["EMA_Short"].shift(1) >= data["EMA_Long"].shift(1))
+data["BUY"], data["SELL"] = buy, sell
 
-if combine == "EMA Crossover":
-    buy = bull & bull.ne(bull.shift(1))
-elif combine == "EMA + MACD":
-    buy = bull & macd_cross_up
-else:
-    buy = bull & macd_cross_up & rsi_ok
-
-sell = (~bull) & bull.ne(bull.shift(1))
-
-data["BUY"] = buy
-data["SELL"] = sell
-
-# latest BUY
-last_buy_idx = data.index[data["BUY"]].max() if data["BUY"].any() else None
-entry_price = None
-tp_levels = []
-stop_price = None
+# ---------- Son Alım Noktası ve TP/SL ----------
+last_buy = data.index[data["BUY"]].max() if data["BUY"].any() else None
+entry_price, stop_price, tp_levels = None, None, []
 
 def _hline(x, y, name, color):
     return go.Scatter(x=x, y=[y]*len(x), mode="lines", name=name, line=dict(width=1.5, dash="dash", color=color), hoverinfo="skip")
 
-if last_buy_idx is not None and pd.notnull(last_buy_idx):
-    entry_price = float(data.loc[last_buy_idx, "Close"])
-    atr_val = float(data.loc[last_buy_idx, "ATR"])
-
+if last_buy is not None:
+    entry_price = float(data.loc[last_buy, "Close"])
+    atr_val = float(data.loc[last_buy, "ATR"])
     if stop_mode == "ATR x K":
         stop_price = entry_price - atr_k * atr_val
-        risk_per_unit = entry_price - stop_price
+        risk = entry_price - stop_price
     else:
-        stop_price = entry_price * (1 - stop_pct/100.0)
-        risk_per_unit = entry_price - stop_price
+        stop_price = entry_price * (1 - stop_pct / 100)
+        risk = entry_price - stop_price
+    tp_levels = [("TP1", entry_price + 1 * risk),
+                 ("TP2", entry_price + 2 * risk),
+                 ("TP3", entry_price + 3 * risk)]
 
-    if tp_mode == "R-multiple":
-        tp_levels = [("TP1", entry_price + tp1_r*risk_per_unit),
-                     ("TP2", entry_price + tp2_r*risk_per_unit),
-                     ("TP3", entry_price + tp3_r*risk_per_unit)]
-    else:
-        tp_levels = [("TP1", entry_price*(1+tp_pct/100)),
-                     ("TP2", entry_price*(1+2*tp_pct/100)),
-                     ("TP3", entry_price*(1+3*tp_pct/100))]
-
-# Chart
-fig = sp.make_subplots(rows=3, cols=1, shared_xaxes=True,
-                       row_heights=[0.6,0.2,0.2], vertical_spacing=0.04)
-
+# ---------- Grafik ----------
+fig = sp.make_subplots(rows=3, cols=1, shared_xaxes=True, row_heights=[0.6,0.2,0.2], vertical_spacing=0.04)
 fig.add_candlestick(x=data.index, open=data["Open"], high=data["High"], low=data["Low"], close=data["Close"], name="OHLC", row=1, col=1)
 fig.add_scatter(x=data.index, y=data["EMA_Short"], name=f"EMA {ema_short}", row=1, col=1)
-fig.add_scatter(x=data.index, y=data["EMA_Long"],  name=f"EMA {ema_long}",  row=1, col=1)
+fig.add_scatter(x=data.index, y=data["EMA_Long"], name=f"EMA {ema_long}", row=1, col=1)
 fig.add_scatter(x=data.index, y=data["EMA_Trend"], name=f"EMA {ema_trend}", row=1, col=1)
-fig.add_scatter(x=data.index, y=data["BB_Up"],   name="BB Upper", row=1, col=1)
-fig.add_scatter(x=data.index, y=data["BB_Mid"],  name="BB Mid",   row=1, col=1)
+fig.add_scatter(x=data.index, y=data["BB_Up"], name="BB Upper", row=1, col=1)
+fig.add_scatter(x=data.index, y=data["BB_Mid"], name="BB Mid", row=1, col=1)
 fig.add_scatter(x=data.index, y=data["BB_Down"], name="BB Lower", row=1, col=1)
-
 fig.add_scatter(x=data.index[buy], y=data["Close"][buy], mode="markers", marker_symbol="triangle-up", marker_size=12, name="BUY", row=1, col=1)
 fig.add_scatter(x=data.index[sell], y=data["Close"][sell], mode="markers", marker_symbol="triangle-down", marker_size=12, name="SELL", row=1, col=1)
 
-# Draw ENTRY/SL/TPs with Scatter horizontal lines (compatible with older Plotly)
-if entry_price is not None:
+if entry_price:
     fig.add_trace(_hline(data.index, entry_price, f"ENTRY {entry_price:.4f}", "blue"), row=1, col=1)
     fig.add_trace(_hline(data.index, stop_price, f"STOP {stop_price:.4f}", "red"), row=1, col=1)
-    for label, lvl in tp_levels:
-        fig.add_trace(_hline(data.index, lvl, f"{label} {lvl:.4f}", "green"), row=1, col=1)
+    for name, lvl in tp_levels:
+        fig.add_trace(_hline(data.index, lvl, f"{name} {lvl:.4f}", "green"), row=1, col=1)
 
-# MACD
-fig.add_bar(x=data.index, y=data["MACD_Hist"], name="MACD Hist", row=2, col=1)
-fig.add_scatter(x=data.index, y=data["MACD"], name="MACD", row=2, col=1)
-fig.add_scatter(x=data.index, y=data["MACD_Signal"], name="Signal", row=2, col=1)
-
-# RSI
 fig.add_scatter(x=data.index, y=data["RSI"], name=f"RSI {rsi_len}", row=3, col=1)
-# RSI bands (use Scatter lines for compatibility)
 fig.add_trace(_hline(data.index, 70, "RSI 70", "red"), row=3, col=1)
 fig.add_trace(_hline(data.index, 30, "RSI 30", "green"), row=3, col=1)
 
 fig.update_layout(height=900, xaxis_rangeslider_visible=False, legend=dict(orientation="h"))
 st.plotly_chart(fig, use_container_width=True)
 
-# Right panel
+# ---------- Bilgi ----------
 col1, col2 = st.columns([2,1])
+latest = data.iloc[-1]
 with col2:
     st.subheader("🔔 Sinyal Durumu")
-    latest = data.iloc[-1]
-    st.write(f"Son Kapanış: **{latest['Close']:.6f}**")
-    st.write(f"EMA{ema_short}: **{latest['EMA_Short']:.6f}**  |  EMA{ema_long}: **{latest['EMA_Long']:.6f}**")
-    st.write(f"RSI: **{latest['RSI']:.2f}**  |  ATR: **{latest['ATR']:.6f}**")
-
-    if entry_price is None:
-        st.warning("Aktif LONG sinyali bulunamadı (son BUY yok). Parametreleri değiştir veya veri aralığını artır.")
+    st.write(f"Son Kapanış: **{fmt(latest.get('Close'))}**")
+    st.write(f"EMA{ema_short}: **{fmt(latest.get('EMA_Short'))}**, EMA{ema_long}: **{fmt(latest.get('EMA_Long'))}**")
+    st.write(f"RSI: **{fmt(latest.get('RSI'),2)}**, ATR: **{fmt(latest.get('ATR'))}**")
+    if entry_price:
+        st.success(f"Son BUY: {last_buy.strftime('%Y-%m-%d %H:%M:%S')} @ {entry_price:.4f}")
     else:
-        # Show last BUY timestamp
-        try:
-            last_buy_str = pd.to_datetime(last_buy_idx).strftime('%Y-%m-%d %H:%M:%S')
-        except Exception:
-            last_buy_str = str(last_buy_idx)
-        st.success(f"Son LONG sinyali: **{last_buy_str}** @ **{entry_price:.4f}**")
-
-        # Check TP/SL status on latest candle
-        low = float(latest["Low"]); high = float(latest["High"])
-        hit = []
-        if (stop_price is not None) and (low <= stop_price):
-            hit.append(("STOP", stop_price))
-        for label, lvl in tp_levels:
-            if high >= lvl:
-                hit.append((label, lvl))
-        if hit:
-            st.write("🎯 **Gerçekleşen hedefler:**")
-            for name, p in hit:
-                st.write(f"- {name}: **{p:.4f}**")
-        else:
-            st.info("Henüz TP/SL gerçekleşmedi.")
-
+        st.info("Aktif alım sinyali yok.")
 with col1:
-    st.subheader("🧾 İşlem İşaretleri")
-    sigs = data.loc[data["BUY"] | data["SELL"], ["Close","BUY","SELL"]].copy()
-    if not sigs.empty:
-        sigs["Type"] = np.where(sigs["BUY"], "BUY", "SELL")
-        st.dataframe(sigs[["Close","Type"]].tail(15))
+    st.subheader("🧾 İşlem Listesi")
+    trades = data.loc[data["BUY"] | data["SELL"], ["Close","BUY","SELL"]].copy()
+    if not trades.empty:
+        trades["Type"] = np.where(trades["BUY"], "BUY", "SELL")
+        st.dataframe(trades[["Close","Type"]].tail(10))
     else:
-        st.info("Bu parametrelerle son dönemde BUY/SELL işareti yok. RSI aralığını gevşetmeyi veya 'EMA Crossover' modunu deneyin.")
+        st.write("Son dönemde işlem sinyali yok.")
 
 st.markdown("---")
-st.caption("Not: TP/SL çizgileri en **son** BUY sinyali baz alınarak hesaplanır. Stop tipi ATR×K veya sabit yüzde; TP ise R-multiple veya sabit yüzde olarak ayarlanabilir.")
+st.caption("Son BUY sinyali baz alınarak TP/SL çizgileri hesaplanır. Veriler: EMA crossover + ATR tabanlı stop.")
