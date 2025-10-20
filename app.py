@@ -3,8 +3,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-st.set_page_config(page_title="TradeMaster v4", layout="wide")
-st.title("🧭 TradeMaster v4")
+st.set_page_config(page_title="TradeMaster", layout="wide")
+st.title("🧭 TradeMaster")
 st.caption("Eğitim amaçlıdır; yatırım tavsiyesi değildir.")
 
 # =========================
@@ -12,10 +12,9 @@ st.caption("Eğitim amaçlıdır; yatırım tavsiyesi değildir.")
 # =========================
 @st.cache_data(ttl=1800, show_spinner=True)
 def load_yf(ticker: str, period="1y", interval="1d"):
-    """Generic Yahoo loader with safe renaming and index."""
     try:
         import yfinance as yf
-        df = yf.download(ticker, period=period, interval=interval, auto_adjust=False)
+        df = yf.download(ticker, period=period, interval=interval, auto_adjust=False, progress=False)
         if df is None or df.empty:
             return None
         df = df.rename(columns=str.title)
@@ -23,22 +22,6 @@ def load_yf(ticker: str, period="1y", interval="1d"):
         return df
     except Exception:
         return None
-
-def load_macro_series():
-    """Load BTC, BTC dominance (best-effort), VIX, DXY with safe fallbacks."""
-    # VIX
-    vix = load_yf("^VIX", period="2y", interval="1d")
-    # DXY (Dollar Index) – try two common tickers
-    dxy = load_yf("DX-Y.NYB", period="2y", interval="1d")
-    if dxy is None or dxy.empty:
-        dxy = load_yf("DX=F", period="2y", interval="1d")
-    # BTC dominance — Yahoo Finance doesn't have an official, try best-effort symbols
-    dom = None
-    for t in ["BTC-DOM", "BTC.D", "BTCDOM-INDEX", "BTCDOM", "CRYPTOCAP:BTC.D"]:
-        dom = load_yf(t, period="2y", interval="1d")
-        if dom is not None and not dom.empty:
-            break
-    return vix, dxy, dom
 
 def to_num(s):
     """Accept Series or DataFrame; always return numeric Series safely."""
@@ -113,7 +96,6 @@ def fib_levels(a, b):
     }
 
 def colored(text, kind="neutral"):
-    """Return HTML colored span with emoji dot."""
     if kind == "pos":
         color = "#0f9d58"; dot = "🟢"
     elif kind == "neg":
@@ -122,8 +104,51 @@ def colored(text, kind="neutral"):
         color = "#f29900"; dot = "🟠"
     return f"{dot} <span style='color:{color}; font-weight:600;'>{text}</span>"
 
+@st.cache_data(ttl=1800)
+def load_macro_series():
+    """Load VIX, DXY, BTC dominance (best-effort), daily resolution for context."""
+    vix = load_yf("^VIX", period="2y", interval="1d")
+    dxy = load_yf("DX-Y.NYB", period="2y", interval="1d")
+    if dxy is None or dxy.empty:
+        dxy = load_yf("DX=F", period="2y", interval="1d")
+    dom = None
+    for t in ["BTC-DOM", "BTC.D", "BTCDOM-INDEX", "BTCDOM", "CRYPTOCAP:BTC.D"]:
+        dom = load_yf(t, period="2y", interval="1d")
+        if dom is not None and not dom.empty:
+            break
+    return vix, dxy, dom
+
+def market_score(btc_trend_up: bool|None, btc_rsi: float|None, vix_last: float|None, dxy_last: float|None, dom_last: float|None):
+    """Return 0-100 simple risk-on score based on heuristics."""
+    score = 50.0
+    # BTC trend & momentum
+    if btc_trend_up is True: score += 15
+    elif btc_trend_up is False: score -= 15
+    if btc_rsi is not None and np.isfinite(btc_rsi):
+        if btc_rsi >= 55: score += 10
+        elif btc_rsi <= 45: score -= 10
+    # VIX
+    if vix_last is not None and np.isfinite(vix_last):
+        if vix_last <= 15: score += 10
+        elif vix_last >= 25: score -= 10
+    # DXY
+    if dxy_last is not None and np.isfinite(dxy_last):
+        if dxy_last <= 100: score += 7
+        elif dxy_last >= 105: score -= 7
+    # Dominance (lower better for alts)
+    if dom_last is not None and np.isfinite(dom_last):
+        if dom_last <= 45: score += 8
+        elif dom_last >= 55: score -= 8
+    return float(np.clip(score, 0, 100))
+
+def last_close_of(df_):
+    try:
+        return float(df_["Close"].iloc[-1])
+    except Exception:
+        return np.nan
+
 # =========================
-# Sidebar — Inputs
+# Sidebar — Inputs (common across tabs)
 # =========================
 st.sidebar.header("📥 Veri Kaynağı")
 src = st.sidebar.radio("Kaynak", ["YFinance (internet)", "CSV Yükle"], index=0,
@@ -131,16 +156,14 @@ src = st.sidebar.radio("Kaynak", ["YFinance (internet)", "CSV Yükle"], index=0,
 ticker = st.sidebar.text_input("🪙 Kripto Değer", value="THETA-USD",
                                help="Yahoo Finance formatı: BTC-USD, ETH-USD, THETA-USD vb.")
 
-# Interval presets (no 'period' selector)
 interval_preset = st.sidebar.selectbox(
     "Zaman Dilimi",
     ["Kısa (4h)", "Orta (1 gün)", "Uzun (1 hafta)"],
     index=1,
     help="Veri çözünürlüğü: kısa=4 saat, orta=günlük, uzun=haftalık."
 )
-# Map preset to (interval, period length for YF)
 if interval_preset.startswith("Kısa"):
-    yf_interval, yf_period = "4h", "180d"   # ~6 ay 4h bar
+    yf_interval, yf_period = "4h", "180d"
 elif interval_preset.startswith("Orta"):
     yf_interval, yf_period = "1d", "1y"
 else:
@@ -153,19 +176,14 @@ st.sidebar.header("⚙️ Strateji Ayarları")
 ema_short = st.sidebar.number_input("EMA Kısa", 3, 50, 9, help="Kısa vadeli trend ortalaması.")
 ema_long  = st.sidebar.number_input("EMA Uzun", 10, 300, 21, help="Orta vadeli trend ortalaması.")
 ema_trend = st.sidebar.number_input("EMA Trend (uzun)", 50, 400, 200, step=10, help="Uzun vadeli trend referansı.")
-
 rsi_len   = st.sidebar.number_input("RSI Periyot", 5, 50, 14, help="Momentum göstergesi RSI'ın periyodu.")
-# Based on discussion: 35–60 entry band by default
 rsi_buy_min = st.sidebar.slider("RSI Alım Alt Sınır", 10, 60, 35, help="RSI bu değerin üzerindeyse alım için daha uygun.")
 rsi_buy_max = st.sidebar.slider("RSI Alım Üst Sınır", 40, 90, 60, help="RSI bu değerin altındaysa aşırı alım değildir.")
-
 macd_fast = st.sidebar.number_input("MACD Hızlı", 3, 50, 12, help="MACD hızlı EMA periyodu.")
 macd_slow = st.sidebar.number_input("MACD Yavaş", 6, 200, 26, help="MACD yavaş EMA periyodu.")
 macd_sig  = st.sidebar.number_input("MACD Sinyal", 3, 50, 9, help="MACD sinyal çizgisi periyodu.")
-
 bb_len    = st.sidebar.number_input("Bollinger Periyot", 5, 100, 20, help="Ortalama için periyot.")
 bb_std    = st.sidebar.slider("Bollinger Std", 1.0, 3.5, 2.0, 0.1, help="Bant genişliği katsayısı.")
-
 fib_lookback = st.sidebar.number_input("Fibonacci Lookback (gün)", 20, 400, 120, 5,
                                        help="Swing high/low’u bulmak için bakılacak son gün sayısı.")
 
@@ -190,18 +208,17 @@ tp3_r       = st.sidebar.slider("TP3 (R)", 0.5, 15.0, 3.0, 0.1, help="R-multiple
 tp_pct      = st.sidebar.slider("TP %", 0.5, 50.0, 5.0, 0.5, help="Sabit yüzde TP (R-multiple devre dışı).")
 
 # =========================
-# Tabs (no radio in main area)
+# Tabs
 # =========================
-tab1, tab2 = st.tabs(["📈 Analiz", "📘 Rehber"])
+tab_an, tab_guide, tab_watch, tab_regime, tab_risk, tab_bt, tab_corr, tab_news = st.tabs(
+    ["📈 Analiz","📘 Rehber","📋 Watchlist","🧭 Rejim","🧮 Risk","🧪 Backtest","📈 Korelasyon","📰 Haberler"]
+)
 
-with tab1:
-    # =========================
-    # Load data
-    # =========================
+# ========== Common data loaders for multiple tabs ==========
+def load_asset_and_macro():
     if src == "YFinance (internet)":
         df = load_yf(ticker, yf_period, yf_interval)
         btc_df = load_yf("BTC-USD", yf_period, yf_interval)
-        vix_df, dxy_df, dom_df = load_macro_series()
     else:
         df = None
         if uploaded:
@@ -223,9 +240,13 @@ with tab1:
                         df[c] = to_num(df[c])
             except Exception as e:
                 st.error(f"CSV okunamadı: {e}")
-        # For CSV mode, still try to load macro with defaults (daily)
         btc_df = load_yf("BTC-USD", "1y", "1d")
-        vix_df, dxy_df, dom_df = load_macro_series()
+    vix_df, dxy_df, dom_df = load_macro_series()
+    return df, btc_df, vix_df, dxy_df, dom_df
+
+# ========== ANALIZ ==========
+with tab_an:
+    df, btc_df, vix_df, dxy_df, dom_df = load_asset_and_macro()
 
     if df is None or df.empty:
         st.warning("Veri alınamadı. Ticker'ı tam (ör. BTC-USD) yazdığınızdan emin olun veya CSV yükleyin.")
@@ -250,7 +271,7 @@ with tab1:
     else:
         data["ATR"] = np.nan
 
-    # BTC context indicators (if available)
+    # BTC context indicators
     btc_ctx = {}
     if btc_df is not None and not btc_df.empty:
         b = btc_df.rename(columns=str.title).copy()
@@ -265,13 +286,6 @@ with tab1:
         btc_ctx["trend_up"] = None
         btc_ctx["rsi"] = np.nan
 
-    # Macro simple states
-    def last_close_of(df_): 
-        try:
-            return float(df_["Close"].iloc[-1])
-        except Exception:
-            return np.nan
-
     vix_last = last_close_of(vix_df) if vix_df is not None else np.nan
     dxy_last = last_close_of(dxy_df) if dxy_df is not None else np.nan
     dom_last = last_close_of(dom_df) if dom_df is not None else np.nan
@@ -279,39 +293,28 @@ with tab1:
     # Fibonacci (safe 1-D)
     lb = max(int(fib_lookback), 20)
     recent = data.tail(lb)
-
     hi_series = get_series(recent, "High") if "High" in list(recent.columns) else get_series(recent, "Close")
     lo_series = get_series(recent, "Low")  if "Low"  in list(recent.columns) else get_series(recent, "Close")
     cl_series = get_series(recent, "Close")
-
     hi_series = pd.to_numeric(hi_series, errors="coerce").dropna()
     lo_series = pd.to_numeric(lo_series, errors="coerce").dropna()
     cl_series = pd.to_numeric(cl_series, errors="coerce").dropna()
-
     if hi_series.empty or lo_series.empty or cl_series.empty:
         swing_high = swing_low = last_close = np.nan
-        fibs = {}
-        trend_up_bool = False
     else:
         swing_high = float(hi_series.max())
         swing_low  = float(lo_series.min())
         last_close = float(cl_series.iloc[-1])
-        mid = (swing_low + swing_high) / 2.0
-        trend_up_bool = bool(last_close > mid)
-        a, b = (swing_low, swing_high) if trend_up_bool else (swing_high, swing_low)
-        fibs = fib_levels(a, b)
 
     # Signals
     bull = data["EMA_Short"] > data["EMA_Long"]
     macd_cross_up = (data["MACD"] > data["MACD_Signal"]) & (data["MACD"].shift(1) <= data["MACD_Signal"].shift(1))
     rsi_ok = (data["RSI"] >= rsi_buy_min) & (data["RSI"] <= rsi_buy_max)
-
     buy_now = bool(bull.iloc[-1] and (macd_cross_up.iloc[-1] or rsi_ok.iloc[-1]))
     sell_now = bool((not bull.iloc[-1]) and (data["MACD"].iloc[-1] < data["MACD_Signal"].iloc[-1]))
 
     if not np.isfinite(last_close):
         last_close = float(data["Close"].iloc[-1])
-
     entry_price = last_close
     atr_val = float(data["ATR"].iloc[-1]) if np.isfinite(data["ATR"].iloc[-1]) else np.nan
 
@@ -320,7 +323,6 @@ with tab1:
         stop_price_long = entry_price - max(atr_val * atr_k, 1e-9)
     else:
         stop_price_long = entry_price * (1 - stop_pct/100.0)
-
     risk_long = max(entry_price - stop_price_long, 1e-9)
 
     if tp_mode == "R-multiple":
@@ -350,7 +352,7 @@ with tab1:
     momentum = float(data["RSI"].iloc[-1]) - 50.0
     trend_txt = "🟢 Yükseliş" if bool(bull.iloc[-1]) else "🔴 Düşüş"
 
-    # Decision text
+    # Headline
     if buy_now:
         headline = "✅ SİNYAL: AL (long)"
     elif sell_now:
@@ -358,9 +360,7 @@ with tab1:
     else:
         headline = "⏸ SİNYAL: BEKLE"
 
-    # =========================
-    # Output (tabs content)
-    # =========================
+    # Output
     st.subheader("📌 Özet")
     colA, colB, colC = st.columns([1.2,1,1])
     with colA:
@@ -394,20 +394,16 @@ with tab1:
     else:
         st.markdown("Şu anda belirgin bir al/sat sinyali yok; parametreleri veya zaman dilimini değiştirerek tekrar değerlendiriniz.")
 
-    # Colored reasons
     st.subheader("🧠 Gerekçeler")
     def line(text, kind="neutral"):
         st.markdown(colored(text, kind), unsafe_allow_html=True)
 
-    # EMA
     if bool(bull.iloc[-1]):
         line("EMA kısa > EMA uzun (trend ↑)", "pos")
     else:
         line("EMA kısa < EMA uzun (trend ↓)", "neg")
 
-    # MACD
-    macd_now = float(data["MACD"].iloc[-1])
-    macd_sig_now = float(data["MACD_Signal"].iloc[-1])
+    macd_now = float(data["MACD"].iloc[-1]); macd_sig_now = float(data["MACD_Signal"].iloc[-1])
     if macd_now > macd_sig_now and bool(macd_cross_up.iloc[-1]):
         line("MACD sinyal üstünde ve son bar kesişim ↑", "pos")
     elif macd_now > macd_sig_now:
@@ -415,110 +411,62 @@ with tab1:
     else:
         line("MACD sinyal altında (momentum zayıf)", "neg")
 
-    # RSI (refined buckets)
     rsi_now = float(data["RSI"].iloc[-1])
-    if rsi_now < 30:
-        line(f"RSI {rsi_now:.2f} (aşırı satım – tepki gelebilir, trend zayıf)", "neg")
-    elif 30 <= rsi_now < 35:
-        line(f"RSI {rsi_now:.2f} (dip bölgesinde; onay beklenmeli)", "neutral")
-    elif 35 <= rsi_now <= 45:
-        line(f"RSI {rsi_now:.2f} (alım bölgesi; onaylıysa olumlu)", "pos")
-    elif 45 < rsi_now < 60:
-        line(f"RSI {rsi_now:.2f} (nötr-olumlu)", "neutral")
-    elif 60 <= rsi_now <= 70:
-        line(f"RSI {rsi_now:.2f} (güçlü momentum)", "pos")
-    else:
-        line(f"RSI {rsi_now:.2f} (aşırı alım – dikkat)", "neg")
+    if rsi_now < 30: line(f"RSI {rsi_now:.2f} (aşırı satım – tepki gelebilir, trend zayıf)", "neg")
+    elif 30 <= rsi_now < 35: line(f"RSI {rsi_now:.2f} (dip; onay beklenmeli)", "neutral")
+    elif 35 <= rsi_now <= 45: line(f"RSI {rsi_now:.2f} (alım bölgesi; onaylıysa olumlu)", "pos")
+    elif 45 < rsi_now < 60: line(f"RSI {rsi_now:.2f} (nötr-olumlu)", "neutral")
+    elif 60 <= rsi_now <= 70: line(f"RSI {rsi_now:.2f} (güçlü momentum)", "pos")
+    else: line(f"RSI {rsi_now:.2f} (aşırı alım – dikkat)", "neg")
 
-    # Bollinger
     if "BB_Up" in data and "BB_Down" in data and np.isfinite(entry_price):
         try:
-            if entry_price <= data["BB_Down"].iloc[-1]:
-                line("Fiyat alt banda yakın (aşırı satım riski / tepki gelebilir)", "pos")
-            elif entry_price >= data["BB_Up"].iloc[-1]:
-                line("Fiyat üst banda yakın (aşırı alım riski)", "neg")
-            else:
-                line("Fiyat bant içinde (nötr)", "neutral")
+            if entry_price <= data["BB_Down"].iloc[-1]: line("Fiyat alt banda yakın (tepki potansiyeli)", "pos")
+            elif entry_price >= data["BB_Up"].iloc[-1]: line("Fiyat üst banda yakın (ısınma)", "neg")
+            else: line("Fiyat bant içinde (nötr)", "neutral")
         except Exception:
             line("Bollinger hesaplanamadı", "neutral")
 
-    # Fibonacci
-    if np.isfinite(swing_high) and np.isfinite(swing_low):
-        side = "yukarı trend fib seti" if trend_up_bool else "aşağı trend fib seti"
-        fibs_here = fib_levels(swing_low, swing_high) if trend_up_bool else fib_levels(swing_high, swing_low)
-        near = min(fibs_here.items(), key=lambda kv: abs(kv[1]-entry_price))
-        near_txt = f"{side}; en yakın seviye: {near[0]} = {fmt(near[1])}"
-        key = near[0]
-        if key in ("0.382", "0.5", "0.618"):
-            line(f"Fibonacci {near_txt}", "neutral")
-        elif key in ("0.786", "0.236"):
-            line(f"Fibonacci {near_txt}", "neg")
-        else:
-            line(f"Fibonacci {near_txt}", "neutral")
-    else:
-        line("Fibonacci için yeterli veri yok", "neutral")
-
-    # =========================
-    # Market Context (BTC, Dominance, VIX, DXY)
-    # =========================
+    # Market context
     st.subheader("🛰️ Piyasa Bağlamı (BTC, Dominance, VIX, DXY)")
     is_alt = ticker.upper().endswith("-USD") and ticker.upper() != "BTC-USD"
     if is_alt:
-        # BTC
         if btc_ctx["trend_up"] is True:
-            line(f"BTC trendi **yukarı** ve RSI {btc_ctx['rsi']:.1f} → altcoinler için **pozitif korelasyon** katkısı.", "pos")
+            line(f"BTC trendi **yukarı** ve RSI {btc_ctx['rsi']:.1f} → altcoinler için **pozitif**.", "pos")
         elif btc_ctx["trend_up"] is False:
-            line(f"BTC trendi **aşağı** ve RSI {btc_ctx['rsi']:.1f} → altcoinler üzerinde **baskı** oluşturabilir.", "neg")
+            line(f"BTC trendi **aşağı** ve RSI {btc_ctx['rsi']:.1f} → altcoinler üzerinde **baskı**.", "neg")
         else:
             line("BTC durumu alınamadı.", "neutral")
-        # Dominance
         if np.isfinite(dom_last):
-            # Heuristic: yüksek dominance altları baskılar, düşük dominance altları destekler
-            if dom_last >= 55:
-                line(f"BTC Dominance {dom_last:.2f} → Altlar üzerinde **baskı** olma ihtimali yüksek.", "neg")
-            elif dom_last <= 45:
-                line(f"BTC Dominance {dom_last:.2f} → Altlar için **destekleyici** ortam.", "pos")
-            else:
-                line(f"BTC Dominance {dom_last:.2f} → Nötr bölge.", "neutral")
+            if dom_last >= 55: line(f"BTC Dominance {dom_last:.2f} → Altlar üzerinde **baskı**.", "neg")
+            elif dom_last <= 45: line(f"BTC Dominance {dom_last:.2f} → Altlar için **destekleyici**.", "pos")
+            else: line(f"BTC Dominance {dom_last:.2f} → Nötr.", "neutral")
         else:
             line("BTC Dominance verisi bulunamadı (geliştiriliyor).", "neutral")
     else:
         line("Seçili varlık BTC; dominance yorumu altcoinler için daha anlamlıdır.", "neutral")
 
-    # VIX
+    vix_last = vix_last if np.isfinite(vix_last) else np.nan
     if np.isfinite(vix_last):
-        if vix_last >= 25:
-            line(f"VIX {vix_last:.2f} → **Risk-off** ortam, kripto için negatif.", "neg")
-        elif vix_last <= 15:
-            line(f"VIX {vix_last:.2f} → **Risk-on** ortam, kripto için pozitif.", "pos")
-        else:
-            line(f"VIX {vix_last:.2f} → Nötr volatilite.", "neutral")
+        if vix_last >= 25: line(f"VIX {vix_last:.2f} → **Risk-off** ortam.", "neg")
+        elif vix_last <= 15: line(f"VIX {vix_last:.2f} → **Risk-on** ortam.", "pos")
+        else: line(f"VIX {vix_last:.2f} → Nötr volatilite.", "neutral")
     else:
         line("VIX verisi alınamadı.", "neutral")
 
-    # DXY
     if np.isfinite(dxy_last):
-        # Basit: DXY yüksek → kriptoya baskı; düşük → destek
-        if dxy_last >= 105:
-            line(f"DXY {dxy_last:.2f} → Güçlü dolar; kripto için **negatif** baskı.", "neg")
-        elif dxy_last <= 100:
-            line(f"DXY {dxy_last:.2f} → Zayıf dolar; kripto için **pozitif**.", "pos")
-        else:
-            line(f"DXY {dxy_last:.2f} → Nötr seviye.", "neutral")
+        if dxy_last >= 105: line(f"DXY {dxy_last:.2f} → Güçlü dolar; kripto için **negatif**.", "neg")
+        elif dxy_last <= 100: line(f"DXY {dxy_last:.2f} → Zayıf dolar; kripto için **pozitif**.", "pos")
+        else: line(f"DXY {dxy_last:.2f} → Nötr seviye.", "neutral")
     else:
         line("DXY verisi alınamadı.", "neutral")
-
-    # =========================
-    # News stub
-    # =========================
-    st.subheader("🗞️ Haber Akışı (geliştiriliyor)")
-    st.write("• Global makro ve zincir üstü haberler burada özetlenecek. (geliştiriliyor)")
 
     st.markdown("---")
     st.markdown("**Not:** Dalgalanmalardan etkilenmemek için her zaman kademeli alım yapın. "
                 "Bu uygulamada özet sinyal ve gerekçeler gösterilir.")
 
-with tab2:
+# ========== REHBER ==========
+with tab_guide:
     st.subheader("📘 Rehber – Kapsamlı Açıklamalar")
     st.markdown("""
 ### EMA – Üssel Hareketli Ortalama
@@ -571,5 +519,150 @@ with tab2:
 - **VIX:** Yüksek VIX = Risk-off (kripto için olumsuz); düşük VIX = Risk-on.
 - **DXY:** Güçlü Dolar kriptoya baskı, zayıf Dolar destekleyicidir.
 """)
-    st.markdown("---")
-    st.markdown("Parametrelerin üzerine gelince kısa yardım metinlerini görebilirsiniz (tooltip).")
+
+# ========== WATCHLIST ==========
+with tab_watch:
+    st.subheader("📋 Watchlist")
+    wl = st.text_area("Ticker listesi (virgülle ayırın)", "BTC-USD,ETH-USD,THETA-USD,SOL-USD,BNB-USD")
+    tickers = [t.strip().upper() for t in wl.split(",") if t.strip()][:20]
+    rows = []
+    for t in tickers:
+        d = load_yf(t, yf_period, yf_interval)
+        if d is None or d.empty:
+            rows.append({"Ticker": t, "Son Fiyat": "—", "RSI": "—", "Trend": "—", "Sinyal": "—"})
+            continue
+        d = d.rename(columns=str.title)
+        close = d["Close"]
+        e1 = ema(close, ema_short); e2 = ema(close, ema_long)
+        r = rsi(close, rsi_len)
+        macd_l, macd_s, _ = macd(close, macd_fast, macd_slow, macd_sig)
+        bull = (e1 > e2).iloc[-1]
+        macd_ok = macd_l.iloc[-1] > macd_s.iloc[-1]
+        rsi_okay = (r.iloc[-1] >= rsi_buy_min) and (r.iloc[-1] <= rsi_buy_max)
+        buy_sig = bool(bull and (macd_ok or rsi_okay))
+        rows.append({
+            "Ticker": t,
+            "Son Fiyat": fmt(close.iloc[-1]),
+            "RSI": f"{float(r.iloc[-1]):.2f}",
+            "Trend": "↑" if bull else "↓",
+            "Sinyal": "AL" if buy_sig else "—"
+        })
+    st.dataframe(pd.DataFrame(rows), use_container_width=True)
+
+# ========== REJIM (Market score) ==========
+with tab_regime:
+    st.subheader("🧭 Piyasa Rejimi / Skor")
+    _, btc_df, vix_df, dxy_df, dom_df = load_asset_and_macro()
+    # BTC context
+    btc_trend_up = None; btc_rsi = np.nan
+    if btc_df is not None and not btc_df.empty:
+        b = btc_df.rename(columns=str.title).copy()
+        btc_trend_up = bool((ema(b["Close"], ema_short) > ema(b["Close"], ema_long)).iloc[-1])
+        btc_rsi = float(rsi(b["Close"], rsi_len).iloc[-1])
+    vix_last = last_close_of(vix_df) if vix_df is not None else np.nan
+    dxy_last = last_close_of(dxy_df) if dxy_df is not None else np.nan
+    dom_last = last_close_of(dom_df) if dom_df is not None else np.nan
+    score = market_score(btc_trend_up, btc_rsi, vix_last, dxy_last, dom_last)
+    st.markdown(f"**Piyasa Skoru:** **{score:.0f}/100**  —  *(0: risk-off, 100: risk-on)*")
+    st.markdown("**BTC Trend:** " + ("🟢 Yükseliş" if btc_trend_up else "🔴 Düşüş" if btc_trend_up is False else "—"))
+    st.markdown(f"**BTC RSI:** {fmt(btc_rsi,2)}  |  **VIX:** {fmt(vix_last,2)}  |  **DXY:** {fmt(dxy_last,2)}  |  **Dominance:** {fmt(dom_last,2)}")
+    st.caption("Not: Dominance Yahoo'da resmi olmayabilir; best‑effort çekilir. (geliştiriliyor)")
+
+# ========== RISK TOOL ==========
+with tab_risk:
+    st.subheader("🧮 Pozisyon / Risk Hesaplayıcı")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        entry = st.number_input("Giriş Fiyatı", min_value=0.0, value=100.0)
+        stop  = st.number_input("Stop Fiyatı", min_value=0.0, value=95.0)
+    with col2:
+        eq    = st.number_input("Sermaye ($)", min_value=10.0, value=float(equity))
+        riskp = st.slider("Risk (%)", 0.1, 10.0, float(risk_pct), 0.1)
+    with col3:
+        tp_mode_risk = st.selectbox("TP Modu", ["R-multiple","Sabit %"], index=0)
+        tp_pct_risk  = st.slider("TP %", 0.5, 50.0, 5.0, 0.5)
+        tpR = st.slider("TP (R)", 0.5, 10.0, 2.0, 0.1)
+    risk_per_unit = max(entry - stop, 1e-9)
+    risk_amt = eq * (riskp/100.0)
+    qty = risk_amt / risk_per_unit
+    if tp_mode_risk == "R-multiple":
+        tp_calc = entry + tpR * risk_per_unit
+    else:
+        tp_calc = entry * (1 + tp_pct_risk/100.0)
+    rr = (tp_calc - entry) / (entry - stop) if (entry - stop) > 0 else np.nan
+    st.markdown(f"- **Miktar:** ~ **{qty:.4f}**\n- **Hedef (TP):** **{fmt(tp_calc)}**\n- **R:R:** **{fmt(rr,2)}**")
+    st.caption("İpucu: Kademeli TP dağılımı (ör. %50/%30/%20) ile dalgalanmayı yumuşatabilirsiniz.")
+
+# ========== SIMPLE BACKTEST ==========
+with tab_bt:
+    st.subheader("🧪 Basit Backtest (long-only)")
+    df_bt = load_yf(ticker, yf_period, yf_interval)
+    if df_bt is None or df_bt.empty:
+        st.warning("Veri alınamadı.")
+    else:
+        d = df_bt.rename(columns=str.title).copy()
+        d["EMA_S"] = ema(d["Close"], ema_short)
+        d["EMA_L"] = ema(d["Close"], ema_long)
+        d["RSI"]   = rsi(d["Close"], rsi_len)
+        d["MACD"], d["MACD_S"], _ = macd(d["Close"], macd_fast, macd_slow, macd_sig)
+        buy = (d["EMA_S"] > d["EMA_L"]) & ((d["MACD"] > d["MACD_S"]) | ((d["RSI"]>=rsi_buy_min) & (d["RSI"]<=rsi_buy_max)))
+        sell = (d["EMA_S"] < d["EMA_L"]) & (d["MACD"] < d["MACD_S"])
+        position = False; entry_px = 0.0; trades = []
+        for i in range(1, len(d)):
+            if (not position) and buy.iloc[i-1] and not buy.iloc[i-2 if i>=2 else 0]:
+                position = True
+                entry_px = float(d["Close"].iloc[i])
+            elif position and sell.iloc[i-1] and not sell.iloc[i-2 if i>=2 else 0]:
+                exit_px = float(d["Close"].iloc[i])
+                trades.append(exit_px/entry_px - 1.0)
+                position = False
+        if position:
+            # Close last at final price
+            exit_px = float(d["Close"].iloc[-1])
+            trades.append(exit_px/entry_px - 1.0)
+        if trades:
+            tr = np.array(trades)
+            win_rate = (tr>0).mean()*100.0
+            total_ret = (tr + 1.0).prod() - 1.0
+            avg_tr = tr.mean()
+            max_dd = float(np.minimum.accumulate(np.cumprod(tr+1.0))[-1] / np.maximum.accumulate(np.cumprod(tr+1.0))[-1] - 1.0)
+            df_out = pd.DataFrame({
+                "İşlem": list(range(1, len(tr)+1)),
+                "Getiri %": np.round(tr*100, 2)
+            })
+            st.markdown(f"- **İşlem sayısı:** {len(tr)}")
+            st.markdown(f"- **Kazanma oranı:** **{win_rate:.1f}%**")
+            st.markdown(f"- **Toplam getiri:** **{total_ret*100:.1f}%**")
+            st.markdown(f"- **Ortalama işlem:** **{avg_tr*100:.2f}%**")
+            st.dataframe(df_out, use_container_width=True)
+        else:
+            st.info("Sinyal tabanlı kapanışla işlem oluşmadı. Parametreleri değiştirip tekrar deneyin.")
+
+# ========== CORRELATION ==========
+with tab_corr:
+    st.subheader("📈 Korelasyon (BTC ile ve aralarında)")
+    wl2 = st.text_area("Ticker listesi (virgülle ayırın)", "BTC-USD,ETH-USD,THETA-USD,SOL-USD,BNB-USD")
+    tickers2 = [t.strip().upper() for t in wl2.split(",") if t.strip()][:15]
+    # Load and align
+    prices = []
+    names = []
+    for t in tickers2:
+        d = load_yf(t, "1y", "1d")
+        if d is None or d.empty: continue
+        close = d.rename(columns=str.title)["Close"].rename(t)
+        prices.append(close)
+        names.append(t)
+    if len(prices) >= 2:
+        dfp = pd.concat(prices, axis=1).dropna(how="any")
+        rets = np.log(dfp).diff().dropna()
+        corr = rets.corr()
+        st.dataframe(corr.style.format("{:.2f}"), use_container_width=True)
+        st.caption("Not: Günlük log getiri korelasyonu.")
+    else:
+        st.info("Yeterli veri yok. En az iki geçerli ticker girin.")
+
+# ========== NEWS (stub) ==========
+with tab_news:
+    st.subheader("🗞️ Haberler (geliştiriliyor)")
+    st.write("• Seçili varlık ve piyasa geneli haberleri burada özetlenecek. (geliştiriliyor)")
+    st.write("• BTC/Dominance/VIX/DXY etkisine göre etiketli kısa özetler planlanıyor. (geliştiriliyor)")
