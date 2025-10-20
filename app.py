@@ -1,13 +1,16 @@
 
 import streamlit as st
 
-st.set_page_config(page_title="TradeMaster", layout="wide")
-st.title("🧭 TradeMaster (Lite Safe)")
-st.caption("Eğitim amaçlıdır; yatırım tavsiyesi değildir. • Bu sürüm, eksik paketlerde çökmemek için güvenli modda çalışır.")
+BUILD = "v7.0 clean"
 
-# -------- Lazy import helpers --------
+st.set_page_config(page_title="TradeMaster", layout="wide")
+st.title(f"🧭 TradeMaster — {BUILD}")
+st.caption("Eğitim amaçlıdır; yatırım tavsiyesi değildir.")
+
+# =========================
+# Lazy import helper
+# =========================
 def need_libs():
-    """Try to import third‑party libs lazily; return dict of modules or None if missing."""
     mods = {}
     missing = []
     try:
@@ -28,11 +31,46 @@ def need_libs():
     return mods, missing
 
 def show_missing(missing):
-    st.error("Gerekli bazı paketler eksik: " + ", ".join(missing))
-    st.info("Repo köküne bir **requirements.txt** ekleyin veya aşağıdaki komutla kurun:")
+    st.error("Gerekli paketler eksik: " + ", ".join(missing))
+    st.info("Kurulum için:")
     st.code("pip install " + " ".join(missing), language="bash")
 
-# -------- Safe numeric helpers (require pandas/numpy) --------
+# =========================
+# Indicator + util helpers
+# =========================
+def normalize_ohlc(pd, df):
+    df = df.copy()
+    df.columns = [str(c).title() for c in df.columns]
+    if "Close" not in df.columns and "Adj Close" in df.columns:
+        df["Close"] = df["Adj Close"]
+    return df
+
+def num(pd, np, s):
+    if isinstance(s, pd.DataFrame):
+        s = s.iloc[:, 0]
+    s = s.astype(str).str.replace(",", "", regex=False).str.replace(" ", "", regex=False)
+    s = s.replace({"": np.nan, "None": np.nan, "NaN": np.nan, "nan": np.nan})
+    return pd.to_numeric(s, errors="coerce")
+
+def last_scalar(pd, np, x):
+    try:
+        v = x.iloc[-1]
+    except Exception:
+        try:
+            v = x[-1]
+        except Exception:
+            v = x
+    try:
+        if hasattr(v, "to_numpy"):
+            a = v.to_numpy().ravel()
+            v = a[0] if a.size else float("nan")
+    except Exception:
+        pass
+    try:
+        return float(v)
+    except Exception:
+        return float("nan")
+
 def ema(pd, s, n):
     return s.ewm(span=n, adjust=False).mean()
 
@@ -60,47 +98,24 @@ def bollinger(close, n=20, k=2.0):
 
 def atr(pd, df, n=14):
     if df is None or df.empty or not all(c in df.columns for c in ["High","Low","Close"]):
-        return df["Close"] * 0 if df is not None else None
+        return df["Close"]*0 if df is not None else None
     high, low, close = df["High"], df["Low"], df["Close"]
     prev_close = close.shift(1)
     tr = pd.concat([(high-low).abs(), (high-prev_close).abs(), (low-prev_close).abs()], axis=1).max(axis=1)
     return tr.ewm(alpha=1/n, adjust=False).mean()
 
-def normalize_ohlc(pd, df):
-    df = df.copy()
-    df.columns = [str(c).title() for c in df.columns]
-    if "Close" not in df.columns and "Adj Close" in df.columns:
-        df["Close"] = df["Adj Close"]
-    return df
-
-def num(pd, np, s):
-    if isinstance(s, pd.DataFrame):
-        s = s.iloc[:, 0]
-    s = s.astype(str).str.replace(",", "", regex=False).str.replace(" ", "", regex=False)
-    s = s.replace({"": np.nan, "None": np.nan, "NaN": np.nan, "nan": np.nan})
-    return pd.to_numeric(s, errors="coerce")
-
-def last_scalar(pd, np, x):
+def fmt(x, n=6):
     try:
-        v = x.iloc[-1]
-    except Exception:
-        try:
-            v = x[-1]
-        except Exception:
-            v = x
-    try:
-        import numpy as _np  # may exist even if np missing earlier
-        if hasattr(v, "to_numpy"):
-            a = v.to_numpy().ravel()
-            v = a[0] if a.size else _np.nan
+        x = float(x)
+        if x == x:  # not NaN
+            return f"{x:.{n}f}"
     except Exception:
         pass
-    try:
-        return float(v)
-    except Exception:
-        return float("nan")
+    return "—"
 
-# -------- Sidebar --------
+# =========================
+# Sidebar
+# =========================
 st.sidebar.header("📥 Veri Kaynağı")
 src = st.sidebar.radio("Kaynak", ["YFinance (internet)", "CSV Yükle"], index=0)
 ticker = st.sidebar.text_input("🪙 Kripto Değer", value="THETA-USD")
@@ -111,16 +126,12 @@ preset = st.sidebar.selectbox(
     index=1,
     help="Veri çözünürlüğü: kısa=4 saat, orta=günlük, uzun=haftalık."
 )
-# Map preset to interval + default period
 if preset.startswith("Kısa"):
     interval, period = "4h", "180d"
 elif preset.startswith("Orta"):
     interval, period = "1d", "1y"
 else:
     interval, period = "1wk", "5y"
-
-interval = st.sidebar.selectbox("Zaman Dilimi (interval)", ["1h","4h","1d","1wk"], index=2)
-period   = st.sidebar.selectbox("Periyot (period)", ["1mo","3mo","6mo","1y","2y","5y","max"], index=3)
 
 uploaded = st.sidebar.file_uploader("CSV (opsiyonel)", type=["csv"]) if src == "CSV Yükle" else None
 
@@ -150,38 +161,36 @@ tp2_r       = st.sidebar.slider("TP2 (R)", 0.5, 10.0, 2.0, 0.1)
 tp3_r       = st.sidebar.slider("TP3 (R)", 0.5, 15.0, 3.0, 0.1)
 tp_pct      = st.sidebar.slider("TP %", 0.5, 50.0, 5.0, 0.5)
 
-# -------- Tabs --------
+# =========================
+# Tabs
+# =========================
 tab_an, tab_graf, tab_guide = st.tabs(["📈 Analiz","📊 Grafik","📘 Rehber"])
 
+# =========================
+# Data loader
+# =========================
 def load_asset(mods):
-    pd = mods["pd"]; yf = mods["yf"]
+    pd = mods["pd"]; np = mods["np"]; yf = mods["yf"]
     if src == "YFinance (internet)":
         df = yf.download(ticker, period=period, interval=interval, auto_adjust=False, progress=False)
         if df is None or df.empty:
             return None
         df = normalize_ohlc(pd, df)
-        # Ensure 'Close' exists
+        # Ensure Close
         if "Close" not in df.columns:
-            # try Adj Close
-            if "Adj Close" in df.columns:
-                df["Close"] = df["Adj Close"]
+            if "Adj Close" in df.columns: df["Close"] = df["Adj Close"]
             else:
-                # case-insensitive search
                 for c in df.columns:
                     if str(c).strip().lower() == "close":
-                        df["Close"] = df[c]
-                        break
+                        df["Close"] = df[c]; break
         if "Close" not in df.columns:
-            # fallback: first numeric column
             num_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
-            if num_cols:
-                df["Close"] = df[num_cols[0]]
+            if num_cols: df["Close"] = df[num_cols[0]]
         df.index.name = "Date"
         return df
     else:
-        import io
-        if not uploaded:
-            return None
+        if not uploaded: return None
+        pd = mods["pd"]; np = mods["np"]
         raw = pd.read_csv(uploaded)
         cols = {str(c).lower(): c for c in raw.columns}
         need = ["date","open","high","low","close","volume"]
@@ -196,42 +205,37 @@ def load_asset(mods):
             df = df.dropna(subset=["Date"]).sort_values("Date").set_index("Date")
         for c in ["Open","High","Low","Close","Volume"]:
             if c in df.columns:
-                df[c] = num(pd, mods["np"], df[c])
+                df[c] = num(pd, np, df[c])
         df = normalize_ohlc(pd, df)
         if "Close" not in df.columns:
-            if "Adj Close" in df.columns:
-                df["Close"] = df["Adj Close"]
+            if "Adj Close" in df.columns: df["Close"] = df["Adj Close"]
             else:
                 for c in df.columns:
                     if str(c).strip().lower() == "close":
-                        df["Close"] = df[c]
-                        break
+                        df["Close"] = df[c]; break
         if "Close" not in df.columns:
             num_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
-            if num_cols:
-                df["Close"] = df[num_cols[0]]
+            if num_cols: df["Close"] = df[num_cols[0]]
         return df
 
-# ---------- ANALIZ ----------
+# =========================
+# ANALIZ
+# =========================
 with tab_an:
     mods, missing = need_libs()
     if missing:
-        show_missing(missing)
-        st.stop()
-
+        show_missing(missing); st.stop()
     pd, np = mods["pd"], mods["np"]
     df = load_asset(mods)
     if df is None or df.empty:
-        st.warning("Veri alınamadı. Ticker (örn. BTC-USD) ya da CSV kontrol edin.")
-        st.stop()
+        st.warning("Veri alınamadı. Ticker (örn. BTC-USD) ya da CSV kontrol edin."); st.stop()
+    if "Close" not in df.columns:
+        st.error("Veride 'Close' kolonu bulunamadı."); st.stop()
 
     for c in ["Open","High","Low","Close","Volume"]:
         if c in df.columns:
             df[c] = num(pd, np, df[c])
 
-    if "Close" not in df.columns:
-        st.error("Veride 'Close' kolonu bulunamadı. CSV kullanıyorsanız 'Close' veya 'Adj Close' kolonu ekleyin.")
-        st.stop()
     data = df.copy()
     data["EMA_Short"] = ema(pd, data["Close"], ema_short)
     data["EMA_Long"]  = ema(pd, data["Close"], ema_long)
@@ -250,7 +254,7 @@ with tab_an:
     sell_now = bool((not bull) and (data["MACD"].iloc[-1] < data["MACD_Signal"].iloc[-1]))
 
     atr_val = last_scalar(pd, np, data["ATR"])
-    if stop_mode == "ATR x K" and np.isfinite(atr_val):
+    if stop_mode == "ATR x K" and atr_val == atr_val:
         stop_price_long = last_price - max(atr_val * atr_k, 1e-9)
     else:
         stop_price_long = last_price * (1 - stop_pct/100.0)
@@ -282,12 +286,9 @@ with tab_an:
     momentum = float(data["RSI"].iloc[-1]) - 50.0
     trend_txt = "🟢 Yükseliş" if bool(bull) else "🔴 Düşüş"
 
-    if buy_now:
-        headline = "✅ SİNYAL: AL (long)"
-    elif sell_now:
-        headline = "❌ SİNYAL: SAT / LONG kapat"
-    else:
-        headline = "⏸ SİNYAL: BEKLE"
+    if buy_now: headline = "✅ SİNYAL: AL (long)"
+    elif sell_now: headline = "❌ SİNYAL: SAT / LONG kapat"
+    else: headline = "⏸ SİNYAL: BEKLE"
 
     st.subheader("📌 Özet")
     colA, colB, colC = st.columns([1.2,1,1])
@@ -298,11 +299,11 @@ with tab_an:
     with colB:
         st.markdown(f"**Trend:** {trend_txt}")
         st.markdown(f"**Momentum (RSI−50):** {momentum:+.2f}")
-        st.markdown(f"**Volatilite (ATR):** {atr_val:.6f}  ({atr_pct:.2f}%)")
+        st.markdown(f"**Volatilite (ATR):** {fmt(atr_val)}  ({fmt(atr_pct,2)}%)")
     with colC:
-        st.markdown(f"**Risk Oranı (R:R, TP1):** {rr_tp1:.2f}")
-        st.markdown(f"**Stop Mesafesi:** {stop_dist_pct:.2f}%")
-        st.markdown(f"**Pozisyon Oranı:** {pos_ratio_pct:.2f}%")
+        st.markdown(f"**Risk Oranı (R:R, TP1):** {fmt(rr_tp1,2)}")
+        st.markdown(f"**Stop Mesafesi:** {fmt(stop_dist_pct,2)}%")
+        st.markdown(f"**Pozisyon Oranı:** {fmt(pos_ratio_pct,2)}%")
 
     st.subheader("🎯 Sinyal (Öneri)")
     if buy_now:
@@ -322,8 +323,10 @@ with tab_an:
     else:
         st.markdown("Şu anda belirgin bir al/sat sinyali yok; parametreleri veya zaman dilimini değiştirerek tekrar değerlendiriniz.")
 
+    # =========================
+    # GEREKÇELER (detaylı)
+    # =========================
     st.subheader("🧠 Gerekçeler")
-
     def line(text, kind="neutral"):
         if kind == "pos":
             color = "#0f9d58"; dot = "🟢"
@@ -333,35 +336,27 @@ with tab_an:
             color = "#f29900"; dot = "🟠"
         st.markdown(f"{dot} <span style='color:{color}; font-weight:600;'>{text}</span>", unsafe_allow_html=True)
 
-    # --- Trend & Momentum
+    # Trend ve gücü
     if bool(bull):
         line("EMA kısa > EMA uzun → **yükseliş trendi**", "pos")
     else:
         line("EMA kısa < EMA uzun → **düşüş trendi**", "neg")
 
-    # Trend gücü: EMA farkı / fiyata oran
     try:
         ema_spread = float((data["EMA_Short"].iloc[-1] - data["EMA_Long"].iloc[-1]) / last_price * 100.0)
-        if ema_spread > 1.0:
-            line(f"Trend gücü: EMA farkı **{ema_spread:.2f}%** (güçlü).", "pos")
-        elif ema_spread < -1.0:
-            line(f"Trend gücü: EMA farkı **{ema_spread:.2f}%** (güçlü düşüş).", "neg")
-        else:
-            line(f"Trend gücü: EMA farkı **{ema_spread:.2f}%** (zayıf).", "neutral")
+        if ema_spread > 1.0: line(f"Trend gücü: EMA farkı **{ema_spread:.2f}%** (güçlü).", "pos")
+        elif ema_spread < -1.0: line(f"Trend gücü: EMA farkı **{ema_spread:.2f}%** (güçlü düşüş).", "neg")
+        else: line(f"Trend gücü: EMA farkı **{ema_spread:.2f}%** (zayıf).", "neutral")
     except Exception:
         pass
 
-    # Fiyatın EMA_Trend'e göre konumu
     try:
         dist_trend = float((last_price - float(data["EMA_Trend"].iloc[-1])) / last_price * 100.0)
-        if dist_trend >= 0:
-            line(f"Fiyat uzun dönem EMA'nın **{dist_trend:.2f}%** üzerinde.", "pos")
-        else:
-            line(f"Fiyat uzun dönem EMA'nın **{abs(dist_trend):.2f}%** altında.", "neg")
+        if dist_trend >= 0: line(f"Fiyat uzun dönem EMA'nın **{dist_trend:.2f}%** üzerinde.", "pos")
+        else: line(f"Fiyat uzun dönem EMA'nın **{abs(dist_trend):.2f}%** altında.", "neg")
     except Exception:
         pass
 
-    # MACD konumu + histogram eğimi
     macd_now = float(data["MACD"].iloc[-1]); macd_sig_now = float(data["MACD_Signal"].iloc[-1])
     macd_hist_now = float(data["MACD_Hist"].iloc[-1]) if "MACD_Hist" in data else 0.0
     macd_hist_prev = float(data["MACD_Hist"].iloc[-2]) if "MACD_Hist" in data and len(data) >= 2 else macd_hist_now
@@ -371,12 +366,9 @@ with tab_an:
         line("MACD sinyal üstünde (pozitif momentum).", "pos")
     else:
         line("MACD sinyal altında (momentum zayıf).", "neg")
-    if macd_hist_now > macd_hist_prev:
-        line("MACD histogram **güçleniyor**.", "pos")
-    elif macd_hist_now < macd_hist_prev:
-        line("MACD histogram **zayıflıyor**.", "neg")
+    if macd_hist_now > macd_hist_prev: line("MACD histogram **güçleniyor**.", "pos")
+    elif macd_hist_now < macd_hist_prev: line("MACD histogram **zayıflıyor**.", "neg")
 
-    # RSI zonları
     rsi_now = float(data["RSI"].iloc[-1])
     if rsi_now < 30: line(f"RSI {rsi_now:.2f}: **aşırı satım** – erken alım riski.", "neg")
     elif 30 <= rsi_now < 35: line(f"RSI {rsi_now:.2f}: dip bölge – onay beklenmeli.", "neutral")
@@ -385,7 +377,6 @@ with tab_an:
     elif 60 <= rsi_now <= 70: line(f"RSI {rsi_now:.2f}: **güçlü momentum**.", "pos")
     else: line(f"RSI {rsi_now:.2f}: **aşırı alım** – temkin.", "neg")
 
-    # Bollinger: konum + sıkışma
     try:
         bb_up = float(data["BB_Up"].iloc[-1]); bb_dn = float(data["BB_Down"].iloc[-1]); bb_md = float(data["BB_Mid"].iloc[-1])
         if last_price <= bb_dn: line("Fiyat **alt banda** yakın (tepki potansiyeli).", "pos")
@@ -393,48 +384,40 @@ with tab_an:
         else: line("Fiyat bant içinde (nötr).", "neutral")
         bww = (data["BB_Up"] - data["BB_Down"]) / data["BB_Mid"].abs().replace(0, np.nan)
         pct = float((bww.rank(pct=True).iloc[-1]) * 100.0)
-        if pct <= 20:
-            line("Bollinger genişliği **düşük (sıkışma)** → kırılım potansiyeli.", "neutral")
+        if pct <= 20: line("Bollinger genişliği **düşük (sıkışma)** → kırılım potansiyeli.", "neutral")
     except Exception:
         pass
 
-    # Volatilite rejimi (ATR%)
     try:
         atr_pct_now = (atr_val / last_price * 100.0) if (atr_val == atr_val and last_price > 0) else float("nan")
         atr_series = (data["ATR"] / data["Close"] * 100.0).dropna()
         if len(atr_series) >= 30:
             med = float(atr_series.rolling(60, min_periods=30).median().iloc[-1])
-            if atr_pct_now <= med * 0.8:
-                line(f"ATR% {atr_pct_now:.2f} → **düşük volatilite** (trend takip zor olabilir).", "neutral")
-            elif atr_pct_now >= med * 1.2:
-                line(f"ATR% {atr_pct_now:.2f} → **yüksek volatilite** (stop geniş tutulmalı).", "neg")
+            if atr_pct_now <= med * 0.8: line(f"ATR% {atr_pct_now:.2f} → **düşük volatilite**.", "neutral")
+            elif atr_pct_now >= med * 1.2: line(f"ATR% {atr_pct_now:.2f} → **yüksek volatilite**.", "neg")
     except Exception:
         pass
 
-    # R:R kontrolü
     try:
-        if rr_tp1 >= 2.0:
-            line(f"R:R (TP1) **{rr_tp1:.2f}** → hedef/riske oran **iyi**.", "pos")
-        elif 1.0 <= rr_tp1 < 2.0:
-            line(f"R:R (TP1) **{rr_tp1:.2f}** → orta karar.", "neutral")
-        else:
-            line(f"R:R (TP1) **{rr_tp1:.2f}** → zayıf.", "neg")
+        if rr_tp1 >= 2.0: line(f"R:R (TP1) **{rr_tp1:.2f}** → hedef/riske oran **iyi**.", "pos")
+        elif 1.0 <= rr_tp1 < 2.0: line(f"R:R (TP1) **{rr_tp1:.2f}** → orta karar.", "neutral")
+        else: line(f"R:R (TP1) **{rr_tp1:.2f}** → zayıf.", "neg")
     except Exception:
         pass
 
-    # BTC bağlamı (altcoinlerde)
+    # BTC context for alts
     try:
         if ticker.upper() != "BTC-USD" and ticker.upper().endswith("-USD"):
             import yfinance as _yf
             _b = _yf.download("BTC-USD", period=period, interval=interval, auto_adjust=False, progress=False)
             if _b is not None and len(_b) > 0:
                 _b.columns = [str(c).title() for c in _b.columns]
-                _b_close = _b["Close"]
-                _e1 = _b_close.ewm(span=ema_short, adjust=False).mean()
-                _e2 = _b_close.ewm(span=ema_long, adjust=False).mean()
+                _c = _b["Close"]
+                _e1 = _c.ewm(span=ema_short, adjust=False).mean()
+                _e2 = _c.ewm(span=ema_long, adjust=False).mean()
                 try:
                     import pandas as _pd, numpy as _np
-                    _r = rsi(_pd, _np, _b_close, rsi_len)
+                    _r = rsi(_pd, _np, _c, rsi_len)
                     r_txt = f" | RSI {_r.iloc[-1]:.1f}"
                 except Exception:
                     r_txt = ""
@@ -445,45 +428,15 @@ with tab_an:
     except Exception:
         pass
 
-    # Haber akışı placeholder
-    line("Haber akışı: Seçili varlığa dair başlıklar burada özetlenecek. (geliştiriliyor)", "neutral")
-    def line(text, kind="neutral"):
-        if kind == "pos":
-            color = "#0f9d58"; dot = "🟢"
-        elif kind == "neg":
-            color = "#d93025"; dot = "🔴"
-        else:
-            color = "#f29900"; dot = "🟠"
-        st.markdown(f"{dot} <span style='color:{color}; font-weight:600;'>{text}</span>", unsafe_allow_html=True)
-
-    if bool(bull):
-        line("EMA kısa > EMA uzun (trend ↑)", "pos")
-    else:
-        line("EMA kısa < EMA uzun (trend ↓)", "neg")
-
-    macd_now = float(data["MACD"].iloc[-1]); macd_sig_now = float(data["MACD_Signal"].iloc[-1])
-    if macd_now > macd_sig_now and bool(macd_cross_up.iloc[-1]):
-        line("MACD sinyal üstünde ve son bar kesişim ↑", "pos")
-    elif macd_now > macd_sig_now:
-        line("MACD sinyal üstünde (pozitif momentum)", "neutral")
-    else:
-        line("MACD sinyal altında (momentum zayıf)", "neg")
-
-    rsi_now = float(data["RSI"].iloc[-1])
-    if rsi_now < 30: line(f"RSI {rsi_now:.2f} (aşırı satım – tepki gelebilir, trend zayıf)", "neg")
-    elif 30 <= rsi_now < 35: line(f"RSI {rsi_now:.2f} (dip; onay beklenmeli)", "neutral")
-    elif 35 <= rsi_now <= 45: line(f"RSI {rsi_now:.2f} (alım bölgesi; onaylıysa olumlu)", "pos")
-    elif 45 < rsi_now < 60: line(f"RSI {rsi_now:.2f} (nötr-olumlu)", "neutral")
-    elif 60 <= rsi_now <= 70: line(f"RSI {rsi_now:.2f} (güçlü momentum)", "pos")
-    else: line(f"RSI {rsi_now:.2f} (aşırı alım – dikkat)", "neg")
-
     line("Haber akışı: Seçili varlığa dair başlıklar burada özetlenecek. (geliştiriliyor)", "neutral")
 
     st.markdown("---")
     st.markdown("**Not:** Dalgalanmalardan etkilenmemek için her zaman kademeli alım yapın. "
                 "Bu uygulamada özet sinyal ve gerekçeler gösterilir.")
 
-# ---------- GRAFIK ----------
+# =========================
+# GRAFIK
+# =========================
 with tab_graf:
     mods, missing = need_libs()
     if missing:
@@ -495,18 +448,27 @@ with tab_graf:
             st.warning("Veri alınamadı.")
         else:
             close = df["Close"]
-            # Matplotlib yerine Streamlit çizimi (bağımlılık istemiyor)
-            st.line_chart(pd.DataFrame({"Close": close}))
-            # Ek olarak EMA çizgilerini tablo ile göster
             e1 = ema(pd, close, ema_short); e2 = ema(pd, close, ema_long); et = ema(pd, close, ema_trend)
-            # (tablo kaldırıldı)
-# st.dataframe(pd.DataFrame({
-                f"EMA{ema_short}": e1.tail(10),
-                f"EMA{ema_long}": e2.tail(10),
-                f"EMA{ema_trend}": et.tail(10),
-            # }))
+            st.subheader("Fiyat + EMA'lar + Bollinger (yaklaşık)")
+            st.line_chart(pd.DataFrame({
+                "Close": close,
+                f"EMA{ema_short}": e1,
+                f"EMA{ema_long}": e2,
+                f"EMA{ema_trend}": et
+            }))
 
-# ---------- REHBER ----------
+            # RSI ve MACD basit çizimler
+            st.subheader("RSI")
+            r = rsi(pd, np, close, rsi_len)
+            st.line_chart(pd.DataFrame({"RSI": r}))
+
+            st.subheader("MACD")
+            m_l, m_s, m_h = macd(pd, close, macd_fast, macd_slow, macd_sig)
+            st.line_chart(pd.DataFrame({"MACD": m_l, "Signal": m_s}))
+
+# =========================
+# REHBER
+# =========================
 with tab_guide:
     st.subheader("📘 Rehber – Kısa Notlar")
     st.markdown("""
