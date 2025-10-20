@@ -1,10 +1,10 @@
 
 import streamlit as st
 
-BUILD = "v7.1 guide+tooltips"
 
-st.set_page_config(page_title="TradeMaster", layout="wide")
-st.title(f"🧭 TradeMaster — {BUILD}")
+
+st.set_page_config(page_title="TradeMaster | Kripto Strateji Analizörü", layout="wide")
+st.title("💹 TradeMaster")
 st.caption("Eğitim amaçlıdır; yatırım tavsiyesi değildir.")
 
 # =========================
@@ -245,6 +245,11 @@ with tab_an:
     data["BB_Mid"], data["BB_Up"], data["BB_Down"] = bollinger(data["Close"], bb_len, bb_std)
     data["ATR"] = atr(pd, data, 14)
 
+    # Fiyat Volatilitesi (30g sigma %)
+    vol = data["Close"].pct_change().rolling(30).std() * 100
+    vol_now = float(vol.iloc[-1])
+
+
     last_price = last_scalar(pd, np, data["Close"])
     bull = (data["EMA_Short"] > data["EMA_Long"]).iloc[-1]
     macd_cross_up = (data["MACD"] > data["MACD_Signal"]) & (data["MACD"].shift(1) <= data["MACD_Signal"].shift(1))
@@ -299,7 +304,7 @@ with tab_an:
     with colB:
         st.markdown(f"**Trend:** {trend_txt}")
         st.markdown(f"**Momentum (RSI−50):** {momentum:+.2f}")
-        st.markdown(f"**Volatilite (ATR):** {fmt(atr_val)}  ({fmt(atr_pct,2)}%)")
+        st.markdown(f"**Fiyat Volatilitesi (30g σ%):** {vol_now:.2f}%")
     with colC:
         st.markdown(f"**Risk Oranı (R:R, TP1):** {fmt(rr_tp1,2)}")
         st.markdown(f"**Stop Mesafesi:** {fmt(stop_dist_pct,2)}%")
@@ -376,6 +381,18 @@ with tab_an:
     elif 45 < rsi_now < 60: line(f"RSI {rsi_now:.2f}: nötr-olumlu.", "neutral")
     elif 60 <= rsi_now <= 70: line(f"RSI {rsi_now:.2f}: **güçlü momentum**.", "pos")
     else: line(f"RSI {rsi_now:.2f}: **aşırı alım** – temkin.", "neg")
+
+    # Volatilite (30g sigma) gerekçesi
+    try:
+        if vol_now > 5:
+            line(f"Fiyat volatilitesi {vol_now:.2f}% → **yüksek dalgalanma**, stop aralığı geniş tutulmalı.", "neg")
+        elif vol_now < 2:
+            line(f"Fiyat volatilitesi {vol_now:.2f}% → **sakin piyasa**, kırılım sonrası trend beklenebilir.", "neutral")
+        else:
+            line(f"Fiyat volatilitesi {vol_now:.2f}% → **orta düzey**, strateji normal çalışır.", "pos")
+    except Exception:
+        pass
+
 
     try:
         bb_up = float(data["BB_Up"].iloc[-1]); bb_dn = float(data["BB_Down"].iloc[-1]); bb_md = float(data["BB_Mid"].iloc[-1])
@@ -470,45 +487,58 @@ with tab_graf:
 # REHBER
 # =========================
 
+
 with tab_guide:
     st.subheader("📘 Rehber – Ayrıntılı Notlar")
     st.markdown(r'''
 ### 1) Trend ve Ortalamalar (EMA)
-- **Sinyal:** **EMA Kısa > EMA Uzun → yükseliş**, tersi **düşüş**.
-- **200-EMA** (Trend): Fiyat bunun **üstünde** ise yapısal **boğa**, **altında** ise **ayı** eğilimi.
-- **Trend gücü**: (EMA kısa − EMA uzun) / fiyata oran. Mutlak değer yükseldikçe eğilim güçlenir.
+- Sinyal: EMA Kısa > EMA Uzun -> yükseliş, tersi düşüş.
+- 200-EMA (Trend): Fiyat bunun üstünde ise yapısal boğa, altında ise ayı eğilimi.
+- Trend gücü: (EMA kısa − EMA uzun) / fiyata oran. Mutlak değer yükseldikçe eğilim güçlenir.
 
 ### 2) RSI (Relative Strength Index)
-- **Aşırı Satım <30**, **Alım Bölgesi 35–45**, **Güçlü Momentum 60–70**, **Aşırı Alım >70**.
-- Düşük RSI tek başına **alım sebebi değildir**; trend ve fiyat yapısıyla **onay** arayın.
+- Aşırı Satım <30, Alım Bölgesi 35–45, Güçlü Momentum 60–70, Aşırı Alım >70.
+- Düşük RSI tek başına alım sebebi değildir; trend ve fiyat yapısıyla onay arayın.
 
 ### 3) MACD
-- **MACD > Sinyal** → pozitif momentum. **Kesişimler** (yukarı/aşağı) tetikleyici kabul edilir.
-- **Histogram eğimi** (artıyor/azalıyor) momentumun güçlenip güçlenmediğini gösterir.
+- MACD > Sinyal -> pozitif momentum. Kesişimler (yukarı/aşağı) tetikleyici kabul edilir.
+- Histogram eğimi (artıyor/azalıyor) momentumun güçlenip güçlenmediğini gösterir.
 
 ### 4) Bollinger Bantları
-- **Üst banda yakın**: ısınma; **Alt banda yakın**: tepki potansiyeli.
-- **Sıkışma**: Bant genişliği düşük → kırılım potansiyeli artar. Kırılım yönünü trend ve hacimle teyit edin.
+- Üst banda yakın: ısınma; Alt banda yakın: tepki potansiyeli.
+- Sıkışma: Bant genişliği düşük -> kırılım potansiyeli artar. Kırılım yönünü trend ve hacimle teyit edin.
 
-### 5) ATR ve Volatilite
-- **ATR**: Ortalama gerçek aralık. Stop mesafesini volatiliteye uydurur.
-- **ATR tabanlı stop**: Stop = Entry − (ATR × K) (long). K değeri genelde **1.5–3.0** arası.
-- **ATR%** = ATR / Fiyat. Tarihsel medyanın çok **altında** → düşük volatilite (trend takip zor), **üstünde** → yüksek volatilite (stop geniş).
+### 5) Fiyat Volatilitesi (30g σ%)
+- σ% = son 30 barın günlük log getirilerinin standart sapması × 100.
+- Yorum: >5% yüksek, 2–5% orta, <2% sakin. Yüksek σ% -> stop geniş, sakin σ% -> kırılımdan sonra trend beklenebilir.
 
-### 6) R-Multiple & Pozisyon Boyutu
-- **R = Entry − Stop** (long). **TP1 = Entry + 1R**, **TP2 = +2R**, **TP3 = +3R**.
-- **R:R** hedef/riske oranı. **≥1:2** tipik olarak daha sağlıklıdır.
-- **Pozisyon boyutu**: İşlem başına risk $=\text{Sermaye}×\%\text{risk}$. Adet $= \frac{\text{Risk Tutarı}}{\text{Risk/Fiyat}}$.
+### 6) R-Multiple & R:R (Risk/Ödül) – Detaylı
+Tanım
+- R (risk birimi) = Giriş − Stop (long) = |Stop − Giriş| (short).
+- TP1 = Giriş + 1R, TP2 = +2R, TP3 = +3R (long için).
+
+R:R Oranı
+R:R = (Hedef − Giriş) / (Giriş − Stop)  (long)
+- Örnek: Giriş 10$, Stop 9$, Hedef 12$ -> R = 1$, R:R = 2:1.
+
+Kazanç Olasılığı ile İlişki
+Beklenen getiri = WinRate × R:R − (1 − WinRate)
+- Örnek: %50 başarı, R:R = 2:1 -> 0.5×2 − 0.5 = 0.5 -> pozitif beklenti.
+- Kural: Başarı oranı düşüyorsa, R:R artırılmalı (örn. 1:3).
+
+Pozisyon Boyutu
+- İşlem başına risk = Sermaye × %risk
+- Adet = Risk Tutarı / (Giriş − Stop) (long)
 
 ### 7) BTC Bağlamı, Dominance, DXY, VIX
-- Altcoinler genelde **BTC trendi**yle hareket eder. BTC **yukarı** trendde ise altlar için **destekleyici**.
-- **BTC Dominance** ↑: Sermaye BTC'ye kayma eğiliminde → altlar **zayıflayabilir**. Dominance ↓ → altlar **güçlenebilir**.
-- **DXY (Dolar Endeksi)** ↑: Kripto üzerinde **baskı** eğilimli. ↓ → **destekleyici**.
-- **VIX** ↑: Risk iştahı düşer (kripto negatif etkilenebilir). Düşük VIX → daha sakin ortam.
+- Altcoinler genelde BTC trendiyle hareket eder. BTC yukarı trendde ise altlar için destekleyici.
+- BTC Dominance ↑: Sermaye BTC'ye kayma eğiliminde -> altlar zayıflayabilir. Dominance ↓ -> altlar güçlenebilir.
+- DXY (Dolar Endeksi) ↑: Kripto üzerinde baskı eğilimli. ↓ -> destekleyici.
+- VIX ↑: Risk iştahı düşer (kripto negatif etkilenebilir). Düşük VIX -> daha sakin ortam.
 
 ### 8) Kademeli Alım / Çıkış
-- **Kademeli alım**: Dalgalanmayı yumuşatır. **Kısmi TP** ile kazançları kilitleyin.
-- Stop'u **maliyet altına taşıma**: TP1 görülünce kalan pozisyonun riskini azaltmak için.
+- Kademeli alım: Dalgalanmayı yumuşatır. Kısmi TP ile kazançları kilitleyin.
+- Stop'u maliyet altına taşıma: TP1 görülünce kalan pozisyonun riskini azaltmak için.
 
-> **Uyarı:** Bu araç eğitim amaçlıdır; strateji **backtest** ve **risk yönetimi** olmadan kullanılmamalıdır.
+Uyarı: Bu araç eğitim amaçlıdır; strateji backtest ve risk yönetimi olmadan kullanılmamalıdır.
     ''')
