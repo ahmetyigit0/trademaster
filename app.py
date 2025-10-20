@@ -1,15 +1,14 @@
 
-# app_with_tp_sl.py
-# Run: streamlit run app_with_tp_sl.py
+# app_with_tp_sl_fixed.py
+# Run: streamlit run app_with_tp_sl_fixed.py
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.subplots as sp
 import plotly.graph_objects as go
 
-st.set_page_config(page_title="Strategy + TP/SL Signals", layout="wide")
-
-st.title("📈 Strategy + TP/SL Signals")
+st.set_page_config(page_title="Strategy + TP/SL Signals (Fixed)", layout="wide")
+st.title("📈 Strategy + TP/SL Signals (Fixed)")
 st.caption("Eğitim amaçlıdır; yatırım tavsiyesi değildir.")
 
 # ---------------- Data Loading ----------------
@@ -148,33 +147,34 @@ sell = (~bull) & bull.ne(bull.shift(1))
 data["BUY"] = buy
 data["SELL"] = sell
 
-# Build latest signal and TP/SL lines based on the last BUY
+# latest BUY
 last_buy_idx = data.index[data["BUY"]].max() if data["BUY"].any() else None
-tp_lines = []
-sl_line = None
 entry_price = None
-if last_buy_idx is not None:
+tp_levels = []
+stop_price = None
+
+def _hline(x, y, name, color):
+    return go.Scatter(x=x, y=[y]*len(x), mode="lines", name=name, line=dict(width=1.5, dash="dash", color=color), hoverinfo="skip")
+
+if last_buy_idx is not None and pd.notnull(last_buy_idx):
     entry_price = float(data.loc[last_buy_idx, "Close"])
     atr_val = float(data.loc[last_buy_idx, "ATR"])
+
     if stop_mode == "ATR x K":
         stop_price = entry_price - atr_k * atr_val
         risk_per_unit = entry_price - stop_price
-    else:  # Sabit %
+    else:
         stop_price = entry_price * (1 - stop_pct/100.0)
         risk_per_unit = entry_price - stop_price
 
-    sl_line = stop_price
-
     if tp_mode == "R-multiple":
-        tp1 = entry_price + tp1_r * risk_per_unit
-        tp2 = entry_price + tp2_r * risk_per_unit
-        tp3 = entry_price + tp3_r * risk_per_unit
+        tp_levels = [("TP1", entry_price + tp1_r*risk_per_unit),
+                     ("TP2", entry_price + tp2_r*risk_per_unit),
+                     ("TP3", entry_price + tp3_r*risk_per_unit)]
     else:
-        tp1 = entry_price * (1 + tp_pct/100.0)
-        tp2 = entry_price * (1 + 2*tp_pct/100.0)
-        tp3 = entry_price * (1 + 3*tp_pct/100.0)
-
-    tp_lines = [("TP1", tp1), ("TP2", tp2), ("TP3", tp3)]
+        tp_levels = [("TP1", entry_price*(1+tp_pct/100)),
+                     ("TP2", entry_price*(1+2*tp_pct/100)),
+                     ("TP3", entry_price*(1+3*tp_pct/100))]
 
 # Chart
 fig = sp.make_subplots(rows=3, cols=1, shared_xaxes=True,
@@ -191,25 +191,28 @@ fig.add_scatter(x=data.index, y=data["BB_Down"], name="BB Lower", row=1, col=1)
 fig.add_scatter(x=data.index[buy], y=data["Close"][buy], mode="markers", marker_symbol="triangle-up", marker_size=12, name="BUY", row=1, col=1)
 fig.add_scatter(x=data.index[sell], y=data["Close"][sell], mode="markers", marker_symbol="triangle-down", marker_size=12, name="SELL", row=1, col=1)
 
+# Draw ENTRY/SL/TPs with Scatter horizontal lines (compatible with older Plotly)
+if entry_price is not None:
+    fig.add_trace(_hline(data.index, entry_price, f"ENTRY {entry_price:.4f}", "blue"), row=1, col=1)
+    fig.add_trace(_hline(data.index, stop_price, f"STOP {stop_price:.4f}", "red"), row=1, col=1)
+    for label, lvl in tp_levels:
+        fig.add_trace(_hline(data.index, lvl, f"{label} {lvl:.4f}", "green"), row=1, col=1)
+
+# MACD
 fig.add_bar(x=data.index, y=data["MACD_Hist"], name="MACD Hist", row=2, col=1)
 fig.add_scatter(x=data.index, y=data["MACD"], name="MACD", row=2, col=1)
 fig.add_scatter(x=data.index, y=data["MACD_Signal"], name="Signal", row=2, col=1)
 
+# RSI
 fig.add_scatter(x=data.index, y=data["RSI"], name=f"RSI {rsi_len}", row=3, col=1)
-fig.add_hline(y=70, line_dash="dot", line_color="red", row=3, col=1)
-fig.add_hline(y=30, line_dash="dot", line_color="green", row=3, col=1)
-
-# Draw TP/SL horizontal lines for the latest BUY
-if entry_price is not None:
-    fig.add_hline(y=entry_price, line_color="blue", line_dash="dot", annotation_text=f"ENTRY {entry_price:.4f}", row=1, col=1)
-    fig.add_hline(y=sl_line, line_color="red", line_dash="dash", annotation_text=f"STOP {sl_line:.4f}", row=1, col=1)
-    for label, lvl in tp_lines:
-        fig.add_hline(y=lvl, line_color="green", line_dash="dash", annotation_text=f"{label} {lvl:.4f}", row=1, col=1)
+# RSI bands (use Scatter lines for compatibility)
+fig.add_trace(_hline(data.index, 70, "RSI 70", "red"), row=3, col=1)
+fig.add_trace(_hline(data.index, 30, "RSI 30", "green"), row=3, col=1)
 
 fig.update_layout(height=900, xaxis_rangeslider_visible=False, legend=dict(orientation="h"))
 st.plotly_chart(fig, use_container_width=True)
 
-# Right panel: latest status
+# Right panel
 col1, col2 = st.columns([2,1])
 with col2:
     st.subheader("🔔 Sinyal Durumu")
@@ -217,16 +220,23 @@ with col2:
     st.write(f"Son Kapanış: **{latest['Close']:.6f}**")
     st.write(f"EMA{ema_short}: **{latest['EMA_Short']:.6f}**  |  EMA{ema_long}: **{latest['EMA_Long']:.6f}**")
     st.write(f"RSI: **{latest['RSI']:.2f}**  |  ATR: **{latest['ATR']:.6f}**")
+
     if entry_price is None:
         st.warning("Aktif LONG sinyali bulunamadı (son BUY yok). Parametreleri değiştir veya veri aralığını artır.")
     else:
-        st.success(f"Son LONG sinyali: **{last_buy_idx.strftime('%Y-%m-%d %H:%M:%S')}** @ **{entry_price:.4f}**")
-        # Check TP/SL status with the latest candle
+        # Show last BUY timestamp
+        try:
+            last_buy_str = pd.to_datetime(last_buy_idx).strftime('%Y-%m-%d %H:%M:%S')
+        except Exception:
+            last_buy_str = str(last_buy_idx)
+        st.success(f"Son LONG sinyali: **{last_buy_str}** @ **{entry_price:.4f}**")
+
+        # Check TP/SL status on latest candle
         low = float(latest["Low"]); high = float(latest["High"])
         hit = []
-        if sl_line is not None and low <= sl_line:
-            hit.append(("STOP", sl_line))
-        for label, lvl in tp_lines:
+        if (stop_price is not None) and (low <= stop_price):
+            hit.append(("STOP", stop_price))
+        for label, lvl in tp_levels:
             if high >= lvl:
                 hit.append((label, lvl))
         if hit:
@@ -239,9 +249,11 @@ with col2:
 with col1:
     st.subheader("🧾 İşlem İşaretleri")
     sigs = data.loc[data["BUY"] | data["SELL"], ["Close","BUY","SELL"]].copy()
-    sigs["Type"] = np.where(sigs["BUY"], "BUY", "SELL")
-    sigs = sigs[["Close","Type"]]
-    st.dataframe(sigs.tail(15))
+    if not sigs.empty:
+        sigs["Type"] = np.where(sigs["BUY"], "BUY", "SELL")
+        st.dataframe(sigs[["Close","Type"]].tail(15))
+    else:
+        st.info("Bu parametrelerle son dönemde BUY/SELL işareti yok. RSI aralığını gevşetmeyi veya 'EMA Crossover' modunu deneyin.")
 
 st.markdown("---")
-st.caption("Not: TP/SL çizgileri en **son** BUY sinyali baz alınarak hesaplanır. Stop tipi ATR×K veya sabit yüzde olarak ayarlanabilir; TP ise R-multiple veya sabit yüzde.")
+st.caption("Not: TP/SL çizgileri en **son** BUY sinyali baz alınarak hesaplanır. Stop tipi ATR×K veya sabit yüzde; TP ise R-multiple veya sabit yüzde olarak ayarlanabilir.")
