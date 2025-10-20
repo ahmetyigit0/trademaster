@@ -105,6 +105,20 @@ st.sidebar.header("📥 Veri Kaynağı")
 src = st.sidebar.radio("Kaynak", ["YFinance (internet)", "CSV Yükle"], index=0)
 ticker = st.sidebar.text_input("🪙 Kripto Değer", value="THETA-USD")
 
+preset = st.sidebar.selectbox(
+    "Zaman Dilimi",
+    ["Kısa (4h)", "Orta (1g)", "Uzun (1hft)"],
+    index=1,
+    help="Veri çözünürlüğü: kısa=4 saat, orta=günlük, uzun=haftalık."
+)
+# Map preset to interval + default period
+if preset.startswith("Kısa"):
+    interval, period = "4h", "180d"
+elif preset.startswith("Orta"):
+    interval, period = "1d", "1y"
+else:
+    interval, period = "1wk", "5y"
+
 interval = st.sidebar.selectbox("Zaman Dilimi (interval)", ["1h","4h","1d","1wk"], index=2)
 period   = st.sidebar.selectbox("Periyot (period)", ["1mo","3mo","6mo","1y","2y","5y","max"], index=3)
 
@@ -309,6 +323,130 @@ with tab_an:
         st.markdown("Şu anda belirgin bir al/sat sinyali yok; parametreleri veya zaman dilimini değiştirerek tekrar değerlendiriniz.")
 
     st.subheader("🧠 Gerekçeler")
+
+    def line(text, kind="neutral"):
+        if kind == "pos":
+            color = "#0f9d58"; dot = "🟢"
+        elif kind == "neg":
+            color = "#d93025"; dot = "🔴"
+        else:
+            color = "#f29900"; dot = "🟠"
+        st.markdown(f"{dot} <span style='color:{color}; font-weight:600;'>{text}</span>", unsafe_allow_html=True)
+
+    # --- Trend & Momentum
+    if bool(bull):
+        line("EMA kısa > EMA uzun → **yükseliş trendi**", "pos")
+    else:
+        line("EMA kısa < EMA uzun → **düşüş trendi**", "neg")
+
+    # Trend gücü: EMA farkı / fiyata oran
+    try:
+        ema_spread = float((data["EMA_Short"].iloc[-1] - data["EMA_Long"].iloc[-1]) / last_price * 100.0)
+        if ema_spread > 1.0:
+            line(f"Trend gücü: EMA farkı **{ema_spread:.2f}%** (güçlü).", "pos")
+        elif ema_spread < -1.0:
+            line(f"Trend gücü: EMA farkı **{ema_spread:.2f}%** (güçlü düşüş).", "neg")
+        else:
+            line(f"Trend gücü: EMA farkı **{ema_spread:.2f}%** (zayıf).", "neutral")
+    except Exception:
+        pass
+
+    # Fiyatın EMA_Trend'e göre konumu
+    try:
+        dist_trend = float((last_price - float(data["EMA_Trend"].iloc[-1])) / last_price * 100.0)
+        if dist_trend >= 0:
+            line(f"Fiyat uzun dönem EMA'nın **{dist_trend:.2f}%** üzerinde.", "pos")
+        else:
+            line(f"Fiyat uzun dönem EMA'nın **{abs(dist_trend):.2f}%** altında.", "neg")
+    except Exception:
+        pass
+
+    # MACD konumu + histogram eğimi
+    macd_now = float(data["MACD"].iloc[-1]); macd_sig_now = float(data["MACD_Signal"].iloc[-1])
+    macd_hist_now = float(data["MACD_Hist"].iloc[-1]) if "MACD_Hist" in data else 0.0
+    macd_hist_prev = float(data["MACD_Hist"].iloc[-2]) if "MACD_Hist" in data and len(data) >= 2 else macd_hist_now
+    if macd_now > macd_sig_now and bool(macd_cross_up.iloc[-1]):
+        line("MACD **sinyal üstünde** ve **yukarı kesişim** yeni oldu.", "pos")
+    elif macd_now > macd_sig_now:
+        line("MACD sinyal üstünde (pozitif momentum).", "pos")
+    else:
+        line("MACD sinyal altında (momentum zayıf).", "neg")
+    if macd_hist_now > macd_hist_prev:
+        line("MACD histogram **güçleniyor**.", "pos")
+    elif macd_hist_now < macd_hist_prev:
+        line("MACD histogram **zayıflıyor**.", "neg")
+
+    # RSI zonları
+    rsi_now = float(data["RSI"].iloc[-1])
+    if rsi_now < 30: line(f"RSI {rsi_now:.2f}: **aşırı satım** – erken alım riski.", "neg")
+    elif 30 <= rsi_now < 35: line(f"RSI {rsi_now:.2f}: dip bölge – onay beklenmeli.", "neutral")
+    elif 35 <= rsi_now <= 45: line(f"RSI {rsi_now:.2f}: **alım bölgesi** (EMA/MACD onayıyla).", "pos")
+    elif 45 < rsi_now < 60: line(f"RSI {rsi_now:.2f}: nötr-olumlu.", "neutral")
+    elif 60 <= rsi_now <= 70: line(f"RSI {rsi_now:.2f}: **güçlü momentum**.", "pos")
+    else: line(f"RSI {rsi_now:.2f}: **aşırı alım** – temkin.", "neg")
+
+    # Bollinger: konum + sıkışma
+    try:
+        bb_up = float(data["BB_Up"].iloc[-1]); bb_dn = float(data["BB_Down"].iloc[-1]); bb_md = float(data["BB_Mid"].iloc[-1])
+        if last_price <= bb_dn: line("Fiyat **alt banda** yakın (tepki potansiyeli).", "pos")
+        elif last_price >= bb_up: line("Fiyat **üst banda** yakın (ısınma).", "neg")
+        else: line("Fiyat bant içinde (nötr).", "neutral")
+        bww = (data["BB_Up"] - data["BB_Down"]) / data["BB_Mid"].abs().replace(0, np.nan)
+        pct = float((bww.rank(pct=True).iloc[-1]) * 100.0)
+        if pct <= 20:
+            line("Bollinger genişliği **düşük (sıkışma)** → kırılım potansiyeli.", "neutral")
+    except Exception:
+        pass
+
+    # Volatilite rejimi (ATR%)
+    try:
+        atr_pct_now = (atr_val / last_price * 100.0) if (atr_val == atr_val and last_price > 0) else float("nan")
+        atr_series = (data["ATR"] / data["Close"] * 100.0).dropna()
+        if len(atr_series) >= 30:
+            med = float(atr_series.rolling(60, min_periods=30).median().iloc[-1])
+            if atr_pct_now <= med * 0.8:
+                line(f"ATR% {atr_pct_now:.2f} → **düşük volatilite** (trend takip zor olabilir).", "neutral")
+            elif atr_pct_now >= med * 1.2:
+                line(f"ATR% {atr_pct_now:.2f} → **yüksek volatilite** (stop geniş tutulmalı).", "neg")
+    except Exception:
+        pass
+
+    # R:R kontrolü
+    try:
+        if rr_tp1 >= 2.0:
+            line(f"R:R (TP1) **{rr_tp1:.2f}** → hedef/riske oran **iyi**.", "pos")
+        elif 1.0 <= rr_tp1 < 2.0:
+            line(f"R:R (TP1) **{rr_tp1:.2f}** → orta karar.", "neutral")
+        else:
+            line(f"R:R (TP1) **{rr_tp1:.2f}** → zayıf.", "neg")
+    except Exception:
+        pass
+
+    # BTC bağlamı (altcoinlerde)
+    try:
+        if ticker.upper() != "BTC-USD" and ticker.upper().endswith("-USD"):
+            import yfinance as _yf
+            _b = _yf.download("BTC-USD", period=period, interval=interval, auto_adjust=False, progress=False)
+            if _b is not None and len(_b) > 0:
+                _b.columns = [str(c).title() for c in _b.columns]
+                _b_close = _b["Close"]
+                _e1 = _b_close.ewm(span=ema_short, adjust=False).mean()
+                _e2 = _b_close.ewm(span=ema_long, adjust=False).mean()
+                try:
+                    import pandas as _pd, numpy as _np
+                    _r = rsi(_pd, _np, _b_close, rsi_len)
+                    r_txt = f" | RSI {_r.iloc[-1]:.1f}"
+                except Exception:
+                    r_txt = ""
+                if bool((_e1 > _e2).iloc[-1]):
+                    line(f"BTC trend **yukarı**{r_txt} → altcoinler için **destekleyici**.", "pos")
+                else:
+                    line(f"BTC trend **aşağı**{r_txt} → altlar üzerinde **baskı**.", "neg")
+    except Exception:
+        pass
+
+    # Haber akışı placeholder
+    line("Haber akışı: Seçili varlığa dair başlıklar burada özetlenecek. (geliştiriliyor)", "neutral")
     def line(text, kind="neutral"):
         if kind == "pos":
             color = "#0f9d58"; dot = "🟢"
@@ -361,11 +499,12 @@ with tab_graf:
             st.line_chart(pd.DataFrame({"Close": close}))
             # Ek olarak EMA çizgilerini tablo ile göster
             e1 = ema(pd, close, ema_short); e2 = ema(pd, close, ema_long); et = ema(pd, close, ema_trend)
-            st.dataframe(pd.DataFrame({
+            # (tablo kaldırıldı)
+# st.dataframe(pd.DataFrame({
                 f"EMA{ema_short}": e1.tail(10),
                 f"EMA{ema_long}": e2.tail(10),
                 f"EMA{ema_trend}": et.tail(10),
-            }), use_container_width=True)
+            # }))
 
 # ---------- REHBER ----------
 with tab_guide:
