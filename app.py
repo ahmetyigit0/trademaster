@@ -166,6 +166,28 @@ def market_score(btc_trend_up: bool|None, btc_rsi: float|None, vix_last: float|N
         elif dom_last >= 55: score -= 8
     return float(np.clip(score, 0, 100))
 
+
+def last_scalar(x):
+    """Return a float scalar from Series/DataFrame/ndarray; np.nan on failure."""
+    try:
+        v = x.iloc[-1]
+    except Exception:
+        try:
+            v = x[-1]
+        except Exception:
+            v = x
+    if isinstance(v, (pd.Series, pd.DataFrame)):
+        v = v.to_numpy().ravel()
+    if isinstance(v, (list, tuple)):
+        v = np.array(v)
+    if isinstance(v, np.ndarray):
+        v = v.ravel()[0] if v.size else np.nan
+    try:
+        return float(v)
+    except Exception:
+        return np.nan
+
+
 def last_close_of(df_):
     try:
         return float(df_["Close"].iloc[-1])
@@ -558,17 +580,20 @@ with tab_watch:
             continue
         d = d.rename(columns=str.title)
         close = d["Close"]
+        if isinstance(close, pd.DataFrame):
+            close = close.iloc[:,0]
         e1 = ema(close, ema_short); e2 = ema(close, ema_long)
         r = rsi(close, rsi_len)
         macd_l, macd_s, _ = macd(close, macd_fast, macd_slow, macd_sig)
-        bull = (e1 > e2).iloc[-1]
-        macd_ok = macd_l.iloc[-1] > macd_s.iloc[-1]
-        rsi_okay = (r.iloc[-1] >= rsi_buy_min) and (r.iloc[-1] <= rsi_buy_max)
+        bull = bool((e1 > e2).iloc[-1])
+        macd_ok = bool(last_scalar(macd_l) > last_scalar(macd_s))
+        r_last = last_scalar(r)
+        rsi_okay = (r_last >= rsi_buy_min) and (r_last <= rsi_buy_max)
         buy_sig = bool(bull and (macd_ok or rsi_okay))
         rows.append({
             "Ticker": t,
-            "Son Fiyat": fmt(close.iloc[-1]),
-            "RSI": f"{float(r.iloc[-1]):.2f}",
+            "Son Fiyat": fmt(last_scalar(close)),
+            "RSI": f"{r_last:.2f}",
             "Trend": "↑" if bull else "↓",
             "Sinyal": "AL" if buy_sig else "—"
         })
