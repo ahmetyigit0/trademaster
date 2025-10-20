@@ -570,7 +570,7 @@ with tab_guide:
 # ========== WATCHLIST ==========
 with tab_watch:
     st.subheader("📋 Watchlist")
-    wl = st.text_area("Ticker listesi (virgülle ayırın)", "BTC-USD,ETH-USD,THETA-USD,SOL-USD,BNB-USD")
+    wl = st.text_area("Ticker listesi (virgülle ayırın)", "BTC-USD,ETH-USD,THETA-USD,SOL-USD,BNB-USD", key="watchlist_tickers")
     tickers = [t.strip().upper() for t in wl.split(",") if t.strip()][:20]
     rows = []
     for t in tickers:
@@ -691,7 +691,7 @@ with tab_bt:
 # ========== CORRELATION ==========
 with tab_corr:
     st.subheader("📈 Korelasyon (BTC ile ve aralarında)")
-    wl2 = st.text_area("Ticker listesi (virgülle ayırın)", "BTC-USD,ETH-USD,THETA-USD,SOL-USD,BNB-USD")
+    wl2 = st.text_area("Ticker listesi (virgülle ayırın)", "BTC-USD,ETH-USD,THETA-USD,SOL-USD,BNB-USD", key="corr_tickers")
     tickers2 = [t.strip().upper() for t in wl2.split(",") if t.strip()][:15]
     # Load and align
     prices = []
