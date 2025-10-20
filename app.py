@@ -42,7 +42,7 @@ def load_yf(ticker: str, period="1y", interval="1d"):
         df = yf.download(ticker, period=period, interval=interval, auto_adjust=False, progress=False)
         if df is None or df.empty:
             return None
-        df = df.rename(columns=str.title)
+        df = normalize_ohlc(df)
         df.index.name = "Date"
         return df
     except Exception:
@@ -121,6 +121,30 @@ def fib_levels(a, b):
     }
 
 def colored(text, kind="neutral"):
+
+def _titleize_cols(cols):
+    out = []
+    for c in cols:
+        try:
+            out.append(str(c).title())
+        except Exception:
+            out.append(str(c))
+    return out
+
+def normalize_ohlc(df: pd.DataFrame) -> pd.DataFrame:
+    \"\"\"Return a copy with stringified Title() columns and ensure Close exists (fallback to Adj Close).\"\"\"
+    if df is None or df.empty:
+        return df
+    df = df.copy()
+    try:
+        df.columns = _titleize_cols(df.columns)
+    except Exception:
+        # Fallback: brute force mapping
+        df.columns = [str(c) for c in df.columns]
+    if "Close" not in df.columns and "Adj Close" in df.columns:
+        df["Close"] = df["Adj Close"]
+    return df
+
     if kind == "pos":
         color = "#0f9d58"; dot = "🟢"
     elif kind == "neg":
@@ -322,7 +346,7 @@ with tab_an:
     # BTC context indicators
     btc_ctx = {}
     if btc_df is not None and not btc_df.empty:
-        b = btc_df.rename(columns=str.title).copy()
+        b = normalize_ohlc(btc_df).copy()
         b["EMA_Short"] = ema(b["Close"], ema_short)
         b["EMA_Long"]  = ema(b["Close"], ema_long)
         b["RSI"] = rsi(b["Close"], rsi_len)
@@ -578,7 +602,7 @@ with tab_watch:
         if d is None or d.empty:
             rows.append({"Ticker": t, "Son Fiyat": "—", "RSI": "—", "Trend": "—", "Sinyal": "—"})
             continue
-        d = d.rename(columns=str.title)
+        d = normalize_ohlc(d)
         close = d["Close"]
         if isinstance(close, pd.DataFrame):
             close = close.iloc[:,0]
@@ -606,7 +630,7 @@ with tab_regime:
     # BTC context
     btc_trend_up = None; btc_rsi = np.nan
     if btc_df is not None and not btc_df.empty:
-        b = btc_df.rename(columns=str.title).copy()
+        b = normalize_ohlc(btc_df).copy()
         close_s = get_series(b, "Close")
         e_s = ema(close_s, ema_short); e_l = ema(close_s, ema_long)
         btc_trend_up = bool(float((e_s - e_l).iloc[-1]) > 0)
@@ -652,7 +676,7 @@ with tab_bt:
     if df_bt is None or df_bt.empty:
         st.warning("Veri alınamadı.")
     else:
-        d = df_bt.rename(columns=str.title).copy()
+        d = normalize_ohlc(df_bt).copy()
         d["EMA_S"] = ema(d["Close"], ema_short)
         d["EMA_L"] = ema(d["Close"], ema_long)
         d["RSI"]   = rsi(d["Close"], rsi_len)
@@ -699,7 +723,8 @@ with tab_corr:
     for t in tickers2:
         d = load_yf(t, "1y", "1d")
         if d is None or d.empty: continue
-        close = d.rename(columns=str.title)["Close"].rename(t)
+        d = normalize_ohlc(d)
+        close = get_series(d, "Close").rename(t)
         prices.append(close)
         names.append(t)
     if len(prices) >= 2:
