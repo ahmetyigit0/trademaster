@@ -10,6 +10,14 @@ st.caption("Eğitim amaçlıdır; yatırım tavsiyesi değildir.")
 # =========================
 # Helpers
 # =========================
+COMMON_TICKERS = [
+    "BTC-USD","ETH-USD","BNB-USD","SOL-USD","XRP-USD","ADA-USD","DOGE-USD","TRX-USD","TON-USD","AVAX-USD",
+    "LINK-USD","DOT-USD","MATIC-USD","LTC-USD","APT-USD","ATOM-USD","FIL-USD","XLM-USD","ICP-USD","ETC-USD",
+    "HBAR-USD","OKB-USD","NEAR-USD","ALGO-USD","INJ-USD","SUI-USD","AR-USD","AAVE-USD","OP-USD","THETA-USD",
+    "RUNE-USD","FTM-USD","GRT-USD","EGLD-USD","KAS-USD","SAND-USD","MANA-USD","APE-USD","IMX-USD","SEI-USD",
+    "PEPE-USD","BONK-USD","WIF-USD","PYTH-USD","JUP-USD","JASMY-USD","ORDI-USD","TAO-USD","TIA-USD","ENA-USD"
+]
+
 @st.cache_data(ttl=1800, show_spinner=True)
 def load_yf(ticker: str, period="6mo", interval="1d"):
     try:
@@ -24,7 +32,16 @@ def load_yf(ticker: str, period="6mo", interval="1d"):
         return None
 
 def to_num(s):
-    s = s.astype(str).str.replace(",", "", regex=False).str.replace(" ", "", regex=False)
+    # Accept Series or DataFrame; always return numeric Series
+    if isinstance(s, pd.DataFrame):
+        s = s.iloc[:, 0]
+    try:
+        s = s.astype(str)
+    except Exception:
+        s = s.apply(lambda x: str(x) if x is not None else "")
+    s = (s.str.replace(",", "", regex=False)
+           .str.replace(" ", "", regex=False)
+           .replace({"": np.nan, "None": np.nan, "none": np.nan, "NaN": np.nan, "nan": np.nan}))
     return pd.to_numeric(s, errors="coerce")
 
 def ema(s, n): return s.ewm(span=n, adjust=False).mean()
@@ -77,56 +94,45 @@ def fib_levels(a, b):
         "1.0": a,
     }
 
+def resolve_ticker(user_text: str):
+    if not user_text:
+        return "BTC-USD", COMMON_TICKERS
+    t = user_text.strip().upper()
+    # If user already typed a full Yahoo-style ticker, accept
+    if t.endswith("-USD"):
+        matches = [x for x in COMMON_TICKERS if t.split("-")[0] in x]
+        return t, sorted(matches)
+    # Otherwise find best match from COMMON_TICKERS
+    starts = [x for x in COMMON_TICKERS if x.startswith(t)]
+    contains = [x for x in COMMON_TICKERS if t in x and x not in starts]
+    ordered = sorted(starts) + sorted(contains)
+    if ordered:
+        return ordered[0], ordered
+    # fallback
+    return "BTC-USD", sorted(COMMON_TICKERS)
+
 # =========================
-# Sidebar — Data & Settings
+# Sidebar — Inputs
 # =========================
 st.sidebar.header("📥 Veri Kaynağı")
-
 src = st.sidebar.radio("Kaynak", ["YFinance (internet)", "CSV Yükle"], index=0)
-
-# --- Crypto suggestions ---
-COMMON_TICKERS = [
-    "BTC-USD","ETH-USD","BNB-USD","SOL-USD","XRP-USD","ADA-USD","DOGE-USD","TRX-USD","TON-USD","AVAX-USD",
-    "LINK-USD","DOT-USD","MATIC-USD","LTC-USD","APT-USD","ATOM-USD","FIL-USD","XLM-USD","ICP-USD","ETC-USD",
-    "HBAR-USD","OKB-USD","NEAR-USD","ALGO-USD","INJ-USD","SUI-USD","AR-USD","AAVE-USD","OP-USD","THETA-USD",
-    "RUNE-USD","FTM-USD","GRT-USD","EGLD-USD","KAS-USD","SAND-USD","MANA-USD","APE-USD","IMX-USD","SEI-USD",
-    "PEPE-USD","BONK-USD","WIF-USD","PYTH-USD","JUP-USD","JASMY-USD","ORDI-USD","TAO-USD","TIA-USD","ENA-USD"
-]
-
-# Kripto Değer (search box)
-query = st.sidebar.text_input("🔎 Kripto Değer", value="THETA-USD", help="Örn: THETA-USD, BTC-USD, ETH-USD")
-# Suggestions based on query
-if query:
-    q = query.lower()
-    suggestions = [t for t in COMMON_TICKERS if q in t.lower()][:15]
-else:
-    suggestions = COMMON_TICKERS[:15]
-
-sel = st.sidebar.selectbox("Öneriler", options=suggestions, index=min( suggestions.index("THETA-USD") if "THETA-USD" in suggestions else 0, len(suggestions)-1 ))
-
+user_ticker_text = st.sidebar.text_input("🔎 Kripto Değer", value="THETA", help="Örn: THETA, BTC-USD")
 period = st.sidebar.selectbox("Periyot", ["3mo","6mo","1y","2y","5y"], index=1)
 interval = st.sidebar.selectbox("Zaman Dilimi", ["1d","4h","1h"], index=0)
-
-uploaded = None
-if src == "CSV Yükle":
-    uploaded = st.sidebar.file_uploader("CSV (Date,Open,High,Low,Close,Volume)", type=["csv"])
+uploaded = st.sidebar.file_uploader("CSV (opsiyonel, Date/Open/High/Low/Close/Volume)", type=["csv"]) if src == "CSV Yükle" else None
 
 st.sidebar.header("⚙️ Strateji Ayarları")
 ema_short = st.sidebar.number_input("EMA Kısa", 3, 50, 9)
 ema_long  = st.sidebar.number_input("EMA Uzun", 10, 300, 21)
 ema_trend = st.sidebar.number_input("EMA Trend (uzun)", 50, 400, 200, step=10)
-
 rsi_len   = st.sidebar.number_input("RSI Periyot", 5, 50, 14)
 rsi_buy_min = st.sidebar.slider("RSI Alım Alt Sınır", 10, 60, 40)
 rsi_buy_max = st.sidebar.slider("RSI Alım Üst Sınır", 40, 90, 70)
-
 macd_fast = st.sidebar.number_input("MACD Hızlı", 3, 50, 12)
 macd_slow = st.sidebar.number_input("MACD Yavaş", 6, 200, 26)
 macd_sig  = st.sidebar.number_input("MACD Sinyal", 3, 50, 9)
-
 bb_len    = st.sidebar.number_input("Bollinger Periyot", 5, 100, 20)
 bb_std    = st.sidebar.slider("Bollinger Std", 1.0, 3.5, 2.0, 0.1)
-
 fib_lookback = st.sidebar.number_input("Fibonacci Lookback (gün)", 20, 400, 120, 5)
 
 st.sidebar.header("💰 Risk / Pozisyon")
@@ -142,25 +148,27 @@ tp2_r       = st.sidebar.slider("TP2", 0.5, 10.0, 2.0, 0.1)
 tp3_r       = st.sidebar.slider("TP3", 0.5, 15.0, 3.0, 0.1)
 tp_pct      = st.sidebar.slider("TP %", 0.5, 50.0, 5.0, 0.5)
 
+# Resolve ticker & matches (display only; no suggestion widget)
+ticker, matches = resolve_ticker(user_ticker_text)
+
 # =========================
 # Load data
 # =========================
 if src == "YFinance (internet)":
-    df = load_yf(sel if query == "" else (query if query.upper().endswith("-USD") else sel), period, interval)
+    df = load_yf(ticker, period, interval)
 else:
     df = None
     if uploaded:
         try:
             raw = pd.read_csv(uploaded)
-            # normalize columns
-            cols = {c.lower(): c for c in raw.columns}
+            cols = {str(c).lower(): c for c in raw.columns}
             need = ["date","open","high","low","close","volume"]
             if all(n in cols for n in need):
                 df = raw[[cols[n] for n in need]].copy()
                 df.columns = ["Date","Open","High","Low","Close","Volume"]
             else:
                 df = raw.copy()
-                df.columns = [c.title() for c in df.columns]
+                df.columns = [str(c).title() for c in df.columns]
             if "Date" in df.columns:
                 df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
                 df = df.dropna(subset=["Date"]).sort_values("Date").set_index("Date")
@@ -174,7 +182,6 @@ if df is None or df.empty:
     st.warning("Veri alınamadı. Farklı period/interval deneyin veya CSV yükleyin.")
     st.stop()
 
-# Ensure numeric
 for c in ["Open","High","Low","Close","Volume"]:
     if c in df.columns:
         df[c] = to_num(df[c])
@@ -207,12 +214,11 @@ bull = data["EMA_Short"] > data["EMA_Long"]
 macd_cross_up = (data["MACD"] > data["MACD_Signal"]) & (data["MACD"].shift(1) <= data["MACD_Signal"].shift(1))
 rsi_ok = (data["RSI"] >= rsi_buy_min) & (data["RSI"] <= rsi_buy_max)
 
-# composite signal
-buy_now = bull.iloc[-1] and (macd_cross_up.iloc[-1] or rsi_ok.iloc[-1])
-sell_now = (not bull.iloc[-1]) and (data["MACD"].iloc[-1] < data["MACD_Signal"].iloc[-1])
+buy_now = bool(bull.iloc[-1] and (macd_cross_up.iloc[-1] or rsi_ok.iloc[-1]))
+sell_now = bool((not bull.iloc[-1]) and (data["MACD"].iloc[-1] < data["MACD_Signal"].iloc[-1]))
 
 last_close = float(data["Close"].iloc[-1])
-entry_price = last_close  # Plan: piyasa/limit, kullanıcı dilerse değiştirir
+entry_price = last_close
 atr_val = float(data["ATR"].iloc[-1]) if np.isfinite(data["ATR"].iloc[-1]) else np.nan
 
 # Stop & TP
@@ -251,11 +257,11 @@ else:
     headline = "⏸ SİNYAL: BEKLE"
 
 # =========================
-# Output (no charts)
+# Output
 # =========================
 st.subheader("📌 Özet")
 st.markdown(f"""
-**Kripto:** `{sel if query=='' else query}`  
+**Kripto:** `{ticker}`  
 **Son Fiyat:** **{fmt(last_close)}**  
 **Durum:** **{headline}**
 """)
@@ -287,5 +293,13 @@ with st.expander("🔍 Detaylar (Gerekçeler)"):
     else:
         st.write(f"- **ATR:** — (OHLC eksik; stop sabit % ile)")
 
+# Matching list (display only)
 st.markdown("---")
-st.caption("Not: Bu çıktı yalnızca eğitim amaçlıdır. İşlem kararı risk içerir; finansal tavsiye değildir.")
+st.subheader("🔎 Eşleşen Coinler")
+if matches:
+    st.write(", ".join(matches))
+else:
+    st.write("Eşleşme bulunamadı.")
+
+st.markdown("---")
+st.caption("Not: Tek bir 'Kripto Değer' kutusu vardır; yazdıkça otomatik eşleşen semboller listelenir ve en iyi eşleşme analiz edilir. Grafik yoktur; özet sinyal ve gerekçeler gösterilir.")
