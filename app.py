@@ -44,6 +44,15 @@ def to_num(s):
            .replace({"": np.nan, "None": np.nan, "none": np.nan, "NaN": np.nan, "nan": np.nan}))
     return pd.to_numeric(s, errors="coerce")
 
+def get_series(df: pd.DataFrame, col: str) -> pd.Series:
+    """Return a 1-D Series for a given column name even if duplicates exist."""
+    if col in df.columns:
+        s = df[col]
+        if isinstance(s, pd.DataFrame):
+            s = s.iloc[:, 0]
+        return s
+    return pd.Series(index=df.index, dtype=float)
+
 def ema(s, n): return s.ewm(span=n, adjust=False).mean()
 
 def rsi(close, n=14):
@@ -145,7 +154,7 @@ tp2_r       = st.sidebar.slider("TP2", 0.5, 10.0, 2.0, 0.1)
 tp3_r       = st.sidebar.slider("TP3", 0.5, 15.0, 3.0, 0.1)
 tp_pct      = st.sidebar.slider("TP %", 0.5, 50.0, 5.0, 0.5)
 
-# Resolve ticker & matches (display only; no suggestion widget)
+# Resolve ticker & matches
 ticker, matches = resolve_ticker(user_ticker_text)
 
 # =========================
@@ -199,32 +208,27 @@ else:
     data["ATR"] = np.nan
 
 # =========================
-# Fibonacci (robust)
+# Fibonacci (safe 1-D)
 # =========================
 lb = max(int(fib_lookback), 20)
 recent = data.tail(lb)
 
-# Safe swings
-if "High" in recent:
-    hi_series = pd.to_numeric(recent["High"], errors="coerce").dropna()
-else:
-    hi_series = pd.to_numeric(recent["Close"], errors="coerce").dropna()
+hi_series = get_series(recent, "High") if "High" in list(recent.columns) else get_series(recent, "Close")
+lo_series = get_series(recent, "Low")  if "Low"  in list(recent.columns) else get_series(recent, "Close")
+cl_series = get_series(recent, "Close")
 
-if "Low" in recent:
-    lo_series = pd.to_numeric(recent["Low"], errors="coerce").dropna()
-else:
-    lo_series = pd.to_numeric(recent["Close"], errors="coerce").dropna()
+hi_series = pd.to_numeric(hi_series, errors="coerce").dropna()
+lo_series = pd.to_numeric(lo_series, errors="coerce").dropna()
+cl_series = pd.to_numeric(cl_series, errors="coerce").dropna()
 
-close_series = pd.to_numeric(recent["Close"], errors="coerce").dropna()
-
-if hi_series.empty or lo_series.empty or close_series.empty:
+if hi_series.empty or lo_series.empty or cl_series.empty:
     swing_high = swing_low = last_close = np.nan
     fibs = {}
     trend_up_bool = False
 else:
     swing_high = float(hi_series.max())
     swing_low  = float(lo_series.min())
-    last_close = float(close_series.iloc[-1])
+    last_close = float(cl_series.iloc[-1])
     mid = (swing_low + swing_high) / 2.0
     trend_up_bool = bool(last_close > mid)
     a, b = (swing_low, swing_high) if trend_up_bool else (swing_high, swing_low)
@@ -319,7 +323,7 @@ with st.expander("🔍 Detaylar (Gerekçeler)"):
     else:
         fib_text = "yetersiz veri"
     st.write(f"- **Bollinger:** {bb_pos}")
-    st.write(f"- **EMA:** {ema_state}")
+    st.write(f("- **EMA:** {ema_state}"))
     st.write(f"- **MACD:** {macd_state} | {macd_x}")
     st.write(f"- **RSI:** {rsi_state}")
     st.write(f"- **Fibonacci:** {fib_text}")
