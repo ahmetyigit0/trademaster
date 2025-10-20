@@ -607,8 +607,10 @@ with tab_regime:
     btc_trend_up = None; btc_rsi = np.nan
     if btc_df is not None and not btc_df.empty:
         b = btc_df.rename(columns=str.title).copy()
-        btc_trend_up = bool((ema(b["Close"], ema_short) > ema(b["Close"], ema_long)).iloc[-1])
-        btc_rsi = float(rsi(b["Close"], rsi_len).iloc[-1])
+        close_s = get_series(b, "Close")
+        e_s = ema(close_s, ema_short); e_l = ema(close_s, ema_long)
+        btc_trend_up = bool(float((e_s - e_l).iloc[-1]) > 0)
+        btc_rsi = float(rsi(close_s, rsi_len).iloc[-1])
     vix_last = last_close_of(vix_df) if vix_df is not None else np.nan
     dxy_last = last_close_of(dxy_df) if dxy_df is not None else np.nan
     dom_last = last_close_of(dom_df) if dom_df is not None else np.nan
