@@ -259,11 +259,22 @@ with tab_an:
     sell_now = bool((not bull) and (data["MACD"].iloc[-1] < data["MACD_Signal"].iloc[-1]))
 
     atr_val = last_scalar(pd, np, data["ATR"])
-    if stop_mode == "ATR x K" and atr_val == atr_val:
-        stop_price_long = last_price - max(atr_val * atr_k, 1e-9)
+    # --- Robust stop logic ---
+    if stop_mode == "ATR x K":
+        atr_ok = (atr_val == atr_val) and (atr_val > 0)
+        if atr_ok:
+            stop_price_long = last_price - atr_val * atr_k
+        else:
+            # Fallback: ATR yok/0 ise sabit yüzde stopa düş
+            stop_price_long = last_price * (1 - max(stop_pct, 0.5)/100.0)
     else:
-        stop_price_long = last_price * (1 - stop_pct/100.0)
-    risk_long = max(last_price - stop_price_long, 1e-9)
+        stop_price_long = last_price * (1 - max(stop_pct, 0.5)/100.0)
+
+    # Güvenlik: stop girişe çok yakınsa makul minimuma çek
+    if stop_price_long >= last_price * 0.9999:
+        stop_price_long = last_price * (1 - max(stop_pct, 1.0)/100.0)
+
+    risk_long = max(last_price - stop_price_long, 1e-6)
 
     if tp_mode == "R-multiple":
         tp1_long = last_price + tp1_r * risk_long
