@@ -3,7 +3,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime
-import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="TradeMaster", layout="wide")
 st.title("🧭 TradeMaster")
@@ -374,6 +373,13 @@ with tab_an:
 
 # ========== GRAFIK ==========
 with tab_graf:
+    # Lazy import matplotlib (fallback if missing)
+    try:
+        import matplotlib.pyplot as plt
+        _HAS_MPL = True
+    except Exception as _e:
+        _HAS_MPL = False
+        st.warning("Matplotlib yüklü değil. `requirements.txt` içine `matplotlib` ekleyin ya da aşağıdaki basit grafikleri kullanın.")
     df = load_asset()
     if df is None or df.empty:
         st.warning("Veri alınamadı.")
@@ -386,7 +392,15 @@ with tab_graf:
         m_l, m_s, m_h = macd(close, macd_fast, macd_slow, macd_sig)
 
         # Price + EMAs + BB
-        fig1, ax1 = plt.subplots(figsize=(10,4))
+        if not _HAS_MPL:
+            st.line_chart(pd.DataFrame({
+                'Close': close,
+                f'EMA{ema_short}': ema_s,
+                f'EMA{ema_long}': ema_l,
+                f'EMA{ema_trend}': ema_t
+            }))
+        else:
+            fig1, ax1 = plt.subplots(figsize=(10,4))
         ax1.plot(d.index, close, label="Close")
         ax1.plot(d.index, ema_s, label=f"EMA{ema_short}")
         ax1.plot(d.index, ema_l, label=f"EMA{ema_long}")
@@ -396,25 +410,31 @@ with tab_graf:
         ax1.plot(d.index, bb_d, label="BB Lower")
         ax1.set_title(f"{ticker} Fiyat")
         ax1.legend(loc="upper left")
-        st.pyplot(fig1)
+        st.pyplot(fig1) if _HAS_MPL else None
 
         # RSI
-        fig2, ax2 = plt.subplots(figsize=(10,2.8))
+        if not _HAS_MPL:
+            st.line_chart(pd.DataFrame({'RSI': r}))
+        else:
+            fig2, ax2 = plt.subplots(figsize=(10,2.8))
         ax2.plot(d.index, r, label="RSI")
         ax2.axhline(30, linestyle="--")
         ax2.axhline(70, linestyle="--")
         ax2.set_title("RSI")
         ax2.legend(loc="upper left")
-        st.pyplot(fig2)
+        st.pyplot(fig2) if _HAS_MPL else None
 
         # MACD
-        fig3, ax3 = plt.subplots(figsize=(10,2.8))
+        if not _HAS_MPL:
+            st.line_chart(pd.DataFrame({'MACD': m_l, 'Signal': m_s}))
+        else:
+            fig3, ax3 = plt.subplots(figsize=(10,2.8))
         ax3.plot(d.index, m_l, label="MACD")
         ax3.plot(d.index, m_s, label="Signal")
         ax3.bar(d.index, m_h, label="Hist")
         ax3.set_title("MACD")
         ax3.legend(loc="upper left")
-        st.pyplot(fig3)
+        st.pyplot(fig3) if _HAS_MPL else None
 
 # ========== REHBER ==========
 with tab_guide:
