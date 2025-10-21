@@ -16,7 +16,7 @@ def check_password():
     
     def password_entered():
         """Kullanıcının girdiği şifreyi kontrol et"""
-        if st.session_state["password"] == "password":  # Basit kontrol
+        if st.session_state["password"] == "efe":  # Basit kontrol
             st.session_state["password_correct"] = True
             del st.session_state["password"]  # Şifreyi bellekten temizle
         else:
@@ -31,7 +31,7 @@ def check_password():
             key="password",
             help="Şifreyi giriniz"
         )
-        st.write("**Demo Şifre:** `password`")
+        st.write("`")
         return False
     
     # Şifre yanlışsa
