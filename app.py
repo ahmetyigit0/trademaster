@@ -22,7 +22,7 @@ try:
         
         # Mevcut fiyat
         current_price = data['Close'].iloc[-1]
-        st.metric("💰 Mevcut BTC Fiyatı", f"${current_price:.2f}")
+        st.metric("Mevcut BTC Fiyatı", f"${current_price:.2f}")
         
 except Exception as e:
     st.error(f"❌ Hata: {e}")
