@@ -311,16 +311,15 @@ if len(cl_tail) >= 2:
     posc = int((chg > 0).sum()); negc = int((chg < 0).sum())
     comment = "momentum yukari" if posc >= 3 else ("momentum asagi" if negc >= 3 else "yanal/sikisik")
     st.caption(f"Pozitif: {posc}, Negatif: {negc} -> {comment}")
-
 st.subheader("🎯 Sinyal (Öneri)")
-    if buy_now:
-        st.markdown(f"""
-- **Giriş (Long):** **{last_price:.6f}**
-- **Önerilen Miktar:** ~ **{qty:.4f}** birim (≈ **${position_value:,.2f}**)
-- **Stop (Long):** **{stop_price_long:.6f}**
-- **TP1 / TP2 / TP3 (Long):** **{tp1_long:.6f}** / **{tp2_long:.6f}** / **{tp3_long:.6f}**
-- **Risk:** Sermayenin %{risk_pct:.1f}’i (max pozisyon %{max_alloc:.0f})
-        """)
+if buy_now:
+    st.markdown(f"""
+    - **Giriş (Long):** **{last_price:.6f}**
+    - **Önerilen Miktar:** ~ **{qty:.4f}** birim (≈ **${position_value:,.2f}**)
+    - **Stop (Long):** **{stop_price_long:.6f}**
+    - **TP1 / TP2 / TP3 (Long):** **{tp1_long:.6f}** / **{tp2_long:.6f}** / **{tp3_long:.6f}**
+    - **Risk:** Sermayenin %{risk_pct:.1f}’i (maks. pozisyon %{effective_max_alloc:.0f})
+    """)
     elif sell_now:
         st.markdown(f"""
 - **Aksiyon:** **Long kapat / short düşün**
