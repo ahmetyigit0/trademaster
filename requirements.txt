@@ -1,6 +1,6 @@
 # requirements.txt
 streamlit
+yfinance
 pandas
 numpy
-yfinance
-plotly
+matplotlib
