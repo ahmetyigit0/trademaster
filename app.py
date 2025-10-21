@@ -84,21 +84,20 @@ def create_bollinger_mini_chart(data, height=120):
         recent_data = data.tail(20)
         fig, ax = plt.subplots(figsize=(6, height/80))
         
-        bb_prox = (recent_data['Close'] - recent_data['BB_Lower']) / (recent_data['BB_Upper'] - recent_data['BB_Lower'])
+        # Basit çözüm: Doğrudan fiyat ve bantları çiz
+        x_values = range(len(recent_data))
         
-        x_values = range(len(bb_prox))
-        ax.plot(x_values, bb_prox.values, color='blue', linewidth=1.5)
-        ax.axhline(y=0, color='red', linestyle='--', alpha=0.7, linewidth=1)
-        ax.axhline(y=0.5, color='gray', linestyle='--', alpha=0.7, linewidth=1)
-        ax.axhline(y=1, color='green', linestyle='--', alpha=0.7, linewidth=1)
-        ax.plot(len(bb_prox)-1, bb_prox.iloc[-1], 'ro', markersize=5)
+        ax.plot(x_values, recent_data['Close'].values, color='blue', linewidth=2, label='Fiyat')
+        ax.plot(x_values, recent_data['BB_Upper'].values, color='red', linestyle='--', linewidth=1, label='Üst Band')
+        ax.plot(x_values, recent_data['BB_Lower'].values, color='green', linestyle='--', linewidth=1, label='Alt Band')
+        ax.plot(x_values, recent_data['BB_Middle'].values, color='orange', linestyle=':', linewidth=1, label='Orta Band')
         
-        ax.set_ylim(-0.1, 1.1)
-        ax.set_ylabel('BB Prox')
+        ax.set_ylabel('Fiyat & Bantlar')
+        ax.legend(fontsize=6)
         ax.grid(True, alpha=0.3)
         plt.tight_layout()
         return fig
-    except:
+    except Exception as e:
         return None
 
 def create_rsi_mini_chart(data, height=120):
@@ -300,7 +299,7 @@ try:
         col1, col2, col3, col4 = st.columns([2, 2, 1, 2])
         
         with col1:
-            st.write("**Bollinger Yakınlık**")
+            st.write("**Bollinger Bantları**")
             bb_chart = create_bollinger_mini_chart(data)
             if bb_chart:
                 st.pyplot(bb_chart)
