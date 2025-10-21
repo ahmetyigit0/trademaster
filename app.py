@@ -80,74 +80,79 @@ def calculate_atr(high, low, close, period=14):
 
 def create_bollinger_mini_chart(data, height=120):
     """Bollinger yakınlık mini grafiği"""
-    if len(data) < 50:
+    try:
+        if len(data) < 50:
+            return None
+        
+        recent_data = data.tail(50)
+        fig, ax = plt.subplots(figsize=(6, height/80))
+        
+        # Normalize değeri hesapla: (Close - Lower) / (Upper - Lower)
+        bb_prox = (recent_data['Close'] - recent_data['BB_Lower']) / (recent_data['BB_Upper'] - recent_data['BB_Lower'])
+        
+        # X eksenini oluştur - basit indeks
+        x_values = np.arange(len(bb_prox))
+        
+        ax.plot(x_values, bb_prox.values, color='blue', linewidth=1.5)
+        ax.axhline(y=0, color='red', linestyle='--', alpha=0.7, linewidth=1)
+        ax.axhline(y=0.5, color='gray', linestyle='--', alpha=0.7, linewidth=1)
+        ax.axhline(y=1, color='green', linestyle='--', alpha=0.7, linewidth=1)
+        
+        # Son noktayı işaretle
+        ax.scatter(x_values[-1], bb_prox.iloc[-1], color='red', s=30, zorder=5)
+        
+        ax.set_ylim(-0.1, 1.1)
+        ax.set_ylabel('BB Prox')
+        ax.grid(True, alpha=0.3)
+        ax.set_facecolor('#f8f9fa')
+        plt.tight_layout()
+        return fig
+    except Exception as e:
         return None
-    
-    recent_data = data.tail(50)
-    fig, ax = plt.subplots(figsize=(8, height/80))
-    
-    # Normalize değeri hesapla: (Close - Lower) / (Upper - Lower)
-    bb_prox = (recent_data['Close'] - recent_data['BB_Lower']) / (recent_data['BB_Upper'] - recent_data['BB_Lower'])
-    
-    # X eksenini oluştur (0'dan başlayan indeks)
-    x_values = list(range(len(bb_prox)))
-    
-    ax.plot(x_values, bb_prox.values, color='blue', linewidth=1)
-    ax.axhline(y=0, color='red', linestyle='--', alpha=0.7, linewidth=0.8)
-    ax.axhline(y=0.5, color='gray', linestyle='--', alpha=0.7, linewidth=0.8)
-    ax.axhline(y=1, color='green', linestyle='--', alpha=0.7, linewidth=0.8)
-    
-    # Son noktayı işaretle - x ve y boyutları eşit olacak
-    last_x = x_values[-1]
-    last_y = bb_prox.iloc[-1]
-    ax.plot(last_x, last_y, 'o', markersize=5, color='red')
-    
-    ax.set_ylim(-0.1, 1.1)
-    ax.set_ylabel('BB Prox')
-    ax.grid(True, alpha=0.3)
-    ax.set_facecolor('white')
-    plt.tight_layout()
-    return fig
 
 def create_rsi_mini_chart(data, height=120):
     """RSI mini grafiği"""
-    if len(data) < 20:
+    try:
+        if len(data) < 20:
+            return None
+        
+        recent_data = data.tail(20)
+        fig, ax = plt.subplots(figsize=(6, height/80))
+        
+        # X eksenini oluştur
+        x_values = np.arange(len(recent_data))
+        
+        ax.plot(x_values, recent_data['RSI'].values, color='purple', linewidth=1.5)
+        ax.axhline(y=30, color='green', linestyle='--', alpha=0.8, linewidth=1.2, label='Oversold')
+        ax.axhline(y=70, color='red', linestyle='--', alpha=0.8, linewidth=1.2, label='Overbought')
+        ax.axhline(y=50, color='gray', linestyle=':', alpha=0.5, linewidth=0.8)
+        
+        # Son noktayı işaretle
+        ax.scatter(x_values[-1], recent_data['RSI'].iloc[-1], color='red', s=30, zorder=5)
+        
+        ax.set_ylim(0, 100)
+        ax.set_ylabel('RSI')
+        ax.grid(True, alpha=0.3)
+        ax.set_facecolor('#f8f9fa')
+        plt.tight_layout()
+        return fig
+    except Exception as e:
         return None
-    
-    recent_data = data.tail(20)
-    fig, ax = plt.subplots(figsize=(8, height/80))
-    
-    # X eksenini oluştur
-    x_values = list(range(len(recent_data)))
-    
-    ax.plot(x_values, recent_data['RSI'].values, color='purple', linewidth=1.5)
-    ax.axhline(y=30, color='green', linestyle='--', alpha=0.7, linewidth=1)
-    ax.axhline(y=70, color='red', linestyle='--', alpha=0.7, linewidth=1)
-    ax.axhline(y=50, color='gray', linestyle=':', alpha=0.5, linewidth=0.8)
-    
-    # Son noktayı işaretle - x ve y boyutları eşit
-    last_x = x_values[-1]
-    last_y = recent_data['RSI'].iloc[-1]
-    ax.plot(last_x, last_y, 'o', markersize=5, color='red')
-    
-    ax.set_ylim(0, 100)
-    ax.set_ylabel('RSI')
-    ax.grid(True, alpha=0.3)
-    ax.set_facecolor('white')
-    plt.tight_layout()
-    return fig
 
 def create_candle_dots(data):
     """5 mum durumu için renkli daireler"""
-    recent_closes = data['Close'].tail(6)  # Son 6 fiyat (5 değişim için)
-    dots_html = ""
-    
-    for i in range(1, min(6, len(recent_closes))):
-        change = recent_closes.iloc[i] > recent_closes.iloc[i-1]
-        color = "#00ff00" if change else "#ff0000"  # Yeşil veya kırmızı
-        dots_html += f'<span style="display:inline-block; width:20px; height:20px; border-radius:50%; background-color:{color}; margin:0 2px;"></span>'
-    
-    return dots_html
+    try:
+        recent_closes = data['Close'].tail(6)  # Son 6 fiyat (5 değişim için)
+        dots_html = ""
+        
+        for i in range(1, min(6, len(recent_closes))):
+            change = recent_closes.iloc[i] > recent_closes.iloc[i-1]
+            color = "#00ff00" if change else "#ff0000"  # Yeşil veya kırmızı
+            dots_html += f'<span style="display:inline-block; width:16px; height:16px; border-radius:50%; background-color:{color}; margin:0 3px; border: 1px solid #333;"></span>'
+        
+        return dots_html
+    except:
+        return ""
 
 def line(text, kind="neutral"):
     """Renkli gerekçe satırı"""
@@ -270,6 +275,7 @@ try:
             st.metric("📈 MACD", f"{macd:.4f}", macd_trend)
         
         # Mini grafikler satırı
+        st.markdown("### 📈 Mini Göstergeler")
         col1, col2, col3 = st.columns([2, 2, 1])
         
         with col1:
@@ -279,7 +285,7 @@ try:
                 st.pyplot(bb_chart)
                 plt.close()
             else:
-                st.info("Yeterli veri yok")
+                st.info("⏳ Yeterli veri yok")
         
         with col2:
             st.write("**RSI Momentum**")
@@ -288,16 +294,19 @@ try:
                 st.pyplot(rsi_chart)
                 plt.close()
             else:
-                st.info("Yeterli veri yok")
+                st.info("⏳ Yeterli veri yok")
         
         with col3:
             st.write("**Son 5 Mum**")
             dots_html = create_candle_dots(data)
-            st.markdown(f'<div style="text-align: center; padding: 20px 0;">{dots_html}</div>', unsafe_allow_html=True)
-            # Mum performansı
-            recent_closes = data['Close'].tail(6)
-            up_count = sum(1 for i in range(1, len(recent_closes)) if recent_closes.iloc[i] > recent_closes.iloc[i-1])
-            st.write(f"{up_count}/5 yükseliş")
+            if dots_html:
+                st.markdown(f'<div style="text-align: center; padding: 15px 0;">{dots_html}</div>', unsafe_allow_html=True)
+                # Mum performansı
+                recent_closes = data['Close'].tail(6)
+                up_count = sum(1 for i in range(1, len(recent_closes)) if recent_closes.iloc[i] > recent_closes.iloc[i-1])
+                st.write(f"**{up_count}/5 yükseliş**")
+            else:
+                st.info("⏳ Yeterli veri yok")
         
         st.markdown("---")
         
@@ -471,4 +480,4 @@ except Exception as e:
     st.info("Lütfen internet bağlantınızı kontrol edin ve tekrar deneyin")
 
 st.markdown("---")
-st.caption("🤖 Crypto AI Pro - Gelişmiş Algoritmik Analiz Sistemi | V1.1")
+st.caption("🤖 Crypto AI Pro - Gelişmiş Algoritmik Analiz Sistemi | V1.2")
