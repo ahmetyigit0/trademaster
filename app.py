@@ -89,13 +89,18 @@ def create_bollinger_mini_chart(data, height=120):
     # Normalize değeri hesapla: (Close - Lower) / (Upper - Lower)
     bb_prox = (recent_data['Close'] - recent_data['BB_Lower']) / (recent_data['BB_Upper'] - recent_data['BB_Lower'])
     
-    ax.plot(bb_prox.values, color='blue', linewidth=1)
+    # X eksenini oluştur (0'dan başlayan indeks)
+    x_values = list(range(len(bb_prox)))
+    
+    ax.plot(x_values, bb_prox.values, color='blue', linewidth=1)
     ax.axhline(y=0, color='red', linestyle='--', alpha=0.7, linewidth=0.8)
     ax.axhline(y=0.5, color='gray', linestyle='--', alpha=0.7, linewidth=0.8)
     ax.axhline(y=1, color='green', linestyle='--', alpha=0.7, linewidth=0.8)
     
-    # Son noktayı işaretle
-    ax.plot(len(bb_prox)-1, bb_prox.iloc[-1], 'o', markersize=5, color='red')
+    # Son noktayı işaretle - x ve y boyutları eşit olacak
+    last_x = x_values[-1]
+    last_y = bb_prox.iloc[-1]
+    ax.plot(last_x, last_y, 'o', markersize=5, color='red')
     
     ax.set_ylim(-0.1, 1.1)
     ax.set_ylabel('BB Prox')
@@ -112,13 +117,18 @@ def create_rsi_mini_chart(data, height=120):
     recent_data = data.tail(20)
     fig, ax = plt.subplots(figsize=(8, height/80))
     
-    ax.plot(recent_data['RSI'].values, color='purple', linewidth=1.5)
+    # X eksenini oluştur
+    x_values = list(range(len(recent_data)))
+    
+    ax.plot(x_values, recent_data['RSI'].values, color='purple', linewidth=1.5)
     ax.axhline(y=30, color='green', linestyle='--', alpha=0.7, linewidth=1)
     ax.axhline(y=70, color='red', linestyle='--', alpha=0.7, linewidth=1)
     ax.axhline(y=50, color='gray', linestyle=':', alpha=0.5, linewidth=0.8)
     
-    # Son noktayı işaretle
-    ax.plot(len(recent_data)-1, recent_data['RSI'].iloc[-1], 'o', markersize=5, color='red')
+    # Son noktayı işaretle - x ve y boyutları eşit
+    last_x = x_values[-1]
+    last_y = recent_data['RSI'].iloc[-1]
+    ax.plot(last_x, last_y, 'o', markersize=5, color='red')
     
     ax.set_ylim(0, 100)
     ax.set_ylabel('RSI')
@@ -268,6 +278,8 @@ try:
             if bb_chart:
                 st.pyplot(bb_chart)
                 plt.close()
+            else:
+                st.info("Yeterli veri yok")
         
         with col2:
             st.write("**RSI Momentum**")
@@ -275,6 +287,8 @@ try:
             if rsi_chart:
                 st.pyplot(rsi_chart)
                 plt.close()
+            else:
+                st.info("Yeterli veri yok")
         
         with col3:
             st.write("**Son 5 Mum**")
