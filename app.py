@@ -285,33 +285,26 @@ with tab_an:
         st.markdown(f"**Stop Mesafesi:** {fmt(stop_dist_pct,2)}%")
         st.markdown(f"**Pozisyon Oranı:** {fmt(pos_ratio_pct,2)}%")
 
-    # ===== Sparkline / Emoji Trend (Son 5 mum)
-# ===== Son 5 mum: renkli daireler (yeşil/yukari, kirmizi/asagi, gri/durağan) =====
-cl_tail = data["Close"].tail(6)
-if len(cl_tail) >= 2:
-    chg = cl_tail.diff().tail(5)
-    cols = []
-    for x in chg:
-        try:
-            val = float(x)
-        except Exception:
-            val = 0.0
-        if val > 0:
-            cols.append("#0f9d58")  # yesil
-        elif val < 0:
-            cols.append("#d93025")  # kirmizi
-        else:
-            cols.append("#9aa0a6")  # gri
+    # ===== Sparkline / Emoji Trend (Son 5 mum) =====
+    def _spark_emoji(x):
+        try: x = float(x)
+        except Exception: return "➖"
+        if x > 0: return "📈"
+        elif x < 0: return "📉"
+        else: return "➖"
 
-    dots = "".join([f"<span style='display:inline-block;width:12px;height:12px;border-radius:50%;background-color:{c};margin-right:6px;'></span>" for c in cols])
-    trend_lbl = "YUKARI" if bool(bull) else "ASAGI"
-    color = "#0f9d58" if bool(bull) else "#d93025"
-    st.markdown(f"<div style='font-size:18px'>Son 5 mum kapanis: {dots} <span style='color:{color};font-weight:600'>(Trend filtresi: {trend_lbl})</span></div>", unsafe_allow_html=True)
-    posc = int((chg > 0).sum()); negc = int((chg < 0).sum())
-    comment = "momentum yukari" if posc >= 3 else ("momentum asagi" if negc >= 3 else "yanal/sikisik")
-    st.caption(f"Pozitif: {posc}, Negatif: {negc} -> {comment}")
+    cl_tail = data["Close"].tail(6)
+    if len(cl_tail) >= 2:
+        chg = cl_tail.diff().tail(5)
+        emjs = "".join([_spark_emoji(x) for x in chg])
+        pos = int((chg > 0).sum()); neg = int((chg < 0).sum())
+        color = "#0f9d58" if bool(bull) else "#d93025"
+        tag = "Trend filtresi: YUKARI" if bool(bull) else "Trend filtresi: AŞAĞI"
+        st.markdown(f"<div style='font-size:22px'>Son 5 mum: <b>{emjs}</b> <span style='color:{color}; font-weight:600'>({tag})</span></div>", unsafe_allow_html=True)
+        comment = "momentum yukarı" if pos >= 3 else ("momentum aşağı" if neg >= 3 else "yanal/sıkışık")
+        st.caption(f"Pozitif: {pos}, Negatif: {neg} → {comment}")
 
-st.subheader("🎯 Sinyal (Öneri)")
+    st.subheader("🎯 Sinyal (Öneri)")
     if buy_now:
         st.markdown(f"""
 - **Giriş (Long):** **{last_price:.6f}**
