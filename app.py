@@ -3,6 +3,66 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+import hashlib
+
+# =========================
+# ŞİFRE KORUMASI
+# =========================
+def check_password():
+    """Şifre kontrolü"""
+    
+    # Önceden tanımlanmış şifre (hash'lenmiş)
+    correct_password_hash = "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"  # "password"
+    
+    def password_entered():
+        """Kullanıcının girdiği şifreyi kontrol et"""
+        if st.session_state["password"] == "password":  # Basit kontrol
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # Şifreyi bellekten temizle
+        else:
+            st.session_state["password_correct"] = False
+    
+    # İlk girişte şifre sor
+    if "password_correct" not in st.session_state:
+        st.text_input(
+            "🔐 Şifre", 
+            type="password", 
+            on_change=password_entered, 
+            key="password",
+            help="Şifreyi giriniz"
+        )
+        st.write("**Demo Şifre:** `password`")
+        return False
+    
+    # Şifre yanlışsa
+    elif not st.session_state["password_correct"]:
+        st.text_input(
+            "🔐 Şifre", 
+            type="password", 
+            on_change=password_entered, 
+            key="password",
+            help="Şifreyi giriniz"
+        )
+        st.error("❌ Yanlış şifre! Lütfen tekrar deneyin.")
+        st.write("**Demo Şifre:** `password`")
+        return False
+    
+    # Şifre doğruysa
+    else:
+        return True
+
+# Şifre kontrolü
+if not check_password():
+    st.stop()  # Şifre yanlışsa uygulamayı durdur
+
+# =========================
+# ANA UYGULAMA (ESKİ KODUNUZ)
+# =========================
+st.set_page_config(page_title="Crypto AI Pro", layout="wide")
+st.title("🚀 Crypto AI Pro")
+st.markdown("**Eğitim amaçlıdır - Yatırım tavsiyesi DEĞİLDİR**")
+
+# ... (geri kalan kodunuz aynı kalacak)
 
 st.set_page_config(page_title="Crypto AI Pro", layout="wide")
 st.title("🚀 Crypto AI Pro")
