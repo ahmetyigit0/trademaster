@@ -96,7 +96,7 @@ def fmt(x, n=6):
         x = float(x)
         if x == x: return f"{x:.{n}f}"
     except Exception: pass
-    return "—"
+    return "-"
 
 # =========================
 # Sidebar
@@ -365,12 +365,12 @@ with tab_an:
 
     # RSI
     rsi_now = float(data["RSI"].iloc[-1])
-    if rsi_now < 30: line(f"RSI {rsi_now:.2f}: aşırı satım – erken alım riski.", "neg")
-    elif 30 <= rsi_now < 35: line(f"RSI {rsi_now:.2f}: dip bölge – onay beklenmeli.", "neutral")
+    if rsi_now < 30: line(f"RSI {rsi_now:.2f}: aşırı satım - erken alım riski.", "neg")
+    elif 30 <= rsi_now < 35: line(f"RSI {rsi_now:.2f}: dip bölge - onay beklenmeli.", "neutral")
     elif 35 <= rsi_now <= 45: line(f"RSI {rsi_now:.2f}: alım bölgesi (EMA/MACD onayıyla).", "pos")
     elif 45 < rsi_now < 60: line(f"RSI {rsi_now:.2f}: nötr-olumlu.", "neutral")
     elif 60 <= rsi_now <= 70: line(f"RSI {rsi_now:.2f}: güçlü momentum.", "pos")
-    else: line(f"RSI {rsi_now:.2f}: aşırı alım – temkin.", "neg")
+    else: line(f"RSI {rsi_now:.2f}: aşırı alım - temkin.", "neg")
 
     # Bollinger
     try:
@@ -428,7 +428,7 @@ with tab_an:
 # REHBER
 # =========================
 with tab_guide:
-    st.subheader("📘 Rehber – Ayrıntılı Notlar")
+    st.subheader("📘 Rehber - Ayrıntılı Notlar")
     st.markdown(r"""
 ### 1) Trend ve Ortalamalar (EMA)
 - Sinyal: EMA Kısa > EMA Uzun -> yükseliş, tersi düşüş.
@@ -451,7 +451,7 @@ with tab_guide:
 - sigma% = son 30 barin gunluk log getirilerinin standart sapmasi x 100.
 - Yorum: >5% yuksek, 2-5% orta, <2% sakin. Yuksek sigma% -> stop genis, sakin sigma% -> kirilimdan sonra trend beklenebilir.
 
-### 6) R-Multiple & R:R (Risk/Odul) – Detayli
+### 6) R-Multiple & R:R (Risk/Odul) - Detayli
 Tanim
 - R (risk birimi) = Giris - Stop (long) = |Stop - Giris| (short).
 - TP1 = Giris + 1R, TP2 = +2R, TP3 = +3R (long icin).
