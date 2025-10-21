@@ -276,7 +276,7 @@ try:
             st.write(f"- 📈 EMA 20: `${ema_20:.2f}` ({'🟢 Üstünde' if current_price > ema_20 else '🔴 Altında'})")
             st.write(f"- 📊 EMA 50: `${ema_50:.2f}` ({'🟢 Üstünde' if current_price > ema_50 else '🔴 Altında'})")
             st.write(f"- 🎯 EMA 200: `${ema_200:.2f}` ({'🟢 Üstünde' if current_price > ema_200 else '🔴 Altında'})")
-            st.write(f"- 📊 Trend Hiyerarşisi: {'🟢 Tüm EMAlar yükseliş' if ema_20 > ema_50 > ema_200 else '🔴 Tüm EMAlar düşüş' if ema_20 < ema_50 < ema_200 else '🟡 Karışık trend'}")
+            st.write(f"- 📊 Trend Hiyerarşisi: {'🟢 Tüm EMAlar yükseliş' if ema_20 > ema_50 and ema_50 > ema_200 else '🔴 Tüm EMAlar düşüş' if ema_20 < ema_50 and ema_50 < ema_200 else '🟡 Karışık trend'}")
             
         with col2:
             st.write("**Momentum Analizi:**")
@@ -295,24 +295,19 @@ try:
             st.write(f"- 📈 Bollinger Alt: `${bb_lower:.2f}`")
             st.write(f"- 📉 Bant Konumu: {'🔴 Üst bandta' if current_price > bb_upper else '🟢 Alt bandta' if current_price < bb_lower else '🟡 Orta bölgede'}")
             
-            st.write("**Volatilite ve Bantlar:**")
-            st.write(f"- 📊 ATR: `${atr:.2f}` (Volatilite)")
-            st.write(f"- 🎯 Bollinger Üst: `${bb_upper:.2f}`")
-            st.write(f"- 📈 Bollinger Alt: `${bb_lower:.2f}`")
-            st.write(f"- 📉 Bant Konumu: {'🔴 Üst bandta' if current_price > bb_upper else '🟢 Alt bandta' if current_price < bb_lower else '🟡 Orta bölgede'}")
-            
         with col2:
             st.write("**Fiyat Hareketi:**")
-            # Son 5 mum analizi
-            recent_prices = data['Close'].tail(5)
+            # Son 5 mum analizi - DÜZELTİLMİŞ
+            recent_prices = [float(x) for x in data['Close'].tail(5)]
             gains = 0
             for i in range(1, len(recent_prices)):
-                if recent_prices.iloc[i] > recent_prices.iloc[i-1]:
+                if recent_prices[i] > recent_prices[i-1]:
                     gains += 1
             momentum = "🟢 Güçlü" if gains >= 3 else "🔴 Zayıf" if gains <= 1 else "🟡 Orta"
             st.write(f"- 📈 Son 5 Mum: {gains}/4 yükseliş")
             st.write(f"- 🎯 Momentum: {momentum}")
-            st.write(f"- 📊 Hacim Trendi: {'🟢 Artan' if data['Volume'].iloc[-1] > data['Volume'].iloc[-2] else '🔴 Azalan'}")
+            volume_trend = "🟢 Artan" if float(data['Volume'].iloc[-1]) > float(data['Volume'].iloc[-2]) else "🔴 Azalan"
+            st.write(f"- 📊 Hacim Trendi: {volume_trend}")
         
         st.markdown("---")
         
@@ -332,15 +327,6 @@ try:
         st.write("- **2-3 AL sinyali** = Zayıf AL")
         st.write("- **2-3 SAT sinyali** = Zayıf SAT")
         st.write("- **Eşit sinyaller** = NÖTR")
-        
-        st.write("**🧠 Algoritma Mantığı:**")
-        st.write("```python")
-        st.write("if buy_signals >= 4: GÜÇLÜ_AL")
-        st.write("elif sell_signals >= 4: GÜÇLÜ_SAT") 
-        st.write("elif buy_signals > sell_signals: ZAYIF_AL")
-        st.write("elif sell_signals > buy_signals: ZAYIF_SAT")
-        st.write("else: NÖTR")
-        st.write("```")
         
         # TEKNİK SEVİYELER
         st.markdown("---")
@@ -383,7 +369,7 @@ try:
             volatility_risk = "YÜKSEK" if atr > current_price * 0.05 else "ORTA" if atr > current_price * 0.02 else "DÜŞÜK"
             st.write(f"- Volatilite Riski: {volatility_risk}")
             
-            trend_risk = "DÜŞÜK" if ema_20 > ema_50 > ema_200 else "YÜKSEK" if ema_20 < ema_50 < ema_200 else "ORTA"
+            trend_risk = "DÜŞÜK" if ema_20 > ema_50 and ema_50 > ema_200 else "YÜKSEK" if ema_20 < ema_50 and ema_50 < ema_200 else "ORTA"
             st.write(f"- Trend Riski: {trend_risk}")
             
             momentum_risk = "YÜKSEK" if rsi > 80 or rsi < 20 else "DÜŞÜK" if 30 < rsi < 70 else "ORTA"
@@ -392,7 +378,8 @@ try:
         with col2:
             st.write("**🛑 Risk Yönetimi:**")
             st.write(f"- Maksimum Kayıp: `${capital * (risk_percent/100):.0f}`")
-            st.write(f"- Stop Loss Mesafesi: `%{((current_price - stop_loss)/current_price*100):.1f}`")
+            if recommendation == "AL":
+                st.write(f"- Stop Loss Mesafesi: `%{((current_price - stop_loss)/current_price*100):.1f}`")
             st.write(f"- Risk/Reward Oranı: `1:3`")
             st.write(f"- Pozisyon Limiti: `%{max_position:.0f}`")
         
