@@ -1,7 +1,8 @@
+
 import streamlit as st
 
 st.set_page_config(page_title="TradeMaster | Kripto Strateji Analizörü", layout="wide")
-st.title("💹 TradeMaster")
+st.title("🧭 TradeMaster")
 st.caption("Eğitim amaçlıdır; yatırım tavsiyesi değildir.")
 
 # =========================
@@ -285,26 +286,33 @@ with tab_an:
         st.markdown(f"**Stop Mesafesi:** {fmt(stop_dist_pct,2)}%")
         st.markdown(f"**Pozisyon Oranı:** {fmt(pos_ratio_pct,2)}%")
 
-    # ===== Sparkline / Emoji Trend (Son 5 mum) =====
-    def _spark_emoji(x):
-        try: x = float(x)
-        except Exception: return "➖"
-        if x > 0: return "📈"
-        elif x < 0: return "📉"
-        else: return "➖"
+    # ===== Sparkline / Emoji Trend (Son 5 mum)
+# ===== Son 5 mum: renkli daireler (yeşil/yukari, kirmizi/asagi, gri/durağan) =====
+cl_tail = data["Close"].tail(6)
+if len(cl_tail) >= 2:
+    chg = cl_tail.diff().tail(5)
+    cols = []
+    for x in chg:
+        try:
+            val = float(x)
+        except Exception:
+            val = 0.0
+        if val > 0:
+            cols.append("#0f9d58")  # yesil
+        elif val < 0:
+            cols.append("#d93025")  # kirmizi
+        else:
+            cols.append("#9aa0a6")  # gri
 
-    cl_tail = data["Close"].tail(6)
-    if len(cl_tail) >= 2:
-        chg = cl_tail.diff().tail(5)
-        emjs = "".join([_spark_emoji(x) for x in chg])
-        pos = int((chg > 0).sum()); neg = int((chg < 0).sum())
-        color = "#0f9d58" if bool(bull) else "#d93025"
-        tag = "Trend filtresi: YUKARI" if bool(bull) else "Trend filtresi: AŞAĞI"
-        st.markdown(f"<div style='font-size:22px'>Son 5 mum: <b>{emjs}</b> <span style='color:{color}; font-weight:600'>({tag})</span></div>", unsafe_allow_html=True)
-        comment = "momentum yukarı" if pos >= 3 else ("momentum aşağı" if neg >= 3 else "yanal/sıkışık")
-        st.caption(f"Pozitif: {pos}, Negatif: {neg} → {comment}")
+    dots = "".join([f"<span style='display:inline-block;width:12px;height:12px;border-radius:50%;background-color:{c};margin-right:6px;'></span>" for c in cols])
+    trend_lbl = "YUKARI" if bool(bull) else "ASAGI"
+    color = "#0f9d58" if bool(bull) else "#d93025"
+    st.markdown(f"<div style='font-size:18px'>Son 5 mum kapanis: {dots} <span style='color:{color};font-weight:600'>(Trend filtresi: {trend_lbl})</span></div>", unsafe_allow_html=True)
+    posc = int((chg > 0).sum()); negc = int((chg < 0).sum())
+    comment = "momentum yukari" if posc >= 3 else ("momentum asagi" if negc >= 3 else "yanal/sikisik")
+    st.caption(f"Pozitif: {posc}, Negatif: {negc} -> {comment}")
 
-    st.subheader("🎯 Sinyal (Öneri)")
+st.subheader("🎯 Sinyal (Öneri)")
     if buy_now:
         st.markdown(f"""
 - **Giriş (Long):** **{last_price:.6f}**
@@ -428,56 +436,21 @@ with tab_an:
 # REHBER
 # =========================
 with tab_guide:
-    st.subheader("📘 Rehber - Ayrıntılı Notlar")
+    st.subheader("📘 Rehber – Trend & Mean-Reversion")
     st.markdown(r"""
-### 1) Trend ve Ortalamalar (EMA)
-- Sinyal: EMA Kısa > EMA Uzun -> yükseliş, tersi düşüş.
-- 200-EMA (Trend): Fiyat bunun üstünde ise yapısal boğa, altında ise ayı eğilimi.
-- Trend gücü: (EMA kısa - EMA uzun) / fiyata oran. Mutlak değer yükseldikçe eğilim güçlenir.
+**Trend modu (kırılım takip)**  
+- Koşul: EMA kısa>uzun, Rejim boğa (EMA200 üstü), MACD>Signal, **Donchian üstü kırılım**.  
+- Artılar: Trendde kalır; whipsaw filtreler.  
+- Eksiler: Bazen geç giriş.
 
-### 2) RSI (Relative Strength Index)
-- Asiri Satim <30, Alim Bolgesi 35-45, Guclu Momentum 60-70, Asiri Alim >70.
-- Düşük RSI tek başına alım sebebi değildir; trend ve fiyat yapısıyla onay arayın.
+**Mean-Reversion modu (geri çekilmede alım)**  
+- Koşul: Rejim boğa (EMA200 üstü), **Alt BB teması**, **RSI<35**.  
+- Artılar: İndirimli giriş, iyi R:R.  
+- Eksiler: Düşüş uzarsa erken alım riski.
 
-### 3) MACD
-- MACD > Sinyal -> pozitif momentum. Kesisimler (yukari/asagi) tetikleyici kabul edilir.
-- Histogram egimi (artiyor/azaliyor) momentumun guclenip guclenmedigini gosterir.
+**Ortak filtreler**: MTF uyumu, BTC filtresi, OBV eğimi, σ% (volatilite).  
+**RR veto**: RR(TP1) < 1.2 ise işlem BEKLE.
 
-### 4) Bollinger Bantları
-- Ust banda yakin: isinma; Alt banda yakin: tepki potansiyeli.
-- Sikisma: Bant genisligi dusuk -> kirilim potansiyeli artar. Kirilim yonunu trend ve hacimle teyit edin.
+**Kademeli alım bölgeleri (SAT sonrası)**: 0.382 / 0.5 / 0.618 fib, EMA200, Alt BB, Anchored VWAP.
+    """)
 
-### 5) Fiyat Volatilitesi (30g sigma %)
-- sigma% = son 30 barin gunluk log getirilerinin standart sapmasi x 100.
-- Yorum: >5% yuksek, 2-5% orta, <2% sakin. Yuksek sigma% -> stop genis, sakin sigma% -> kirilimdan sonra trend beklenebilir.
-
-### 6) R-Multiple & R:R (Risk/Odul) - Detayli
-Tanim
-- R (risk birimi) = Giris - Stop (long) = |Stop - Giris| (short).
-- TP1 = Giris + 1R, TP2 = +2R, TP3 = +3R (long icin).
-
-R:R Orani
-R:R = (Hedef - Giris) / (Giris - Stop)  (long)
-- Ornek: Giris 10$, Stop 9$, Hedef 12$ -> R = 1$, R:R = 2:1.
-
-Kazanc Olasiligi ile Iliski
-Beklenen getiri = WinRate x R:R - (1 - WinRate)
-- Ornek: %50 basari, R:R = 2:1 -> 0.5x2 - 0.5 = 0.5 -> pozitif beklenti.
-- Kural: Basari orani dusuyorsa, R:R artirilmali (orn. 1:3).
-
-Pozisyon Boyutu
-- Islem basina risk = Sermaye x %risk
-- Adet = Risk Tutari / (Giris - Stop) (long)
-
-### 7) BTC Baglami, Dominance, DXY, VIX
-- Altcoinler genelde BTC trendiyle hareket eder. BTC yukari trendde ise altlar icin destekleyici.
-- BTC Dominance yukari: Sermaye BTC'ye kayma egiliminde -> altlar zayiflayabilir. Dominance asagi -> altlar guclenebilir.
-- DXY (Dolar Endeksi) yukari: Kripto uzerinde baski egilimli. asagi -> destekleyici.
-- VIX yukari: Risk istahi duser (kripto negatif etkilenebilir). Dusuk VIX -> daha sakin ortam.
-
-### 8) Kademeli Alim / Cikis
-- Kademeli alim: Dalgalanmayi yumusatir. Kismi TP ile kazancari kilitleyin.
-- Stop'u maliyet altina tasima: TP1 gorulunce kalan pozisyonun riskini azaltmak icin.
-
-Uyari: Bu arac egitim amaclidir; strateji backtest ve risk yonetimi olmadan kullanilmamalidir.
-""")
