@@ -11,19 +11,17 @@ warnings.filterwarnings('ignore')
 # ŞİFRE KORUMASI
 # =========================
 def check_password():
-    """Şifre kontrolü"""
     if "password_correct" not in st.session_state:
         st.session_state["password_correct"] = False
     
     def password_entered():
-        if st.session_state["password"] == "password":
+        if st.session_state["password"] == "efe":
             st.session_state["password_correct"] = True
         else:
             st.session_state["password_correct"] = False
     
     if not st.session_state["password_correct"]:
         st.text_input("🔐 Şifre", type="password", on_change=password_entered, key="password")
-        st.write("**Demo şifre:** `password`")
         return False
     return True
 
@@ -79,39 +77,6 @@ def calculate_atr(high, low, close, period=14):
     return atr
 
 def create_bollinger_mini_chart(data, height=120):
-    """Bollinger yakınlık mini grafiği"""
-    try:
-        if len(data) < 50:
-            return None
-        
-        recent_data = data.tail(50)
-        fig, ax = plt.subplots(figsize=(6, height/80))
-        
-        # Normalize değeri hesapla: (Close - Lower) / (Upper - Lower)
-        bb_prox = (recent_data['Close'] - recent_data['BB_Lower']) / (recent_data['BB_Upper'] - recent_data['BB_Lower'])
-        
-        # X eksenini oluştur - basit indeks
-        x_values = np.arange(len(bb_prox))
-        
-        ax.plot(x_values, bb_prox.values, color='blue', linewidth=1.5)
-        ax.axhline(y=0, color='red', linestyle='--', alpha=0.7, linewidth=1)
-        ax.axhline(y=0.5, color='gray', linestyle='--', alpha=0.7, linewidth=1)
-        ax.axhline(y=1, color='green', linestyle='--', alpha=0.7, linewidth=1)
-        
-        # Son noktayı işaretle
-        ax.scatter(x_values[-1], bb_prox.iloc[-1], color='red', s=30, zorder=5)
-        
-        ax.set_ylim(-0.1, 1.1)
-        ax.set_ylabel('BB Prox')
-        ax.grid(True, alpha=0.3)
-        ax.set_facecolor('#f8f9fa')
-        plt.tight_layout()
-        return fig
-    except Exception as e:
-        return None
-
-def create_rsi_mini_chart(data, height=120):
-    """RSI mini grafiği"""
     try:
         if len(data) < 20:
             return None
@@ -119,43 +84,119 @@ def create_rsi_mini_chart(data, height=120):
         recent_data = data.tail(20)
         fig, ax = plt.subplots(figsize=(6, height/80))
         
-        # X eksenini oluştur
-        x_values = np.arange(len(recent_data))
+        bb_prox = (recent_data['Close'] - recent_data['BB_Lower']) / (recent_data['BB_Upper'] - recent_data['BB_Lower'])
         
+        x_values = range(len(bb_prox))
+        ax.plot(x_values, bb_prox.values, color='blue', linewidth=1.5)
+        ax.axhline(y=0, color='red', linestyle='--', alpha=0.7, linewidth=1)
+        ax.axhline(y=0.5, color='gray', linestyle='--', alpha=0.7, linewidth=1)
+        ax.axhline(y=1, color='green', linestyle='--', alpha=0.7, linewidth=1)
+        ax.plot(len(bb_prox)-1, bb_prox.iloc[-1], 'ro', markersize=5)
+        
+        ax.set_ylim(-0.1, 1.1)
+        ax.set_ylabel('BB Prox')
+        ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+        return fig
+    except:
+        return None
+
+def create_rsi_mini_chart(data, height=120):
+    try:
+        if len(data) < 20:
+            return None
+        
+        recent_data = data.tail(20)
+        fig, ax = plt.subplots(figsize=(6, height/80))
+        
+        x_values = range(len(recent_data))
         ax.plot(x_values, recent_data['RSI'].values, color='purple', linewidth=1.5)
-        ax.axhline(y=30, color='green', linestyle='--', alpha=0.8, linewidth=1.2, label='Oversold')
-        ax.axhline(y=70, color='red', linestyle='--', alpha=0.8, linewidth=1.2, label='Overbought')
+        ax.axhline(y=30, color='green', linestyle='--', alpha=0.8, linewidth=1.2)
+        ax.axhline(y=70, color='red', linestyle='--', alpha=0.8, linewidth=1.2)
         ax.axhline(y=50, color='gray', linestyle=':', alpha=0.5, linewidth=0.8)
-        
-        # Son noktayı işaretle
-        ax.scatter(x_values[-1], recent_data['RSI'].iloc[-1], color='red', s=30, zorder=5)
+        ax.plot(len(recent_data)-1, recent_data['RSI'].iloc[-1], 'ro', markersize=5)
         
         ax.set_ylim(0, 100)
         ax.set_ylabel('RSI')
         ax.grid(True, alpha=0.3)
-        ax.set_facecolor('#f8f9fa')
         plt.tight_layout()
         return fig
-    except Exception as e:
+    except:
         return None
 
-def create_candle_dots(data):
-    """5 mum durumu için renkli daireler"""
+def create_macd_bars(data):
     try:
-        recent_closes = data['Close'].tail(6)  # Son 6 fiyat (5 değişim için)
-        dots_html = ""
+        recent_data = data.tail(5)
+        macd_hist = recent_data['MACD_Hist']
         
-        for i in range(1, min(6, len(recent_closes))):
-            change = recent_closes.iloc[i] > recent_closes.iloc[i-1]
-            color = "#00ff00" if change else "#ff0000"  # Yeşil veya kırmızı
-            dots_html += f'<span style="display:inline-block; width:16px; height:16px; border-radius:50%; background-color:{color}; margin:0 3px; border: 1px solid #333;"></span>'
+        bars_html = ""
+        for hist in macd_hist:
+            color = "#00ff00" if hist > 0 else "#ff0000"
+            height = min(abs(float(hist)) * 1000, 20)
+            bars_html += f'<div style="display:inline-block; width:16px; height:{height}px; background-color:{color}; margin:0 3px; border: 1px solid #333;"></div>'
         
-        return dots_html
+        return bars_html
     except:
         return ""
 
+def create_price_mini_chart(data, height=120):
+    try:
+        if len(data) < 20:
+            return None
+        
+        recent_data = data.tail(20)
+        fig, ax = plt.subplots(figsize=(6, height/80))
+        
+        ax.plot(recent_data['Close'].values, color='blue', linewidth=2, label='Fiyat')
+        ax.plot(recent_data['EMA_20'].values, color='orange', linewidth=1, label='EMA 20')
+        ax.plot(recent_data['EMA_50'].values, color='red', linewidth=1, label='EMA 50')
+        
+        ax.set_ylabel('Fiyat')
+        ax.legend(fontsize=6)
+        ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+        return fig
+    except:
+        return None
+
+def create_fib_mini_chart(data, height=120):
+    try:
+        if len(data) < 10:
+            return None
+            
+        recent_data = data.tail(10)
+        high = recent_data['High'].max()
+        low = recent_data['Low'].min()
+        diff = high - low
+        
+        fib_levels = {
+            '0.0': high,
+            '0.236': high - diff * 0.236,
+            '0.382': high - diff * 0.382, 
+            '0.5': high - diff * 0.5,
+            '0.618': high - diff * 0.618,
+            '0.786': high - diff * 0.786,
+            '1.0': low
+        }
+        
+        current_price = data['Close'].iloc[-1]
+        
+        fig, ax = plt.subplots(figsize=(4, height/80))
+        
+        for level, price in fib_levels.items():
+            color = 'red' if level in ['0.0', '1.0'] else 'gray'
+            ax.axhline(y=price, color=color, linestyle='--', alpha=0.7, linewidth=0.8)
+        
+        ax.axhline(y=current_price, color='blue', linewidth=2, linestyle='-', alpha=0.8)
+        
+        ax.set_ylabel('Fib Seviyeleri')
+        ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+        return fig
+    except:
+        return None
+
 def line(text, kind="neutral"):
-    """Renkli gerekçe satırı"""
     if kind == "pos":
         emoji, color = "🟢", "#0f9d58"
     elif kind == "neg":
@@ -169,37 +210,26 @@ def line(text, kind="neutral"):
 # SIDEBAR
 # =========================
 st.sidebar.header("⚙️ Analiz Ayarları")
-ticker_input = st.sidebar.text_input("🎯 Kripto Sembolü", "BTC-USD", 
-                                   help="Örnek: BTC-USD, ETH-USD, ADA-USD, BNB-USD, XRP-USD, SOL-USD")
+ticker_input = st.sidebar.text_input("🎯 Kripto Sembolü", "BTC-USD")
 
-timeframe = st.sidebar.selectbox("⏰ Zaman Dilimi", ["1h", "4h", "1d", "1wk"], index=2,
-                               help="Veri çözünürlüğü seçin")
-period_map = {"1h": "1mo", "4h": "3mo", "1d": "6mo", "1wk": "1y"}
+timeframe = st.sidebar.selectbox("⏰ Zaman Dilimi", ["1d", "1wk"], index=0)
+period_map = {"1d": "6mo", "1wk": "1y"}
 period = period_map[timeframe]
 
-# Risk yönetimi
 st.sidebar.header("🎯 Risk Yönetimi")
-capital = st.sidebar.number_input("💰 Sermaye ($)", 1000, 1000000, 5000, step=1000,
-                                help="Toplam yatırım sermayesi")
-risk_percent = st.sidebar.slider("📉 İşlem Risk %", 1.0, 5.0, 2.0, 0.1,
-                               help="İşlem başına maksimum risk yüzdesi")
-max_position = st.sidebar.slider("📊 Maks. Pozisyon %", 10.0, 50.0, 25.0, 5.0,
-                               help="Tek pozisyon için maksimum sermaye kullanımı")
+capital = st.sidebar.number_input("💰 Sermaye ($)", 1000, 1000000, 5000, step=1000)
+risk_percent = st.sidebar.slider("📉 İşlem Risk %", 1.0, 5.0, 2.0, 0.1)
+max_position = st.sidebar.slider("📊 Maks. Pozisyon %", 10.0, 50.0, 25.0, 5.0)
 
-# Strateji ayarları
 st.sidebar.header("🔧 Strateji Parametreleri")
-rsi_oversold = st.sidebar.slider("📊 RSI Aşırı Satım", 20, 40, 30, 1,
-                               help="RSI aşırı satım seviyesi")
-rsi_overbought = st.sidebar.slider("📈 RSI Aşırı Alım", 60, 80, 70, 1,
-                                 help="RSI aşırı alım seviyesi")
-atr_multiplier = st.sidebar.slider("🎯 ATR Çarpanı", 1.0, 3.0, 1.5, 0.1,
-                                 help="Stop loss için ATR çarpanı")
+rsi_oversold = st.sidebar.slider("📊 RSI Aşırı Satım", 20, 40, 30, 1)
+rsi_overbought = st.sidebar.slider("📈 RSI Aşırı Alım", 60, 80, 70, 1)
+atr_multiplier = st.sidebar.slider("🎯 ATR Çarpanı", 1.0, 3.0, 1.5, 0.1)
 
 # =========================
 # ANA UYGULAMA
 # =========================
 try:
-    # Veri çek
     with st.spinner(f"🔄 {ticker_input} verileri çekiliyor..."):
         data = yf.download(ticker_input, period=period, interval=timeframe, progress=False)
     
@@ -207,7 +237,6 @@ try:
         st.error("❌ Veri çekilemedi - Sembolü ve internet bağlantınızı kontrol edin")
         st.stop()
     
-    # İndikatörleri hesapla
     data['RSI'] = calculate_rsi(data['Close'])
     data['EMA_20'] = calculate_ema(data['Close'], 20)
     data['EMA_50'] = calculate_ema(data['Close'], 50)
@@ -216,7 +245,6 @@ try:
     data['BB_Upper'], data['BB_Middle'], data['BB_Lower'] = calculate_bollinger_bands(data['Close'])
     data['ATR'] = calculate_atr(data['High'], data['Low'], data['Close'])
     
-    # Mevcut değerler
     current_price = float(data['Close'].iloc[-1])
     rsi = float(data['RSI'].iloc[-1])
     ema_20 = float(data['EMA_20'].iloc[-1])
@@ -230,32 +258,26 @@ try:
     bb_upper = float(data['BB_Upper'].iloc[-1])
     bb_lower = float(data['BB_Lower'].iloc[-1])
     
-    # Sinyal belirleme
     buy_signals = 0
     sell_signals = 0
     
-    # AL koşulları
     if rsi < rsi_oversold: buy_signals += 1
     if current_price > ema_20 and ema_20 > ema_50: buy_signals += 1
     if ema_50 > ema_200: buy_signals += 1
     if macd > macd_signal and macd_prev <= macd_signal_prev: buy_signals += 1
     if current_price < bb_lower: buy_signals += 1
     
-    # SAT koşulları
     if rsi > rsi_overbought: sell_signals += 1
     if current_price < ema_20 and ema_20 < ema_50: sell_signals += 1
     if ema_50 < ema_200: sell_signals += 1
     if macd < macd_signal and macd_prev >= macd_signal_prev: sell_signals += 1
     if current_price > bb_upper: sell_signals += 1
     
-    # Sekmeler
     tab_analiz, tab_rehber = st.tabs(["📈 Analiz", "📚 Rehber"])
     
     with tab_analiz:
-        # ÖZET METRİKLER ve MİNİ GRAFİKLER
         st.subheader(f"📊 {ticker_input} - Gerçek Zamanlı Analiz")
         
-        # Üst satır - Metrikler
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
@@ -274,9 +296,8 @@ try:
             macd_trend = "🟢 YUKARI" if macd > macd_signal else "🔴 AŞAĞI"
             st.metric("📈 MACD", f"{macd:.4f}", macd_trend)
         
-        # Mini grafikler satırı
-        st.markdown("### 📈 Mini Göstergeler")
-        col1, col2, col3 = st.columns([2, 2, 1])
+        st.markdown("### 📈 Mini Göstergeler - Satır 1")
+        col1, col2, col3, col4 = st.columns([2, 2, 1, 2])
         
         with col1:
             st.write("**Bollinger Yakınlık**")
@@ -285,7 +306,7 @@ try:
                 st.pyplot(bb_chart)
                 plt.close()
             else:
-                st.info("⏳ Yeterli veri yok")
+                st.info("⏳")
         
         with col2:
             st.write("**RSI Momentum**")
@@ -294,50 +315,86 @@ try:
                 st.pyplot(rsi_chart)
                 plt.close()
             else:
-                st.info("⏳ Yeterli veri yok")
+                st.info("⏳")
         
         with col3:
-            st.write("**Son 5 Mum**")
-            dots_html = create_candle_dots(data)
-            if dots_html:
-                st.markdown(f'<div style="text-align: center; padding: 15px 0;">{dots_html}</div>', unsafe_allow_html=True)
-                # Mum performansı
-                recent_closes = data['Close'].tail(6)
-                up_count = sum(1 for i in range(1, len(recent_closes)) if recent_closes.iloc[i] > recent_closes.iloc[i-1])
-                st.write(f"**{up_count}/5 yükseliş**")
+            st.write("**MACD Histogram**")
+            macd_bars = create_macd_bars(data)
+            if macd_bars:
+                st.markdown(f'<div style="text-align: center; padding: 20px 0;">{macd_bars}</div>', unsafe_allow_html=True)
+                current_hist = data['MACD_Hist'].iloc[-1]
+                direction = "🟢 Pozitif" if current_hist > 0 else "🔴 Negatif"
+                st.write(f"**{direction}**")
             else:
-                st.info("⏳ Yeterli veri yok")
+                st.info("⏳")
+        
+        with col4:
+            st.write("**Fiyat & EMA**")
+            price_chart = create_price_mini_chart(data)
+            if price_chart:
+                st.pyplot(price_chart)
+                plt.close()
+            else:
+                st.info("⏳")
+        
+        st.markdown("### 📊 Mini Göstergeler - Satır 2")
+        col5, col6, col7, col8 = st.columns([2, 2, 1, 2])
+        
+        with col5:
+            st.write("**Fibonacci Seviyeleri**")
+            fib_chart = create_fib_mini_chart(data)
+            if fib_chart:
+                st.pyplot(fib_chart)
+                plt.close()
+            else:
+                st.info("⏳")
+        
+        with col6:
+            st.write("**Volatilite (ATR)**")
+            st.metric("ATR Değeri", f"${atr:.2f}")
+            vol_ratio = atr / current_price * 100
+            st.metric("Volatilite %", f"%{vol_ratio:.1f}")
+        
+        with col7:
+            st.write("**Sinyal Özeti**")
+            st.write(f"Al: **{buy_signals}**/5")
+            st.write(f"Sat: **{sell_signals}**/5")
+        
+        with col8:
+            st.write("**Bollinger Durumu**")
+            if current_price < bb_lower:
+                st.info("Alt Bantta")
+            elif current_price > bb_upper:
+                st.warning("Üst Bantta")
+            else:
+                st.success("Bant İçinde")
         
         st.markdown("---")
         
-        # SİNYAL ve RİSK ANALİZİ
         risk_score = min(100, abs(buy_signals - sell_signals) * 20)
         
-        # Sinyal belirleme
         if buy_signals >= 4:
-            st.success(f"🎯 **GÜÇLÜ AL SİNYALİ** - Al: {buy_signals}/8 | Sat: {sell_signals}/8")
+            st.success(f"🎯 **GÜÇLÜ AL SİNYALİ** - Al: {buy_signals}/5 | Sat: {sell_signals}/5")
             recommendation = "AL"
         elif sell_signals >= 4:
-            st.error(f"🎯 **GÜÇLÜ SAT SİNYALİ** - Al: {buy_signals}/8 | Sat: {sell_signals}/8")
+            st.error(f"🎯 **GÜÇLÜ SAT SİNYALİ** - Al: {buy_signals}/5 | Sat: {sell_signals}/5")
             recommendation = "SAT"
         elif buy_signals > sell_signals:
-            st.warning(f"🎯 **ZAYIF AL SİNYALİ** - Al: {buy_signals}/8 | Sat: {sell_signals}/8")
+            st.warning(f"🎯 **ZAYIF AL SİNYALİ** - Al: {buy_signals}/5 | Sat: {sell_signals}/5")
             recommendation = "AL"
         elif sell_signals > buy_signals:
-            st.warning(f"🎯 **ZAYIF SAT SİNYALİ** - Al: {buy_signals}/8 | Sat: {sell_signals}/8")
+            st.warning(f"🎯 **ZAYIF SAT SİNYALİ** - Al: {buy_signals}/5 | Sat: {sell_signals}/5")
             recommendation = "SAT"
         else:
-            st.info(f"🎯 **NÖTR SİNYAL** - Al: {buy_signals}/8 | Sat: {sell_signals}/8")
+            st.info(f"🎯 **NÖTR SİNYAL** - Al: {buy_signals}/5 | Sat: {sell_signals}/5")
             recommendation = "BEKLE"
         
         st.markdown("---")
         
-        # STRATEJİ BÖLÜMÜ
         if recommendation in ["AL", "SAT"]:
             st.subheader("🎯 Detaylı İşlem Stratejisi")
             
             if recommendation == "AL":
-                # AL stratejisi
                 stop_loss = current_price - (atr * atr_multiplier)
                 risk_per_coin = current_price - stop_loss
                 
@@ -345,7 +402,6 @@ try:
                 tp2 = current_price + (risk_per_coin * 2.0)
                 tp3 = current_price + (risk_per_coin * 3.0)
                 
-                # Pozisyon büyüklüğü
                 risk_amount = capital * (risk_percent / 100)
                 position_size = risk_amount / risk_per_coin
                 max_position_size = (capital * (max_position / 100)) / current_price
@@ -370,7 +426,6 @@ try:
                     st.write(f"- 🎯 Başarı Şansı: `%{min(80, risk_score + 30):.0f}`")
             
             else:
-                # SAT stratejisi - Yeniden alım bölgesi
                 base_level = max(float(data['Low'].tail(20).min()), bb_lower)
                 reentry_low = base_level - (atr * 0.5)
                 reentry_high = base_level + (atr * 0.5)
@@ -386,17 +441,14 @@ try:
         
         st.markdown("---")
         
-        # DETAYLI GEREKÇELER
         st.subheader("🧠 Detaylı Sinyal Gerekçeleri")
         
-        # Trend Analizi
         line(f"EMA 20 (${ema_20:.2f}) > EMA 50 (${ema_50:.2f}) > EMA 200 (${ema_200:.2f})", 
              "pos" if ema_20 > ema_50 > ema_200 else "neg" if ema_20 < ema_50 < ema_200 else "neutral")
         
         line(f"Fiyat EMA 20'nin {'üstünde' if current_price > ema_20 else 'altında'}", 
              "pos" if current_price > ema_20 else "neg")
         
-        # RSI Analizi
         if rsi < 30:
             line(f"RSI {rsi:.1f} - Aşırı satım bölgesi (AL sinyali)", "pos")
         elif rsi > 70:
@@ -404,13 +456,11 @@ try:
         else:
             line(f"RSI {rsi:.1f} - Nötr bölge", "neutral")
         
-        # MACD Analizi
         if macd > macd_signal:
             line(f"MACD ({macd:.4f}) > Sinyal ({macd_signal:.4f}) - Pozitif momentum", "pos")
         else:
             line(f"MACD ({macd:.4f}) < Sinyal ({macd_signal:.4f}) - Negatif momentum", "neg")
         
-        # Bollinger Analizi
         if current_price < bb_lower:
             line(f"Fiyat Bollinger alt bandında - Potansiyel dip", "pos")
         elif current_price > bb_upper:
@@ -418,7 +468,6 @@ try:
         else:
             line(f"Fiyat Bollinger bantları içinde - Nötr", "neutral")
         
-        # Volatilite Analizi
         vol_ratio = atr / current_price * 100
         if vol_ratio > 5:
             line(f"Yüksek volatilite (%{vol_ratio:.1f}) - Dikkatli pozisyon", "neg")
@@ -480,4 +529,4 @@ except Exception as e:
     st.info("Lütfen internet bağlantınızı kontrol edin ve tekrar deneyin")
 
 st.markdown("---")
-st.caption("🤖 Crypto AI Pro - Gelişmiş Algoritmik Analiz Sistemi | V1.2")
+st.caption("🤖 Crypto AI Pro - Gelişmiş Algoritmik Analiz Sistemi | V2.0")
