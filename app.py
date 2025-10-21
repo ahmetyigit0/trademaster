@@ -252,4 +252,27 @@ try:
                 with col1:
                     st.write("**🎯 Short Seviyeleri:**")
                     st.write(f"- 📉 Mevcut Fiyat: `${current_price:.2f}`")
-                    st.write(f-
+                    st.write(f"- 🛑 Stop Loss: `${stop_loss:.2f}`")
+                    st.write(f"- 🎯 TP1 (1:1): `${tp1:.2f}`")
+                    st.write(f"- 🎯 TP2 (1:2): `${tp2:.2f}`")
+                    st.write(f"- 🎯 TP3 (1:3): `${tp3:.2f}`")
+                    
+                with col2:
+                    st.write("**💰 Risk Bilgileri:**")
+                    st.write(f"- 📊 Risk/Reward: `1:3`")
+                    st.write(f"- 📉 Hedef Destek: `${float(data['Low'].tail(20).min()):.2f}`")
+                    st.write(f"- 🎯 Başarı Şansı: `%{min(75, risk_score + 25):.0f}`")
+        
+        st.markdown("---")
+        
+        # DETAYLI GEREKÇELER
+        st.subheader("🧠 Detaylı Sinyal Gerekçeleri")
+        
+        st.write("**📊 Teknik Göstergeler Analizi:**")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Trend Analizi:**")
+            st.write(f"- 📈 EMA 20: `${ema_20:.2f}` ({'🟢 Üstünde' if current_price > ema_20 else '🔴 Altında'})")
+            st.write(f"- 📊 EMA 50: `${ema_50:.2f}` ({'🟢 Üstünde' if current_price > ema_50 else '🔴 Altında'})")
+            st.write(f-
