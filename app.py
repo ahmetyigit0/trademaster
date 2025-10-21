@@ -275,4 +275,166 @@ try:
             st.write("**Trend Analizi:**")
             st.write(f"- 📈 EMA 20: `${ema_20:.2f}` ({'🟢 Üstünde' if current_price > ema_20 else '🔴 Altında'})")
             st.write(f"- 📊 EMA 50: `${ema_50:.2f}` ({'🟢 Üstünde' if current_price > ema_50 else '🔴 Altında'})")
-            st.write(f-
+            st.write(f"- 🎯 EMA 200: `${ema_200:.2f}` ({'🟢 Üstünde' if current_price > ema_200 else '🔴 Altında'})")
+            st.write(f"- 📊 Trend Hiyerarşisi: {'🟢 Tüm EMAlar yükseliş' if ema_20 > ema_50 > ema_200 else '🔴 Tüm EMAlar düşüş' if ema_20 < ema_50 < ema_200 else '🟡 Karışık trend'}")
+            
+        with col2:
+            st.write("**Momentum Analizi:**")
+            st.write(f"- 📊 RSI: `{rsi:.1f}` ({'🟢 Aşırı Satım' if rsi < 30 else '🔴 Aşırı Alım' if rsi > 70 else '🟡 Nötr'})")
+            st.write(f"- 📈 MACD: `{macd:.4f}`")
+            st.write(f"- 🎯 MACD Sinyal: `{macd_signal:.4f}`")
+            st.write(f"- 📉 MACD Yön: {'🟢 Yukarı' if macd > macd_signal else '🔴 Aşağı'}")
+        
+        st.write("**📊 Piyasa Dinamiği:**")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Volatilite ve Bantlar:**")
+            st.write(f"- 📊 ATR: `${atr:.2f}` (Volatilite)")
+            st.write(f"- 🎯 Bollinger Üst: `${bb_upper:.2f}`")
+            st.write(f"- 📈 Bollinger Alt: `${bb_lower:.2f}`")
+            st.write(f"- 📉 Bant Konumu: {'🔴 Üst bandta' if current_price > bb_upper else '🟢 Alt bandta' if current_price < bb_lower else '🟡 Orta bölgede'}")
+            
+            st.write("**Volatilite ve Bantlar:**")
+            st.write(f"- 📊 ATR: `${atr:.2f}` (Volatilite)")
+            st.write(f"- 🎯 Bollinger Üst: `${bb_upper:.2f}`")
+            st.write(f"- 📈 Bollinger Alt: `${bb_lower:.2f}`")
+            st.write(f"- 📉 Bant Konumu: {'🔴 Üst bandta' if current_price > bb_upper else '🟢 Alt bandta' if current_price < bb_lower else '🟡 Orta bölgede'}")
+            
+        with col2:
+            st.write("**Fiyat Hareketi:**")
+            # Son 5 mum analizi
+            recent_prices = data['Close'].tail(5)
+            gains = 0
+            for i in range(1, len(recent_prices)):
+                if recent_prices.iloc[i] > recent_prices.iloc[i-1]:
+                    gains += 1
+            momentum = "🟢 Güçlü" if gains >= 3 else "🔴 Zayıf" if gains <= 1 else "🟡 Orta"
+            st.write(f"- 📈 Son 5 Mum: {gains}/4 yükseliş")
+            st.write(f"- 🎯 Momentum: {momentum}")
+            st.write(f"- 📊 Hacim Trendi: {'🟢 Artan' if data['Volume'].iloc[-1] > data['Volume'].iloc[-2] else '🔴 Azalan'}")
+        
+        st.markdown("---")
+        
+        # SİNYAL DETAYLARI
+        st.subheader("🔍 Sinyal Detayları ve Karar Mekanizması")
+        
+        st.write("**🎯 Hangi Göstergelere Bakıldı:**")
+        st.write("1. **Trend Analizi (EMAlar)** - Uzun/kısa vade trend yönü")
+        st.write("2. **Momentum (RSI)** - Aşırı alım/satım bölgeleri") 
+        st.write("3. **Momentum (MACD)** - Trend değişim sinyalleri")
+        st.write("4. **Volatilite (Bollinger)** - Aşırı fiyat hareketleri")
+        st.write("5. **Hacim Analizi** - İşlem hacmi desteği")
+        
+        st.write("**📊 Nasıl Karar Veriliyor:**")
+        st.write("- **4+ AL sinyali** = Güçlü AL")
+        st.write("- **4+ SAT sinyali** = Güçlü SAT") 
+        st.write("- **2-3 AL sinyali** = Zayıf AL")
+        st.write("- **2-3 SAT sinyali** = Zayıf SAT")
+        st.write("- **Eşit sinyaller** = NÖTR")
+        
+        st.write("**🧠 Algoritma Mantığı:**")
+        st.write("```python")
+        st.write("if buy_signals >= 4: GÜÇLÜ_AL")
+        st.write("elif sell_signals >= 4: GÜÇLÜ_SAT") 
+        st.write("elif buy_signals > sell_signals: ZAYIF_AL")
+        st.write("elif sell_signals > buy_signals: ZAYIF_SAT")
+        st.write("else: NÖTR")
+        st.write("```")
+        
+        # TEKNİK SEVİYELER
+        st.markdown("---")
+        st.subheader("📈 Önemli Teknik Seviyeler")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.write("**🟢 Destek Seviyeleri:**")
+            support1 = float(data['Low'].tail(10).min())
+            support2 = float(data['Low'].tail(20).min())
+            support3 = bb_lower
+            st.write(f"- Yakın Destek: `${support1:.2f}`")
+            st.write(f"- Güçlü Destek: `${support2:.2f}`")
+            st.write(f"- Bollinger Destek: `${support3:.2f}`")
+            
+        with col2:
+            st.write("**🔴 Direnç Seviyeleri:**")
+            resistance1 = float(data['High'].tail(10).max())
+            resistance2 = float(data['High'].tail(20).max())
+            resistance3 = bb_upper
+            st.write(f"- Yakın Direnç: `${resistance1:.2f}`")
+            st.write(f"- Güçlü Direnç: `${resistance2:.2f}`")
+            st.write(f"- Bollinger Direnç: `${resistance3:.2f}`")
+            
+        with col3:
+            st.write("**🎯 Kritik Seviyeler:**")
+            st.write(f"- EMA 200: `${ema_200:.2f}`")
+            st.write(f"- Psikolojik Seviye: `${round(current_price, -1):.0f}`")
+            st.write(f"- ATR Stop: `${current_price - atr:.2f}`")
+        
+        # RİSK ANALİZİ
+        st.markdown("---")
+        st.subheader("⚠️ Detaylı Risk Analizi")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**📉 Piyasa Riskleri:**")
+            volatility_risk = "YÜKSEK" if atr > current_price * 0.05 else "ORTA" if atr > current_price * 0.02 else "DÜŞÜK"
+            st.write(f"- Volatilite Riski: {volatility_risk}")
+            
+            trend_risk = "DÜŞÜK" if ema_20 > ema_50 > ema_200 else "YÜKSEK" if ema_20 < ema_50 < ema_200 else "ORTA"
+            st.write(f"- Trend Riski: {trend_risk}")
+            
+            momentum_risk = "YÜKSEK" if rsi > 80 or rsi < 20 else "DÜŞÜK" if 30 < rsi < 70 else "ORTA"
+            st.write(f"- Momentum Riski: {momentum_risk}")
+            
+        with col2:
+            st.write("**🛑 Risk Yönetimi:**")
+            st.write(f"- Maksimum Kayıp: `${capital * (risk_percent/100):.0f}`")
+            st.write(f"- Stop Loss Mesafesi: `%{((current_price - stop_loss)/current_price*100):.1f}`")
+            st.write(f"- Risk/Reward Oranı: `1:3`")
+            st.write(f"- Pozisyon Limiti: `%{max_position:.0f}`")
+        
+        # SON ÖNERİLER
+        st.markdown("---")
+        st.subheader("💡 Son Öneriler ve Strateji")
+        
+        if recommendation == "AL":
+            st.success("**🎯 AL Stratejisi Önerileri:**")
+            st.write("1. **Kademeli Giriş:** İlk %50 mevcut fiyattan, kalan %50 dip alımlarda")
+            st.write("2. **Stop Yönetimi:** TP1'e ulaşınca stop'u maliyete çek")
+            st.write("3. **Kısmi Çıkış:** TP1'de %50, TP2'de %30, TP3'te %20 sat")
+            st.write("4. **Zamanlama:** Londra/New York açılış saatlerini takip et")
+            
+        elif recommendation == "SAT":
+            st.error("**🎯 SAT Stratejisi Önerileri:**")
+            st.write("1. **Direniş Testi:** Direnç seviyesinde short pozisyon aç")
+            st.write("2. **Hacim Kontrolü:** Yüksek hacimli düşüşleri bekle")
+            st.write("3. **Kademeli Çıkış:** Her TP seviyesinde kısmi kapat")
+            st.write("4. **Trend Takip:** Ana trend dönüşünü gözle")
+            
+        else:
+            st.info("**🎯 BEKLEME Stratejisi Önerileri:**")
+            st.write("1. **Yanlış Zamanlama:** Trend belirsiz, beklemek en iyisi")
+            st.write("2. **Gözlem:** Teknik seviyelerde kırılımı bekle")
+            st.write("3. **Hazırlık:** AL/SAT sinyali için hazır ol")
+            st.write("4. **Alternatif:** Diğer coinleri analiz et")
+        
+        # UYARI
+        st.markdown("---")
+        st.error("""
+        **⚠️ ÖNEMLİ UYARILAR:**
+        - Bu analizler %100 doğru değildir, sadece eğitim amaçlıdır
+        - Kendi araştırmanızı yapmadan işlem açmayın
+        - Risk yönetimi olmadan asla ticaret yapmayın
+        - Geçmiş performans geleceği garanti etmez
+        - Kripto paralar yüksek risk içerir, sermayenizi kaybedebilirsiniz
+        """)
+
+except Exception as e:
+    st.error(f"❌ Sistem hatası: {str(e)}")
+    st.info("Lütfen internet bağlantınızı kontrol edin ve tekrar deneyin")
+
+st.markdown("---")
+st.caption("🤖 Crypto AI Pro - Gelişmiş Algoritmik Analiz Sistemi | V1.0")
