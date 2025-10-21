@@ -311,23 +311,55 @@ if len(cl_tail) >= 2:
     posc = int((chg > 0).sum()); negc = int((chg < 0).sum())
     comment = "momentum yukari" if posc >= 3 else ("momentum asagi" if negc >= 3 else "yanal/sikisik")
     st.caption(f"Pozitif: {posc}, Negatif: {negc} -> {comment}")
+# === Sinyal (Öneri) ===
 st.subheader("🎯 Sinyal (Öneri)")
+
 if buy_now:
     st.markdown(f"""
-    - **Giriş (Long):** **{last_price:.6f}**
-    - **Önerilen Miktar:** ~ **{qty:.4f}** birim (≈ **${position_value:,.2f}**)
-    - **Stop (Long):** **{stop_price_long:.6f}**
-    - **TP1 / TP2 / TP3 (Long):** **{tp1_long:.6f}** / **{tp2_long:.6f}** / **{tp3_long:.6f}**
-    - **Risk:** Sermayenin %{risk_pct:.1f}’i (maks. pozisyon %{effective_max_alloc:.0f})
-    """)
-    elif sell_now:
-        st.markdown(f"""
+- **Giriş (Long):** **{last_price:.6f}**
+- **Önerilen Miktar:** ~ **{qty:.4f}** birim (≈ **${position_value:,.2f}**)
+- **Stop (Long):** **{stop_price_long:.6f}**
+- **TP1 / TP2 / TP3 (Long):** **{tp1_long:.6f}** / **{tp2_long:.6f}** / **{tp3_long:.6f}**
+- **Risk:** Sermayenin %{risk_pct:.1f}’i (maks. pozisyon %{effective_max_alloc:.0f})
+""")
+    st.caption("Not: TP1 görüldüğünde stop'u maliyete çekmeyi değerlendiriniz (kılavuz).")
+
+elif sell_now:
+    st.markdown("""
 - **Aksiyon:** **Long kapat / short düşün**
-- **Kılavuz Stop (short için):** **{(last_price + risk_long):.6f}** _(örnek: long riskine simetrik)_
 - **Not:** SAT sinyalinde long taraf TP seviyeleri **gösterilmez**.
-        """)
-    else:
-        st.markdown("Şu anda belirgin bir al/sat sinyali yok; parametreleri veya zaman dilimini değiştirerek tekrar değerlendiriniz.")
+""")
+    # SAT'ta ALIM bölgeleri (kademeli)
+    try:
+        swings = detect_swings(pd, data["High"], data["Low"], w=5)
+        ll_idx, hh_idx = last_up_swing(pd, data["High"], data["Low"], swings)
+        if ll_idx is not None and hh_idx is not None:
+            low_p  = float(data.loc[ll_idx, "Low"])
+            high_p = float(data.loc[hh_idx, "High"])
+            fibs = fib_retracements(pd, low_p, high_p)
+            anchor_pos = data.index.get_loc(ll_idx)
+            vol_series = data.get("Volume", data["Close"]*0+1)
+            avwap = anchored_vwap(pd, data["Close"], vol_series, anchor_pos)
+            avwap_now = float(avwap.iloc[-1]) if avwap.notna().any() else None
+            ema200 = float(data["EMA_Trend"].iloc[-1])
+            bb_dn  = float(data["BB_Down"].iloc[-1])
+
+            st.markdown("**🔎 SAT sonrası olası ALIM bölgeleri (kademeli):**")
+            st.write(f"- Fib 0.382: **{fibs['0.382']:.6f}**")
+            st.write(f"- Fib 0.500: **{fibs['0.500']:.6f}**")
+            st.write(f"- Fib 0.618: **{fibs['0.618']:.6f}**")
+            st.write(f"- EMA200: **{ema200:.6f}**")
+            st.write(f"- Alt Bollinger: **{bb_dn:.6f}**")
+            if avwap_now == avwap_now:
+                st.write(f"- Anchored VWAP: **{avwap_now:.6f}**")
+            st.caption("Plan: %40 (0.382) – %40 (0.500) – %20 (0.618). Stop: 0.618 altı / swing düşük altı.")
+        else:
+            st.info("Uygun salınım tespit edilemedi. Alternatif: EMA200, Alt BB ve yatay destekleri izleyin.")
+    except Exception as e:
+        st.warning(f"Alım bölgesi üretiminde sorun: {e}")
+
+else:
+    st.markdown("Şu anda belirgin bir al/sat sinyali yok; parametreleri veya zaman dilimini değiştirerek tekrar değerlendirin.")
 
     # =========================
     # GEREKÇELER
