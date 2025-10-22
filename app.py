@@ -371,226 +371,115 @@ st.markdown("**5 İndikatörlü Akıllı Strateji**")
 
 # Sidebar
 st.sidebar.header("⚙️ Ayarlar")
-ticker = st.sidebar.selectbox("Sembol", ["BTC-USD", " st.sidebar.selectbox("Sembol", ["BTC-USDETH-USD", "TS", "ETH-USD", "LA", "NVDA", "AAPL", "GOOGL", "MSFT"])
-TSLA", "NVDA", "AAPL", "GOOGL", "MSFT"])
-start_datestart_date = st.sidebar.date = st.sidebar.date_input("Baş_input("Başlangıçlangıç", datetime(2023, 1, 1", datetime(2023, 1, 1))
-))
-end_date = st.sidebarend_date = st.sidebar.date_input.date_input("Bitiş", datetime("Bitiş", datetime(202(2023, 123, 12, , 31))
+ticker = st.sidebar.selectbox("Sembol", ["BTC-USD", "ETH-USD", "TSLA", "NVDA", "AAPL", "GOOGL", "MSFT"])
+start_date = st.sidebar.date_input("Başlangıç", datetime(2023, 1, 1))
+end_date = st.sidebar.date_input("Bitiş", datetime(2023, 12, 31))
 
-31))
-
-st.sidest.sidebar.header("🎯 Stbar.header("🎯 Stratejirateji Parametreleri")
-r Parametreleri")
-rsi_oversold = st.sidesi_oversold = st.sidebar.slider("RSbar.slider("RSI Aşırı SatI Aşırı Satımım", 25, 40, 35)
-atr_mult", 25, 40,iplier = st.sidebar.s 35)
-atr_multiplier = st.sidebar.slider("ATR Çlider("ATR Çarpanı", 1.arpanı", 1.0, 2.5,0, 2.5, 1.5)
-risk 1.5)
+st.sidebar.header("🎯 Strateji Parametreleri")
+rsi_oversold = st.sidebar.slider("RSI Aşırı Satım", 25, 40, 35)
+atr_multiplier = st.sidebar.slider("ATR Çarpanı", 1.0, 2.5, 1.5)
 risk_per_trade = st.sidebar.slider("Risk %", 1.0, 5.0, 2.0) / 100
 
-st.sidebar.info("_per_trade = st.sidebar.slider("Risk %", 1.0, 5.0, 2.0) / 100
-
-st.sidebar.info(""""
+st.sidebar.info("""
 **🎯 STRATEJİ ÖZETİ:**
-- EMA Trend Filtresi"
-**🎯 STRATEJİ ÖZETİ
-- RSI + MACD Momentum
-- Bollinger + Fibonacci Destek
-- Çok:**
 - EMA Trend Filtresi
 - RSI + MACD Momentum
 - Bollinger + Fibonacci Destek
 - Çoklu Strateji Onayı
-- Akılllu Strateji Onayı
 - Akıllı Stop Loss
 """)
 
-ı Stop Loss
-""")
-
 # Ana içerik
-# Ana içerik
-if st.button("🎯if st.button("🎯 BACKTEST ÇALIŞTIR", type BACKTEST ÇALIŞTIR", type="primary"):
+if st.button("🎯 BACKTEST ÇALIŞTIR", type="primary"):
     try:
-="primary"):
-    try:
-        with st.spinner("Ver        with st.spinner("Veri yükleniyor..."i yükleniyor..."):
-            extended_start):
-            extended_start = start_date - timedelta = start_date - timedelta(days=100)
-            data = yf.download(ticker, start=ext(days=100)
-            data = yf.download(ticker, start=ended_start, end=endextended_start, end=end_date, progress=False)
-            
-_date, progress=False)
+        with st.spinner("Veri yükleniyor..."):
+            extended_start = start_date - timedelta(days=100)
+            data = yf.download(ticker, start=extended_start, end=end_date, progress=False)
             
             if data.empty:
-                st.error            if data.empty:
                 st.error("❌ Veri bulunamadı")
                 st.stop()
             
-            data = data("❌ Veri bulunamadı")
-                st.stop()
+            data = data[data.index >= pd.to_datetime(start_date)]
+            data = data[data.index <= pd.to_datetime(end_date)]
             
-            data = data[data.index >=[data.index >= pd.to_datetime(start_date)]
-            pd.to_datetime(start_date)]
- data = data[data.index <= pd.to_datetime(end_date)]
-            
-            st.success(f"✅ {len(data)} günlük            data = data[data.index <= pd.to_datetime(end_date)]
-            
-            st.success(f"✅ {len(data)} günlük veri yükl veri yüklendi")
-endi")
-                       st.info(f" st.info(f"📈 Fiyat📈 Fiyat aralığı aralığı: ${: ${data['Close'].min():.2f} - ${data['Close'].min():.2data['Close'].max():.2f}")
+            st.success(f"✅ {len(data)} günlük veri yüklendi")
+            st.info(f"📈 Fiyat aralığı: ${data['Close'].min():.2f} - ${data['Close'].max():.2f}")
         
-        backtf} - ${data['Close'].max():.2f}")
-ester = SwingBacktest()
-        
-        with st.spinner("Profesyonel backtest ç        
         backtester = SwingBacktest()
         
-        with st.spinner("Profesyonel backtest çalıştalıştırılıırılıyor..."):
-            tradesyor..."):
-            trades, equity = backtester.run, equity = backtester.run_backtest(data, rsi__backtest(data, rsi_oversold, atroversold, atr_multiplier_multiplier, risk_per_trade, risk_per_trade)
-            metrics =)
-            metrics = backtester backtester.calculate_.calculate_metrics(tradesmetrics(trades, equity)
-, equity)
+        with st.spinner("Profesyonel backtest çalıştırılıyor..."):
+            trades, equity = backtester.run_backtest(data, rsi_oversold, atr_multiplier, risk_per_trade)
+            metrics = backtester.calculate_metrics(trades, equity)
         
-               
-        st.sub st.subheader("📊 DETheader("📊 DETAYLI PERFORMAYLI PERFORMANS RAPORU")
-        col1, col2ANS RAPORU")
+        st.subheader("📊 DETAYLI PERFORMANS RAPORU")
         col1, col2, col3 = st.columns(3)
-, col3 = st.columns        
-        with col1:
-           (3)
         
         with col1:
-            st.metric(" st.metric("Toplam Getiri", metrics['total_returnToplam Getiri", metrics'])
-            st.metric("Top['total_return'])
-            st.metriclam İşlem", metrics['total("Toplam İşlem", metrics['total_trades'])
-            st.metric("Win Rate",_trades'])
-            st.metric("Win Rate", metrics['win_rate metrics['win_rate'])
+            st.metric("Toplam Getiri", metrics['total_return'])
+            st.metric("Toplam İşlem", metrics['total_trades'])
+            st.metric("Win Rate", metrics['win_rate'])
         
         with col2:
-           '])
+            st.metric("Ort. Kazanç", metrics['avg_win'])
+            st.metric("Ort. Kayıp", metrics['avg_loss'])
+            st.metric("Profit Factor", metrics['profit_factor'])
         
-        with col2:
-            st st.metric("Ort.metric("Ort. Kaz. Kazanç", metrics['anç", metrics['avgavg_win'])
-            st.m_win'])
-            st.metric("etric("Ort. KayOrt. Kayıp", metrics['avg_loss'])
-ıp", metrics['avg_loss'])
-            st.m            st.metric("Profit Factor",etric("Profit Factor", metrics[' metrics['profit_factor'])
+        with col3:
+            st.metric("Ort. Strateji Sayısı", metrics['avg_strategy_count'])
         
-profit_factor'])
-        
-        with col        with col3:
-            st.metric("Ort. St3:
-            st.metric("rateji Sayısı",Ort. Strateji Sayısı", metrics['avg_str metrics['avg_strategy_count'])
-ategy_count'])
-        
-        if not trades        
         if not trades.empty:
-            # İ.empty:
-            # İstatstatistikler
-            winningistikler
-            winning_trades = len(trades[trades_trades = len(trades['pnl'] > [trades['pnl'] >0])
-            total_trades 0])
+            # İstatistikler
+            winning_trades = len(trades[trades['pnl'] > 0])
             total_trades = len(trades)
-            = len(trades)
-            win_rate win_rate = (winning_trades = (winning_trades / / total_trades) * total_trades) *  100
+            win_rate = (winning_trades / total_trades) * 100
             
-            st.success(f100
-            
-            st.success(f"**"**🎯🎯 Başarı Oranı: {win_rate Başarı Oran:.1f}%** ({winning_trades}/{total_trades} işlem)")
-            
-ı: {win_rate:.1f}%** ({winning_trades}/{total_trades} i            st.subheader("📈 PERFORMANS GRAFİKLERİ")
-            
-            fig,şlem)")
+            st.success(f"**🎯 Başarı Oranı: {win_rate:.1f}%** ({winning_trades}/{total_trades} işlem)")
             
             st.subheader("📈 PERFORMANS GRAFİKLERİ")
             
-            fig, (ax1 (ax1, ax2, ax2) = plt.sub) = plt.subplots(plots(2, 1,2, 1, fig figsize=(12,size=(12, 10))
+            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
             
- 10))
-            
-            #            # Equity curve
-            ax1.plot(equity['date Equity curve
-            ax1.plot(equ'], equity['equity'], color='green', linewidth=2, labelity['date'], equity['equity'], color='green='Portföy Değeri')
+            # Equity curve
+            ax1.plot(equity['date'], equity['equity'], color='green', linewidth=2, label='Portföy Değeri')
             ax1.set_title('EQUITY CURVE', fontweight='bold', fontsize=14)
-            ax1', linewidth=2, label='Portföy Değeri')
-            ax1.set_title('EQUITY CURVE', fontweight='bold', fontsize=14)
-            ax1.set_ylabel.set_ylabel('Portföy ($)')
+            ax1.set_ylabel('Portföy ($)')
             ax1.legend()
             ax1.grid(True, alpha=0.3)
             
-            #('Portföy ($)')
-            ax1.legend()
-            ax1.grid(True, alpha=0.3)
- Drawdown
-            equity_series = equity.set_index('date')['equity']
-            rolling_max = equity_series.expanding().max()
-            drawdown = (            
             # Drawdown
             equity_series = equity.set_index('date')['equity']
             rolling_max = equity_series.expanding().max()
             drawdown = (equity_series - rolling_max) / rolling_max * 100
             
-            axequity_series - rolling_max) / rolling_max * 100
-            
-            ax2.fill_between(equity['date'], draw2.fill_between(equity['date'], drawdown.values,down.values, 0, alpha=0.3, color 0, alpha=0.3, color='red', label='='red', label='Drawdown')
-Drawdown')
-            ax2.set            ax2.set_title('DRAWDOWN', fontweight_title('DRAWDOWN', font='bold', fontsize=14weight='bold', fontsize=14)
-            ax2.set_ylabel)
+            ax2.fill_between(equity['date'], drawdown.values, 0, alpha=0.3, color='red', label='Drawdown')
+            ax2.set_title('DRAWDOWN', fontweight='bold', fontsize=14)
             ax2.set_ylabel('Drawdown %')
-           ('Drawdown %')
             ax2.legend()
-            ax ax2.legend()
-            ax2.grid(True, alpha=2.grid(True, alpha=0.3)
-            
-            plt.tight_layout()
-           0.3)
+            ax2.grid(True, alpha=0.3)
             
             plt.tight_layout()
             st.pyplot(fig)
             
-            st.sub st.pyplot(fig)
+            st.subheader("📋 DETAYLI İŞLEM LİSTESİ")
+            display_trades = trades.copy()
+            display_trades['entry_date'] = display_trades['entry_date'].dt.strftime('%Y-%m-%d')
+            display_trades['exit_date'] = display_trades['exit_date'].dt.strftime('%Y-%m-%d')
+            st.dataframe(display_trades)
             
-            st.subheader("📋 Dheader("📋 DETAYLI İŞLEM LETAYLI İŞLEM LİSTESİ")
-           İSTESİ")
-            display_t display_trades = trades.copyrades = trades.copy()
-            display_trades['entry_date'] =()
-            display_trades['entry_date'] = display_trades[' display_trades['entry_date'].dt.strftime('%Y-%m-%d')
-           entry_date'].dt.strftime('%Y-%m-%d')
-            display_trades['exit_date'] = display_trades['exit_date']. display_trades['exit_date'] = display_trades['exit_date'].dt.strftime('%Ydt.strftime('%Y-%m-%d')
-            st.data-%m-%d')
-            st.dataframe(display_tframe(display_trades)
-rades)
-            
-        else:
-            st            
         else:
             st.warning("""
-            **.warning("""
-            **🤔 KALİTEL🤔 KALİTELİ Sİ SİNYAL BİNYULUNAMADI!**
+            **🤔 KALİTELİ SİNYAL BULUNAMADI!**
             
-            **Çözüm ÖAL BULUNAMADI!**
-            
-            **Çöznerileri:**
-            - RSI değerini 38üm Önerileri:**
-            - RSI değerini-40'a çıkar
-            - BTC- 38-40'a çıkar
-            - BTC-USD veya TSLA denUSD veya TSLA deneyin
-            - Teyin
-            - Tarih aralığarih aralığını genişletin
-            -ını genişletin
-            - ATR çarpanını ATR çarpanını 1.2'ye dü 1.2'ye dşürün
-            ""üşürün
+            **Çözüm Önerileri:**
+            - RSI değerini 38-40'a çıkar
+            - BTC-USD veya TSLA deneyin
+            - Tarih aralığını genişletin
+            - ATR çarpanını 1.2'ye düşürün
             """)
             
-    except")
-            
     except Exception as e:
-        Exception as e:
-        st.error(f st.error(f"❌ H"❌ Hata: {str(e)}ata: {str(e)}")
-
-st.mark")
+        st.error(f"❌ Hata: {str(e)}")
 
 st.markdown("---")
-st.markdown("**🎯down("---")
-st.markdown("**🎯 PRO SW PRO SWING STRATEJING STRATEJİ v3İ v3.0 | 5 İndikatörl.0 | 5 İndikatörlü Akıü Akıllı Sistem**")
+st.markdown("**🎯 PRO SWING STRATEJİ v3.0 | 5 İndikatörlü Akıllı Sistem**")
