@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -24,6 +25,29 @@ def check_password():
 if not check_password():
     st.stop()
 
+# =========================
+# YARDIMCI: güvenli sayı/sayı-format (Bu kısım ana kod bloğuna taşındı)
+# =========================
+def to_scalar(x):
+    try:
+        if hasattr(x, "iloc"):
+            if len(x) > 0:
+                return float(x.iloc[-1])
+            return float("nan")
+        if isinstance(x, (np.ndarray, list, tuple)):
+            return float(x[-1]) if len(x) > 0 else float("nan")
+        return float(x)
+    except Exception:
+        try:
+            return float(pd.to_numeric(x, errors="coerce"))
+        except Exception:
+            return float("nan")
+
+def fmt(x, nd=2, prefix="", suffix=""):
+    v = to_scalar(x)
+    if pd.isna(v):
+        return "-"
+    return f"{prefix}{v:.{nd}f}{suffix}"
 # =========================
 # BACKTEST MOTORU
 # =========================
@@ -133,7 +157,6 @@ class CleanSwingBacktest:
                 sig = sigs.loc[date]
             
             if position is None:
-                # Sadece tekil bir satır (Series) döndürdüğü için doğrudan erişilebilir
                 is_buy = bool(sig["is_buy"]) if sig is not None and "is_buy" in sig else False
                 
                 if is_buy:
@@ -259,15 +282,12 @@ risk_per_trade = st.sidebar.slider("Risk % (Pozisyon Büyüklüğü)", 1.0, 5.0,
 if st.button("🎯 Backtest Başlat", type="primary"):
     try:
         with st.spinner("Veri çekiliyor ve indikatörler hesaplanıyor..."):
-            # İndikatörler için yeterli geçmiş veriyi çek
             extended_start = start_date - timedelta(days=100)
-            # Tek bir ticker için yf.download() her zaman tek seviyeli indeks döndürür
             data = yf.download(ticker, start=extended_start, end=end_date, progress=False)
             
             if data.empty:
                 st.error("❌ Veri çekilemedi veya tarih aralığı hatalı."); st.stop()
             
-            # Sadece istenen aralığı filtrele
             data = data[(data.index >= pd.to_datetime(start_date)) & (data.index <= pd.to_datetime(end_date))]
             st.success(f"✅ {len(data)} günlük veri yüklendi.")
             st.info(f"📈 Fiyat aralığı: {fmt(data['Close'].min(),2,prefix='$')} - {fmt(data['Close'].max(),2,prefix='$')}")
