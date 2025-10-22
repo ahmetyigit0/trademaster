@@ -27,7 +27,7 @@ if not check_password():
     st.stop()
 
 # =========================
-# BACKTEST MOTORU
+# BACKTEST MOTORU - MACD EKLENDİ
 # =========================
 class SwingBacktest:
     def __init__(self):
@@ -49,6 +49,13 @@ class SwingBacktest:
         rs = avg_gain / avg_loss
         df['RSI'] = 100 - (100 / (1 + rs))
         
+        # MACD EKLENDİ
+        exp1 = df['Close'].ewm(span=12, min_periods=1).mean()
+        exp2 = df['Close'].ewm(span=26, min_periods=1).mean()
+        df['MACD'] = exp1 - exp2
+        df['MACD_Signal'] = df['MACD'].ewm(span=9, min_periods=1).mean()
+        df['MACD_Hist'] = df['MACD'] - df['MACD_Signal']
+        
         # ATR
         high_low = df['High'] - df['Low']
         high_close = np.abs(df['High'] - df['Close'].shift(1))
@@ -67,8 +74,9 @@ class SwingBacktest:
         
         return df
     
-    def generate_signals(self, df, rsi_oversold=40, atr_multiplier=2.0):
+    def generate_signals(self, df, rsi_oversold=40, atr_multiplier=2.0, use_macd=True):
         signals = []
+        buy_count = 0
         
         for i in range(len(df)):
             try:
@@ -79,12 +87,31 @@ class SwingBacktest:
                 ema_50_val = float(row['EMA_50'])
                 rsi_val = float(row['RSI'])
                 atr_val = float(row['ATR'])
+                macd_hist_val = float(row['MACD_Hist'])
                 
+                # TEMEL KOŞULLAR
                 trend_ok = ema_20_val > ema_50_val
                 rsi_ok = rsi_val < rsi_oversold
                 price_ok = close_val > ema_20_val
                 
-                buy_signal = trend_ok and rsi_ok and price_ok
+                # MACD KOŞULLARI
+                macd_bullish = macd_hist_val > 0
+                macd_turning = macd_hist_val > df['MACD_Hist'].iloc[i-1] if i > 0 else False
+                
+                # STRATEJİ 1: RSI + Trend (Orjinal)
+                strategy1 = trend_ok and rsi_ok and price_ok
+                
+                # STRATEJİ 2: MACD + Trend (Yeni)
+                strategy2 = trend_ok and macd_bullish and price_ok
+                
+                # STRATEJİ 3: RSI + MACD Kombinasyonu
+                strategy3 = trend_ok and rsi_ok and macd_bullish
+                
+                # Sinyal seçimi
+                if use_macd:
+                    buy_signal = strategy1 or strategy2 or strategy3
+                else:
+                    buy_signal = strategy1
                 
                 if buy_signal:
                     stop_loss = close_val - (atr_val * atr_multiplier)
@@ -94,8 +121,10 @@ class SwingBacktest:
                         'date': df.index[i],
                         'action': 'buy',
                         'stop_loss': stop_loss,
-                        'take_profit': take_profit
+                        'take_profit': take_profit,
+                        'strategy': 'RSI+MACD' if strategy3 else ('MACD' if strategy2 else 'RSI')
                     })
+                    buy_count += 1
                 else:
                     signals.append({
                         'date': df.index[i],
@@ -112,11 +141,12 @@ class SwingBacktest:
         if not signals_df.empty:
             signals_df = signals_df.set_index('date')
         
+        st.info(f"🎯 {buy_count} alış sinyali bulundu (MACD aktif)")
         return signals_df
     
-    def run_backtest(self, data, rsi_oversold=40, atr_multiplier=2.0, risk_per_trade=0.02):
+    def run_backtest(self, data, rsi_oversold=40, atr_multiplier=2.0, risk_per_trade=0.02, use_macd=True):
         df = self.calculate_indicators(data)
-        signals = self.generate_signals(df, rsi_oversold, atr_multiplier)
+        signals = self.generate_signals(df, rsi_oversold, atr_multiplier, use_macd)
         
         capital = 10000
         position = None
@@ -147,7 +177,8 @@ class SwingBacktest:
                             'entry_price': current_price,
                             'shares': shares,
                             'stop_loss': stop_loss,
-                            'take_profit': float(signal['take_profit'])
+                            'take_profit': float(signal['take_profit']),
+                            'strategy': signal.get('strategy', 'RSI')
                         }
                         capital -= shares * current_price
             
@@ -167,7 +198,8 @@ class SwingBacktest:
                         'exit_price': exit_price,
                         'pnl': pnl,
                         'return_pct': (pnl / entry_value) * 100,
-                        'exit_reason': 'SL'
+                        'exit_reason': 'SL',
+                        'strategy': position['strategy']
                     })
                     position = None
                 
@@ -186,7 +218,8 @@ class SwingBacktest:
                         'exit_price': exit_price,
                         'pnl': pnl,
                         'return_pct': (pnl / entry_value) * 100,
-                        'exit_reason': 'TP'
+                        'exit_reason': 'TP',
+                        'strategy': position['strategy']
                     })
                     position = None
         
@@ -205,7 +238,8 @@ class SwingBacktest:
                 'exit_price': last_price,
                 'pnl': pnl,
                 'return_pct': (pnl / entry_value) * 100,
-                'exit_reason': 'OPEN'
+                'exit_reason': 'OPEN',
+                'strategy': position['strategy']
             })
         
         trades_df = pd.DataFrame(trades) if trades else pd.DataFrame()
@@ -256,11 +290,11 @@ class SwingBacktest:
 # STREAMLIT UYGULAMASI
 # =========================
 st.set_page_config(page_title="Swing Backtest", layout="wide")
-st.title("🚀 Swing Trading Backtest")
+st.title("🚀 Swing Trading Backtest - MACD Eklendi")
 
 # Sidebar
 st.sidebar.header("⚙️ Ayarlar")
-ticker = st.sidebar.selectbox("Sembol", ["AAPL", "GOOGL", "MSFT", "TSLA", "BTC-USD", "ETH-USD"])
+ticker = st.sidebar.selectbox("Sembol", ["AAPL", "GOOGL", "MSFT", "TSLA", "BTC-USD", "ETH-USD", "NVDA", "AMZN"])
 start_date = st.sidebar.date_input("Başlangıç", datetime(2023, 1, 1))
 end_date = st.sidebar.date_input("Bitiş", datetime(2023, 12, 31))
 
@@ -268,23 +302,36 @@ st.sidebar.header("📊 Parametreler")
 rsi_oversold = st.sidebar.slider("RSI Aşırı Satım", 25, 50, 40)
 atr_multiplier = st.sidebar.slider("ATR Çarpanı", 1.0, 3.0, 2.0)
 risk_per_trade = st.sidebar.slider("Risk %", 1.0, 5.0, 2.0) / 100
+use_macd = st.sidebar.checkbox("MACD Stratejisini Kullan", value=True)
+
+st.sidebar.info("""
+**Yeni Stratejiler:**
+- RSI + Trend (Orjinal)
+- MACD + Trend (Yeni)
+- RSI + MACD Kombinasyonu
+""")
 
 # Ana içerik
 if st.button("🎯 Backtest Çalıştır"):
     try:
         with st.spinner("Veri yükleniyor..."):
-            data = yf.download(ticker, start=start_date, end=end_date, progress=False)
+            extended_start = start_date - timedelta(days=100)
+            data = yf.download(ticker, start=extended_start, end=end_date, progress=False)
             
             if data.empty:
                 st.error("❌ Veri bulunamadı")
                 st.stop()
             
+            data = data[data.index >= pd.to_datetime(start_date)]
+            data = data[data.index <= pd.to_datetime(end_date)]
+            
             st.success(f"✅ {len(data)} günlük veri yüklendi")
+            st.info(f"📈 Fiyat aralığı: ${data['Close'].min():.2f} - ${data['Close'].max():.2f}")
         
         backtester = SwingBacktest()
         
         with st.spinner("Backtest çalıştırılıyor..."):
-            trades, equity = backtester.run_backtest(data, rsi_oversold, atr_multiplier, risk_per_trade)
+            trades, equity = backtester.run_backtest(data, rsi_oversold, atr_multiplier, risk_per_trade, use_macd)
             metrics = backtester.calculate_metrics(trades, equity)
         
         st.subheader("📊 Performans Özeti")
@@ -302,6 +349,10 @@ if st.button("🎯 Backtest Çalıştır"):
             st.metric("Ort. Kayıp", metrics['avg_loss'])
         
         if not trades.empty:
+            # Strateji Dağılımı
+            strategy_counts = trades['strategy'].value_counts()
+            st.info(f"**Strateji Dağılımı:** {dict(strategy_counts)}")
+            
             st.subheader("📈 Performans Grafikleri")
             
             fig, ax = plt.subplots(figsize=(12, 6))
@@ -318,10 +369,16 @@ if st.button("🎯 Backtest Çalıştır"):
             st.dataframe(display_trades)
             
         else:
-            st.info("🤷 Hiç işlem gerçekleşmedi.")
+            st.warning("""
+            **🤔 Hala işlem yok! Şunları deneyin:**
+            - RSI değerini 45-50'ye çıkarın
+            - BTC-USD veya TSLA gibi volatil semboller deneyin
+            - ATR çarpanını 1.5'e düşürün
+            - MACD'yi aktif edin
+            """)
             
     except Exception as e:
         st.error(f"❌ Hata: {str(e)}")
 
 st.markdown("---")
-st.markdown("**Backtest Sistemi**")
+st.markdown("**Backtest Sistemi v2.0 | MACD Eklendi**")
