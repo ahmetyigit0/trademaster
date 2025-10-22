@@ -44,7 +44,7 @@ if not check_password():
     st.stop()
 
 # =========================
-# GELİŞMİŞ BACKTEST MOTORU
+# GELİŞMİŞ BACKTEST MOTORU - DÜZELTİLMİŞ
 # =========================
 class AdvancedSwingBacktest:
     def __init__(self):
@@ -54,71 +54,81 @@ class AdvancedSwingBacktest:
     def calculate_advanced_indicators(self, df):
         df = df.copy()
         
-        # Trend EMA'ları
-        for period in [8, 13, 20, 50, 200]:
-            df[f'EMA_{period}'] = df['Close'].ewm(span=period, min_periods=1).mean()
-        
-        # RSI - Wilder'in yöntemi
-        delta = df['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rs = gain / loss
-        df['RSI'] = 100 - (100 / (1 + rs))
-        
-        # MACD
-        exp1 = df['Close'].ewm(span=12).mean()
-        exp2 = df['Close'].ewm(span=26).mean()
-        df['MACD'] = exp1 - exp2
-        df['MACD_Signal'] = df['MACD'].ewm(span=9).mean()
-        df['MACD_Hist'] = df['MACD'] - df['MACD_Signal']
-        
-        # Bollinger Bands
-        df['BB_Middle'] = df['Close'].rolling(20).mean()
-        bb_std = df['Close'].rolling(20).std()
-        df['BB_Upper'] = df['BB_Middle'] + (bb_std * 2)
-        df['BB_Lower'] = df['BB_Middle'] - (bb_std * 2)
-        df['BB_Width'] = (df['BB_Upper'] - df['BB_Lower']) / df['BB_Middle']
-        
-        # Stochastic
-        df['STOCH_K'] = 100 * (df['Close'] - df['Low'].rolling(14).min()) / (
-            df['High'].rolling(14).max() - df['Low'].rolling(14).min())
-        df['STOCH_D'] = df['STOCH_K'].rolling(3).mean()
-        
-        # ATR
-        high_low = df['High'] - df['Low']
-        high_close = np.abs(df['High'] - df['Close'].shift())
-        low_close = np.abs(df['Low'] - df['Close'].shift())
-        ranges = pd.concat([high_low, high_close, low_close], axis=1)
-        true_range = np.max(ranges, axis=1)
-        df['ATR'] = true_range.rolling(14).mean()
-        
-        # Volume SMA
-        df['Volume_SMA'] = df['Volume'].rolling(20).mean()
-        
-        # Support/Resistance
-        df['Resistance'] = df['High'].rolling(20).max()
-        df['Support'] = df['Low'].rolling(20).min()
-        
-        return df.fillna(method='bfill')
+        try:
+            # Trend EMA'ları
+            for period in [8, 13, 20, 50, 200]:
+                df[f'EMA_{period}'] = df['Close'].ewm(span=period, min_periods=1).mean()
+            
+            # RSI - Düzeltilmiş hesaplama
+            delta = df['Close'].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14, min_periods=1).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14, min_periods=1).mean()
+            rs = gain / loss
+            df['RSI'] = 100 - (100 / (1 + rs))
+            
+            # MACD
+            exp1 = df['Close'].ewm(span=12, min_periods=1).mean()
+            exp2 = df['Close'].ewm(span=26, min_periods=1).mean()
+            df['MACD'] = exp1 - exp2
+            df['MACD_Signal'] = df['MACD'].ewm(span=9, min_periods=1).mean()
+            df['MACD_Hist'] = df['MACD'] - df['MACD_Signal']
+            
+            # Bollinger Bands - DÜZELTİLDİ
+            df['BB_Middle'] = df['Close'].rolling(window=20, min_periods=1).mean()
+            bb_std = df['Close'].rolling(window=20, min_periods=1).std()
+            df['BB_Upper'] = df['BB_Middle'] + (bb_std * 2)
+            df['BB_Lower'] = df['BB_Middle'] - (bb_std * 2)
+            df['BB_Width'] = (df['BB_Upper'] - df['BB_Lower']) / df['BB_Middle']
+            
+            # Stochastic
+            low_14 = df['Low'].rolling(window=14, min_periods=1).min()
+            high_14 = df['High'].rolling(window=14, min_periods=1).max()
+            df['STOCH_K'] = 100 * (df['Close'] - low_14) / (high_14 - low_14)
+            df['STOCH_D'] = df['STOCH_K'].rolling(window=3, min_periods=1).mean()
+            
+            # ATR - Düzeltilmiş
+            high_low = df['High'] - df['Low']
+            high_close = np.abs(df['High'] - df['Close'].shift(1))
+            low_close = np.abs(df['Low'] - df['Close'].shift(1))
+            
+            true_range = pd.concat([high_low, high_close, low_close], axis=1)
+            true_range = true_range.max(axis=1)
+            df['ATR'] = true_range.rolling(window=14, min_periods=1).mean()
+            
+            # Volume SMA
+            df['Volume_SMA'] = df['Volume'].rolling(window=20, min_periods=1).mean()
+            
+            # Support/Resistance
+            df['Resistance'] = df['High'].rolling(window=20, min_periods=1).max()
+            df['Support'] = df['Low'].rolling(window=20, min_periods=1).min()
+            
+            # Tüm NaN değerleri doldur
+            df = df.fillna(method='bfill').fillna(method='ffill')
+            
+            return df
+            
+        except Exception as e:
+            st.error(f"Gösterge hesaplama hatası: {e}")
+            return df
     
-    def generate_advanced_signals(self, df, params):
+    def generate_signals(self, df, params):
         signals = []
         in_position = False
         
-        for i in range(2, len(df)):
+        for i in range(len(df)):
             try:
-                if i < 50:  # Daha fazla period bekleyelim
+                if i < 50:  # Yeterli veri kontrolü
                     signals.append({'date': df.index[i], 'action': 'hold', 'strength': 0})
                     continue
                 
                 row = df.iloc[i]
-                prev_row = df.iloc[i-1]
+                prev_row = df.iloc[i-1] if i > 0 else row
                 
-                # Değerleri al
+                # Değerleri güvenli şekilde al
                 close = float(row['Close'])
                 ema_20 = float(row['EMA_20'])
                 ema_50 = float(row['EMA_50'])
-                ema_200 = float(row['EMA_200'])
+                ema_200 = float(row.get('EMA_200', ema_50))  # Fallback
                 rsi = float(row['RSI'])
                 macd_hist = float(row['MACD_Hist'])
                 bb_lower = float(row['BB_Lower'])
@@ -130,15 +140,15 @@ class AdvancedSwingBacktest:
                 volume_sma = float(row['Volume_SMA'])
                 
                 # Trend analizi
-                trend_up = ema_20 > ema_50 > ema_200
+                trend_up = ema_20 > ema_50
                 price_above_ema20 = close > ema_20
                 
                 # Momentum göstergeleri
                 rsi_oversold = rsi < params['rsi_oversold']
                 rsi_overbought = rsi > params['rsi_overbought']
                 stoch_oversold = stoch_k < 20 and stoch_d < 20
-                stoch_bullish_cross = stoch_k > stoch_d and prev_row['STOCH_K'] <= prev_row['STOCH_D']
-                macd_bullish = macd_hist > 0 and prev_row['MACD_Hist'] <= 0
+                stoch_bullish_cross = stoch_k > stoch_d and float(prev_row['STOCH_K']) <= float(prev_row['STOCH_D'])
+                macd_bullish = macd_hist > 0 and float(prev_row['MACD_Hist']) <= 0
                 
                 # Volatilite ve konum
                 near_bb_lower = close <= bb_lower * 1.01
@@ -146,12 +156,10 @@ class AdvancedSwingBacktest:
                 high_volume = volume > volume_sma * 1.2
                 
                 # Sinyal gücü hesaplama
-                signal_strength = 0
+                buy_signals = []
                 
                 # ALIŞ sinyalleri
                 if not in_position:
-                    buy_signals = []
-                    
                     if trend_up and rsi_oversold and near_bb_lower:
                         buy_signals.append(3)  # Güçlü sinyal
                     if trend_up and stoch_oversold and stoch_bullish_cross:
@@ -202,11 +210,14 @@ class AdvancedSwingBacktest:
             except Exception as e:
                 signals.append({'date': df.index[i], 'action': 'hold', 'strength': 0})
         
-        return pd.DataFrame(signals).set_index('date')
+        signals_df = pd.DataFrame(signals)
+        if not signals_df.empty:
+            signals_df = signals_df.set_index('date')
+        return signals_df
     
     def run_backtest(self, data, params):
         df = self.calculate_advanced_indicators(data)
-        signals = self.generate_advanced_signals(df, params)
+        signals = self.generate_signals(df, params)
         
         capital = self.initial_capital
         position = None
@@ -215,8 +226,19 @@ class AdvancedSwingBacktest:
         max_drawdown = 0
         peak_equity = capital
         
-        for date in df.index:
+        for i, date in enumerate(df.index):
             if date not in signals.index:
+                # Sinyal yoksa hold olarak devam et
+                current_price = float(df.loc[date, 'Close'])
+                current_equity = capital
+                if position is not None:
+                    current_equity += position['shares'] * current_price
+                
+                equity_curve.append({
+                    'date': date, 
+                    'equity': current_equity,
+                    'drawdown': 0
+                })
                 continue
                 
             current_price = float(df.loc[date, 'Close'])
@@ -230,7 +252,7 @@ class AdvancedSwingBacktest:
             # Drawdown hesaplama
             if current_equity > peak_equity:
                 peak_equity = current_equity
-            drawdown = (peak_equity - current_equity) / peak_equity * 100
+            drawdown = (peak_equity - current_equity) / peak_equity * 100 if peak_equity > 0 else 0
             max_drawdown = max(max_drawdown, drawdown)
             
             equity_curve.append({
@@ -294,7 +316,7 @@ class AdvancedSwingBacktest:
                     
                     entry_value = position['shares'] * position['entry_price']
                     pnl = exit_value - entry_value
-                    pnl_pct = (pnl / entry_value) * 100
+                    pnl_pct = (pnl / entry_value) * 100 if entry_value > 0 else 0
                     
                     trades.append({
                         'entry_date': position['entry_date'],
@@ -319,6 +341,7 @@ class AdvancedSwingBacktest:
             
             entry_value = position['shares'] * position['entry_price']
             pnl = exit_value - entry_value
+            pnl_pct = (pnl / entry_value) * 100 if entry_value > 0 else 0
             
             trades.append({
                 'entry_date': position['entry_date'],
@@ -327,7 +350,7 @@ class AdvancedSwingBacktest:
                 'exit_price': last_price,
                 'shares': position['shares'],
                 'pnl': pnl,
-                'return_pct': (pnl / entry_value) * 100,
+                'return_pct': pnl_pct,
                 'exit_reason': 'FORCE_CLOSE',
                 'signal_strength': position['signal_strength'],
                 'holding_days': (df.index[-1] - position['entry_date']).days
@@ -364,7 +387,7 @@ class AdvancedSwingBacktest:
             
             # Sharpe Ratio (basitleştirilmiş)
             equity_returns = equity_df['equity'].pct_change().dropna()
-            sharpe_ratio = equity_returns.mean() / equity_returns.std() * np.sqrt(252) if len(equity_returns) > 1 else 0
+            sharpe_ratio = equity_returns.mean() / equity_returns.std() * np.sqrt(252) if len(equity_returns) > 1 and equity_returns.std() > 0 else 0
             
             # Sinyal gücü analizi
             strong_signals = trades_df[trades_df['signal_strength'] >= 3]
@@ -397,14 +420,14 @@ class AdvancedSwingBacktest:
         ]}
 
 # =========================
-# GELİŞMİŞ STREAMLET UYGULAMASI
+# STREAMLET UYGULAMASI
 # =========================
-st.set_page_config(page_title="Advanced Swing Backtest", layout="wide", page_icon="🚀")
+st.set_page_config(page_title="Advanced Swing Backtest", layout="wide")
 
 st.title("🚀 Advanced Swing Trading Backtest")
-st.markdown("**8+ İndikatörlü Profesyonel Strateji | Risk Yönetimi | Detaylı Analiz**")
+st.markdown("**Profesyonel Swing Trading Stratejisi | Risk Yönetimi | Detaylı Analiz**")
 
-# Sidebar - Gelişmiş ayarlar
+# Sidebar
 st.sidebar.header("⚙️ Temel Ayarlar")
 ticker = st.sidebar.selectbox("Sembol", ["BTC-USD", "ETH-USD", "ADA-USD", "TSLA", "NVDA", "AAPL", "GOOGL", "MSFT", "SPY", "QQQ"])
 col1, col2 = st.sidebar.columns(2)
@@ -431,11 +454,11 @@ params = {
 }
 
 # Ana içerik
-if st.button("🎯 Gelişmiş Backtest Çalıştır", type="primary", use_container_width=True):
+if st.button("🎯 Backtest Çalıştır", type="primary", use_container_width=True):
     try:
         with st.spinner("📊 Finansal veriler yükleniyor..."):
             # Daha uzun veri için
-            extended_start = start_date - timedelta(days=200)
+            extended_start = start_date - timedelta(days=100)
             data = yf.download(ticker, start=extended_start, end=end_date, progress=False)
             
             if data.empty:
@@ -450,7 +473,7 @@ if st.button("🎯 Gelişmiş Backtest Çalıştır", type="primary", use_contai
                 st.error("❌ Yeterli veri yok (en az 50 gün gereklidir)")
                 st.stop()
             
-            st.success(f"✅ {len(data)} işlem günü yüklendi - {data.index[0].strftime('%d.%m.%Y')} - {data.index[-1].strftime('%d.%m.%Y')}")
+            st.success(f"✅ {len(data)} işlem günü yüklendi")
         
         # Backtest çalıştır
         backtester = AdvancedSwingBacktest()
@@ -460,13 +483,12 @@ if st.button("🎯 Gelişmiş Backtest Çalıştır", type="primary", use_contai
             metrics = backtester.calculate_advanced_metrics(trades, equity, max_drawdown)
         
         # Sonuçları göster
-        st.subheader("📈 Detaylı Performans Analizi")
+        st.subheader("📈 Performans Özeti")
         
         # Ana metrikler
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            color = "green" if float(metrics['total_return'].replace('%', '').replace('+', '')) > 0 else "red"
             st.metric("Toplam Getiri", metrics['total_return'])
             st.metric("Toplam İşlem", metrics['total_trades'])
         
@@ -483,127 +505,212 @@ if st.button("🎯 Gelişmiş Backtest Çalıştır", type="primary", use_contai
             st.metric("Sharpe Ratio", metrics['sharpe_ratio'])
         
         # Detaylı metrikler
-        col5, col6, col7 = st.columns(3)
-        with col5:
-            st.metric("En İyi İşlem", metrics['best_trade'])
-        with col6:
-            st.metric("En Kötü İşlem", metrics['worst_trade'])
-        with col7:
-            st.metric("Güçlü Sinyal Win Rate", metrics['strong_signal_win_rate'])
+        if not trades.empty:
+            col5, col6.empty:
+            col5, col6, col7 = st.columns(, col7 = st.columns(3)
+            with col5:
+3)
+            with col5:
+                st.metric("En                st.metric("En İyi İşlem", metrics[' İyi İşlem", metricsbest_trade'])
+            with['best_trade'])
+            with col6:
+                st col6:
+                st.m.metric("En Kötüetric("En Kötü İşlem", metrics['worst İşlem", metrics['worst_trade'])
+           _trade'])
+            with col with col7:
+                st.metric7:
+                st.metric("G("Güçlü Sinyüçlü Sinyal Win Rate", metrics['al Win Rate", metrics['strong_signal_win_rate'])
+        
+strong_signal_win_rate'])
         
         if not trades.empty:
-            # Grafikler
-            st.subheader("📊 Performans Grafikleri")
+        if not trades.empty:
+            #            # Grafikler
+            st Grafikler
+            st.subheader("📊 Perform.subheader("📊 Performans Grafikleri")
             
-            tab1, tab2, tab3 = st.tabs(["Portföy Değeri", "Drawdown", "İşlem Analizi"])
+ans Grafikleri")
             
-            with tab1:
-                fig, ax = plt.subplots(figsize=(12, 6))
-                ax.plot(equity['date'], equity['equity'], color='#00ff88', linewidth=3)
-                ax.set_title('Portföy Değer Gelişimi', fontsize=14, fontweight='bold')
-                ax.set_xlabel('Tarih')
-                ax.set_ylabel('Portföy Değeri ($)')
+                       tab1, tab2, tab3 = st.tabs(["Portföy Değeri", " tab1, tab2, tab3 = st.tabs(["Portföy Değeri", "Drawdown", "İşDrawdown", "İşlem Analizi"])
+            
+           lem Analizi"])
+            
+            with tab with tab1:
+                fig, ax1:
+                fig, ax = plt.subplots(fig = plt.subplots(figsize=(12,size=(12, 6))
+                ax.plot(equity 6))
+                ax.plot(equity['['date'], equity['equitydate'], equity['equity'], color='#00ff88','], color='#00ff linewidth=2)
+               88', linewidth=2)
+                ax.set_title('Portfö ax.set_title('Portföy Değer Geliy Değer Gelişimişimi', fontsize=14,', fontsize=14, fontweight='bold')
+                fontweight='bold')
+                ax.set ax.set_xlabel('Tarih')
+                ax.set_ylabel_xlabel('Tarih')
+                ax.set_ylabel('Portföy Değeri ($('Portföy Değeri ($)')
+                ax.grid()')
                 ax.grid(True, alpha=0.3)
-                ax.tick_params(axis='x', rotation=45)
+True, alpha=0.3)
+                ax.tick_params(                ax.tick_params(axis='x', rotation=axis='x', rotation=45)
+                plt.t45)
                 plt.tight_layout()
                 st.pyplot(fig)
             
             with tab2:
-                fig, ax = plt.subplots(figsize=(12, 6))
-                ax.fill_between(equity['date'], equity['drawdown'], color='#ff4444', alpha=0.7)
-                ax.plot(equity['date'], equity['drawdown'], color='#ff4444', linewidth=2)
-                ax.set_title('Portföy Drawdown', fontsize=14, fontweight='bold')
-                ax.set_xlabel('Tarih')
-                ax.set_ylabel('Drawdown (%)')
-                ax.grid(True, alpha=0.3)
-                ax.tick_params(axis='x', rotation=45)
-                plt.tight_layout()
+ight_layout()
                 st.pyplot(fig)
             
+            with tab2:
+                fig, ax = plt                fig, ax = plt.sub.subplots(figsize=(plots(figsize=(12,12, 6 6))
+               ))
+                ax.fill_between(equ ax.fill_between(equity['ity['date'], equity['drawdate'], equity['drawdowndown'], color='#ff444'], color='#ff4444',4', alpha=0.7 alpha=0.7)
+)
+                ax.plot(equ                ax.plot(equityity['date'], equity['draw['date'], equity['drawdowndown'], color='#ff4444', linewidth=1)
+'], color='#ff4444', linewidth=1)
+                ax.set_title('Port                ax.set_title('Portföyföy Drawdown', font Drawdown', fontsize=size=14, fontweight='bold14, fontweight='bold')
+                ax.set_xlabel')
+                ax.set_xlabel('Tarih')
+                ax.set('Tarih')
+                ax.set_ylabel('Draw_ylabel('Drawdown (%)')
+                ax.grid(down (%)')
+                ax.grid(TrueTrue, alpha=0.3, alpha=0.3)
+                ax.tick_params)
+                ax.tick_params(axis(axis='x', rotation=='x', rotation=4545)
+                plt.tight)
+                plt.tight_layout_layout()
+                st.pyplot(fig()
+                st.pyplot(fig)
+            
+            with tab)
+            
             with tab3:
-                # İşlem sonuçları dağılımı
-                fig, ax = plt.subplots(figsize=(12, 6))
-                colors = ['green' if x > 0 else 'red' for x in trades['return_pct']]
-                bars = ax.bar(range(len(trades)), trades['return_pct'], color=colors, alpha=0.7)
-                ax.set_title('İşlem Getirileri Dağılımı', fontsize=14, fontweight='bold')
-                ax.set_xlabel('İşlem No')
-                ax.set_ylabel('Getiri (%)')
+                # İ3:
+                # İşlem sonuçları dağılımşlem sonuçları dağılımı
+                figı
+                fig, ax, ax = plt.subplots(f = plt.subplots(figsize=(12, 6igsize=(12, 6))
+                colors =))
+                colors = ['green' if x > 0 else ['green' if x > 0 else ' 'red' for x in tradesred' for x in trades['return_pct['return_pct']']]
+                bars = ax.bar]
+                bars = ax.bar(range(len(trades)), trades(range(len(trades)), trades['return_pct'], color['return_pct'], color=colors, alpha=0.7=colors, alpha=0.7)
+                ax.set_title(')
+                ax.set_title('İşlem Getirileriİşlem Getirileri Dağılımı', font Dağılımı', fontsize=14, fontweightsize=14, fontweight='bold')
+                ax.set='bold')
+                ax.set_xlabel('İ_xlabel('İşlem No')
+şlem No')
+                ax                ax.set_ylabel('Getiri.set_ylabel('Getiri (%)')
+                ax.grid(True, (%)')
                 ax.grid(True, alpha=0.3)
-                plt.tight_layout()
+ alpha=0.3)
+                plt                plt.tight.tight_layout()
                 st.pyplot(fig)
             
             # İstatistikler
-            st.subheader("📊 İşlem İstatistikleri")
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.write("**Çıkış Nedenleri Dağılımı**")
-                exit_reasons = trades['exit_reason'].value_counts()
-                fig, ax = plt.subplots(figsize=(8, 6))
-                ax.pie(exit_reasons.values, labels=exit_reasons.index, autopct='%1.1f%%', startangle=90)
-                ax.set_title('Çıkış Nedenleri')
+            st_layout()
                 st.pyplot(fig)
             
-            with col2:
-                st.write("**Pozisyon Tutma Süresi (Gün)**")
-                holding_stats = trades['holding_days'].describe()
-                st.dataframe(holding_stats)
+            # İstatistikler
+            st.subheader("📊 İş.subheader("📊 İşlem İstatlem İstatistikleriistikleri")
+           ")
+            col1 col1, col2, col2 = st.columns = st.columns(2)
+            
+(2)
+            
+            with col1            with col1:
+                st:
+                st.write("**.write("**Çıkış NÇıkış Nedenleriedenleri Dağılımı**")
+ Dağılımı**")
+                exit_reasons =                exit_reasons = trades[' trades['exit_reason'].exit_reason'].value_counts()
+value_counts()
+                fig,                fig, ax = ax = plt.subplots(figsize plt.subplots(figsize=(8=(8, 6, 6))
+))
+                ax                ax.pie(exit.pie(exit_reasons.values,_reasons.values, labels= labels=exit_reasons.indexexit_reasons.index, autopct='%1, autopct='%1.1f.1f%%', start%%', startangle=90angle=90)
+                ax.set)
+                ax.set_title('_title('Çıkış NÇıkış Nedenleri')
+edenleri')
+                st.pyplot(fig                st.pyplot(fig)
+            
+)
+            
+            with col2            with col2:
+                st:
+                st.write("**.write("**PozPozisyon Tutmaisyon Tutma Süresi (G Süresi (Gün)**")
+               ün)**")
+                holding_stats = trades holding_stats = trades['holding_days'].describe()
+                st.data['holding_days'].describe()
+                st.dataframe(holding_statsframe(holding_stats)
+                
+            # Detaylı i)
                 
             # Detaylı işlem tablosu
-            st.subheader("📋 Detaylı İşlem Listesi")
+           şlem tablosu
+            st st.subheader("📋 İ.subheader("📋 İşlem Listesi")
+şlem Listesi")
             
-            display_trades = trades.copy()
-            display_trades['entry_date'] = display_trades['entry_date'].dt.strftime('%Y-%m-%d')
-            display_trades['exit_date'] = display_trades['exit_date'].dt.strftime('%Y-%m-%d')
-            display_trades['pnl'] = display_trades['pnl'].round(2)
-            display_trades['return_pct'] = display_trades['return_pct'].round(2)
             
-            # Renkli gösterim için CSS
-            st.markdown("""
-            <style>
-            .positive { color: green; font-weight: bold; }
-            .negative { color: red; font-weight: bold; }
-            </style>
-            """, unsafe_allow_html=True)
+            display_trades = trades            display_trades = trades.copy()
+            display_trades['entry_date'] = display_trades['entry_date']..copy()
+            display_trades['entry_date'] = display_trades['entry_date'].dt.strftime('%Y-%dt.strftime('%Y-%mm-%d')
+            display-%d')
+            display_trades['exit_trades['exit_date'] = display_trades['exit_date'] = display_trades['exit_date'].dt.strftime('%Y-%_date'].dt.strftime('%Y-%m-%d')
+            displaym-%d')
+            display_trades['pnl'] = display_trades['pnl'] = display_trades['pn_trades['pnl'].round(2)
+l'].round(2)
+                       display_trades['return_pct display_trades['return_pct'] = display_t'] = display_trades['returnrades['return_pct'].round(_pct'].round(2)
             
-            # DataFrame'i formatla
-            def format_trades_df(df):
-                styled_df = df.copy()
-                styled_df['pnl'] = styled_df['pnl'].apply(
-                    lambda x: f"<span class='positive'>${x:+.2f}</span>" if x > 0 else f"<span class='negative'>${x:.2f}</span>" if x < 0 else f"${x:.2f}"
-                )
-                styled_df['return_pct'] = styled_df['return_pct'].apply(
-                    lambda x: f"<span class='positive'>{x:+.2f}%</span>" if x > 0 else f"<span class='negative'>{x:.2f}%</span>" if x < 0 else f"{x:.2f}%"
-                )
-                return styled_df
+            # DataFrame'i gö2)
             
-            formatted_trades = format_trades_df(display_trades)
-            st.write(formatted_trades.to_html(escape=False), unsafe_allow_html=True)
+            # DataFrame'i göster
+            st.dataframester
+            st.dataframe((display_trades, usedisplay_trades, use_container_width_container_width=True)
                 
         else:
-            st.info("🤷 Hiç işlem gerçekleşmedi. Parametreleri değiştirmeyi deneyin.")
+=True)
+                
+        else:
+                       st.info("🤷 st.info("🤷 Hiç işlem ger Hiç işlem gerçekleşmedi. Paramçekleşmedi. Parametreleri değiştirmeyietreleri değiştirmeyi deneyin.")
+            
+    deneyin.")
             
     except Exception as e:
-        st.error(f"❌ Sistem hatası: {str(e)}")
-        st.info("💡 Lütfen tarih aralığını veya parametreleri değiştirip tekrar deneyin.")
+        except Exception as e:
+        st.error(f"❌ st.error(f"❌ Sistem hatası: {str(e Sistem hatası: {str(e)})}")
+        st.info("")
+        st.info("💡 Lütfen tarih💡 Lütfen tarih aralığını veya aralığını veya paramet parametreleri değiştirip tekrar denreleri değiştirip tekrar deneyin.")
+
+# Bilgieyin.")
 
 # Bilgi paneli
-st.sidebar.markdown("---")
-st.sidebar.header("ℹ️ Sistem Bilgisi")
+st.sidebar.mark paneli
+st.sidedown("---")
+st.sbar.markdown("---")
+st.sidebar.header("idebar.header("ℹ️ Sistem Bilgℹ️ Sistem Bilgisi")
+st.sidebar.info("isi")
 st.sidebar.info("""
-**Kullanılan Göstergeler:**
-- EMA (8, 13, 20, 50, 200)
-- RSI & Stochastic
-- MACD & Bollinger Bands
-- ATR & Volume Analizi
-- Support/Resistance
+**Kullanılan Gö""
+**Kullanıstergeler:**
+lan Göstergeler:**
+- EMA (8- EMA (8, 13, 20,, 13, 20, 50, 200)
+- 50, 200)
+- RSI RSI & Stochastic
+- MACD & Stochastic
+- MACD & Boll & Bollinger Bands
+inger Bands
+- A- ATR & Volume AnalTR & Volume Analizi
+
+**Risk Yönetimiizi
 
 **Risk Yönetimi:**
+- ATR tabanlı:**
 - ATR tabanlı Stop Loss
+- Stop Loss
 - Dinamik Take Profit
+- Position Sizing
+ Dinamik Take Profit
 - Position Sizing
 - Komisyon hesabı
 """)
 
+st- Komisyon hesabı
+""")
+
 st.markdown("---")
-st.markdown("**Advanced Swing Backtest System v4.0 | 8+ İndikatörlü Profesyonel Strateji**")
+st.mark.markdown("---")
+st.markdown("**Advanced Swing Backtestdown("**Advanced Swing Backtest System v4.0 | System v4.0 | Profesyonel Profesyonel Strateji**")
