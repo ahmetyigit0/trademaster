@@ -157,13 +157,17 @@ class SwingBacktest:
         df = self.calculate_indicators(data)
         signals = self.generate_signals(df, params)
         
-        # DataFrame'leri doğru şekilde birleştirme
+        # DataFrame'leri doğru şekilde birleştirme - HATA DÜZELTİLDİ
         df_combined = df.copy()
         
-        # Sinyal sütunlarını ana DataFrame'e ekle
+        # ✅ Pandas 2.1+ uyumlu hizalama
+        signals_aligned = signals.reindex(df_combined.index, fill_value='hold')
+        signals_aligned['stop_loss'] = signals_aligned['stop_loss'].fillna(0.0)
+        signals_aligned['take_profit'] = signals_aligned['take_profit'].fillna(0.0)
+        
         for col in ['action', 'stop_loss', 'take_profit']:
-            if col in signals.columns:
-                df_combined[col] = signals[col]
+            if col in signals_aligned.columns:
+                df_combined[col] = signals_aligned[col]
         
         # Eksik değerleri doldur
         df_combined['action'] = df_combined['action'].fillna('hold')
