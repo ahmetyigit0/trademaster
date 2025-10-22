@@ -88,7 +88,7 @@ class SwingBacktest:
         # AL sinyali
         buy_signal = trend_up & rsi_oversold & macd_bullish & price_above_ema20
         
-        # Signals DataFrame'ini doğru şekilde oluştur - SADECE index kullan
+        # Signals DataFrame'ini doğru şekilde oluştur
         signals = pd.DataFrame({
             'action': 'hold'
         }, index=df.index)
@@ -282,57 +282,66 @@ class SwingBacktest:
         """Performans metriklerini hesaplar"""
         if trades_df.empty or equity_df.empty:
             return {
-                'total_return_%': 0,
+                'total_return_%': 0.0,
                 'total_trades': 0,
-                'win_rate_%': 0,
-                'avg_win': 0,
-                'avg_loss': 0,
-                'profit_factor': 0,
-                'avg_r_multiple': 0,
-                'max_drawdown_%': 0,
-                'sharpe_ratio': 0,
-                'avg_hold_days': 0
+                'win_rate_%': 0.0,
+                'avg_win': 0.0,
+                'avg_loss': 0.0,
+                'profit_factor': 0.0,
+                'avg_r_multiple': 0.0,
+                'max_drawdown_%': 0.0,
+                'sharpe_ratio': 0.0,
+                'avg_hold_days': 0.0
             }
         
         try:
-            total_return = (equity_df['equity'].iloc[-1] - initial_capital) / initial_capital * 100
+            # Tüm değerleri float olarak garanti et
+            final_equity = float(equity_df['equity'].iloc[-1]) if not equity_df.empty else float(initial_capital)
+            total_return = (final_equity - float(initial_capital)) / float(initial_capital) * 100.0
+            
             total_trades = len(trades_df)
             winning_trades = len(trades_df[trades_df['pnl'] > 0])
             losing_trades = len(trades_df[trades_df['pnl'] < 0])
-            win_rate = winning_trades / total_trades * 100 if total_trades > 0 else 0
+            win_rate = float(winning_trades) / float(total_trades) * 100.0 if total_trades > 0 else 0.0
             
-            avg_win = trades_df[trades_df['pnl'] > 0]['pnl'].mean() if winning_trades > 0 else 0
-            avg_loss = trades_df[trades_df['pnl'] < 0]['pnl'].mean() if losing_trades > 0 else 0
+            avg_win = float(trades_df[trades_df['pnl'] > 0]['pnl'].mean()) if winning_trades > 0 else 0.0
+            avg_loss = float(trades_df[trades_df['pnl'] < 0]['pnl'].mean()) if losing_trades > 0 else 0.0
             
-            total_win = trades_df[trades_df['pnl'] > 0]['pnl'].sum()
-            total_loss = abs(trades_df[trades_df['pnl'] < 0]['pnl'].sum())
-            profit_factor = total_win / total_loss if total_loss > 0 else float('inf')
+            total_win = float(trades_df[trades_df['pnl'] > 0]['pnl'].sum()) if winning_trades > 0 else 0.0
+            total_loss = float(abs(trades_df[trades_df['pnl'] < 0]['pnl'].sum())) if losing_trades > 0 else 0.0
+            profit_factor = float(total_win / total_loss) if total_loss > 0 else float('inf')
             
             # R Multiple
             if not trades_df.empty:
-                trades_df['r_multiple'] = trades_df['pnl'] / (trades_df['entry_price'] * 0.01)  # Basitleştirilmiş
-                avg_r = trades_df['r_multiple'].mean()
+                trades_df['r_multiple'] = trades_df['pnl'] / (trades_df['entry_price'] * 0.01)
+                avg_r = float(trades_df['r_multiple'].mean())
             else:
-                avg_r = 0
+                avg_r = 0.0
             
             # Drawdown
             if not equity_df.empty:
                 equity_df['peak'] = equity_df['equity'].cummax()
-                equity_df['drawdown'] = (equity_df['equity'] - equity_df['peak']) / equity_df['peak'] * 100
-                max_drawdown = equity_df['drawdown'].min()
+                equity_df['drawdown'] = (equity_df['equity'] - equity_df['peak']) / equity_df['peak'] * 100.0
+                max_drawdown = float(equity_df['drawdown'].min())
             else:
-                max_drawdown = 0
+                max_drawdown = 0.0
             
             # Sharpe (basit)
-            if not equity_df.empty:
+            if not equity_df.empty and len(equity_df) > 1:
                 equity_df['daily_return'] = equity_df['equity'].pct_change().fillna(0)
                 daily_returns = equity_df['daily_return']
                 if len(daily_returns) > 1 and daily_returns.std() > 0:
-                    sharpe = daily_returns.mean() / daily_returns.std() * np.sqrt(252)
+                    sharpe = float(daily_returns.mean() / daily_returns.std() * np.sqrt(252))
                 else:
-                    sharpe = 0
+                    sharpe = 0.0
             else:
-                sharpe = 0
+                sharpe = 0.0
+            
+            # Ortalama hold days
+            if not trades_df.empty:
+                avg_hold_days = float(trades_df['hold_days'].mean())
+            else:
+                avg_hold_days = 0.0
             
             metrics = {
                 'total_return_%': round(total_return, 2),
@@ -340,11 +349,11 @@ class SwingBacktest:
                 'win_rate_%': round(win_rate, 1),
                 'avg_win': round(avg_win, 2),
                 'avg_loss': round(avg_loss, 2),
-                'profit_factor': round(profit_factor, 2),
+                'profit_factor': round(profit_factor, 2) if profit_factor != float('inf') else float('inf'),
                 'avg_r_multiple': round(avg_r, 2),
                 'max_drawdown_%': round(max_drawdown, 2),
                 'sharpe_ratio': round(sharpe, 2),
-                'avg_hold_days': round(trades_df['hold_days'].mean(), 1) if not trades_df.empty else 0
+                'avg_hold_days': round(avg_hold_days, 1)
             }
             
             return metrics
@@ -352,16 +361,16 @@ class SwingBacktest:
         except Exception as e:
             st.error(f"Metrik hesaplama hatası: {e}")
             return {
-                'total_return_%': 0,
+                'total_return_%': 0.0,
                 'total_trades': 0,
-                'win_rate_%': 0,
-                'avg_win': 0,
-                'avg_loss': 0,
-                'profit_factor': 0,
-                'avg_r_multiple': 0,
-                'max_drawdown_%': 0,
-                'sharpe_ratio': 0,
-                'avg_hold_days': 0
+                'win_rate_%': 0.0,
+                'avg_win': 0.0,
+                'avg_loss': 0.0,
+                'profit_factor': 0.0,
+                'avg_r_multiple': 0.0,
+                'max_drawdown_%': 0.0,
+                'sharpe_ratio': 0.0,
+                'avg_hold_days': 0.0
             }
 
 # =========================
@@ -409,9 +418,6 @@ with tab1:
             
             st.success(f"✅ {len(data)} günlük veri yüklendi ({data.index[0].strftime('%Y-%m-%d')} - {data.index[-1].strftime('%Y-%m-%d')})")
             
-            # Veri kalitesi kontrolü
-            st.info(f"📊 Veri Özeti: Açılış: ${data['Open'].iloc[0]:.2f} - Kapanış: ${data['Close'].iloc[-1]:.2f}")
-            
             # Backtest çalıştır
             backtester = SwingBacktest()
             params = {
@@ -424,29 +430,32 @@ with tab1:
                 trades, equity = backtester.backtest(data, params)
                 metrics = backtester.calculate_metrics(trades, equity, 10000)
             
-            # Sonuçları göster
+            # Sonuçları göster - TÜM değerleri string formatına çevir
             st.subheader("📊 Performans Özeti")
             col1, col2, col3 = st.columns(3)
             
             with col1:
-                st.metric("Toplam Getiri", f"%{metrics.get('total_return_%', 0):.2f}")
-                st.metric("Win Rate", f"%{metrics.get('win_rate_%', 0):.1f}")
-                st.metric("Max Drawdown", f"%{metrics.get('max_drawdown_%', 0):.1f}")
+                st.metric("Toplam Getiri", f"{metrics['total_return_%']}%")
+                st.metric("Win Rate", f"{metrics['win_rate_%']}%")
+                st.metric("Max Drawdown", f"{metrics['max_drawdown_%']}%")
             
             with col2:
-                st.metric("Toplam İşlem", f"{metrics.get('total_trades', 0)}")
-                st.metric("Profit Factor", f"{metrics.get('profit_factor', 0):.2f}")
-                st.metric("Ort. R Multiple", f"{metrics.get('avg_r_multiple', 0):.2f}")
+                st.metric("Toplam İşlem", f"{metrics['total_trades']}")
+                pf_value = "∞" if metrics['profit_factor'] == float('inf') else f"{metrics['profit_factor']}"
+                st.metric("Profit Factor", pf_value)
+                st.metric("Ort. R Multiple", f"{metrics['avg_r_multiple']}")
             
             with col3:
-                st.metric("Sharpe Oranı", f"{metrics.get('sharpe_ratio', 0):.2f}")
-                st.metric("Ort. Kazanç", f"${metrics.get('avg_win', 0):.2f}")
-                st.metric("Ort. Kayıp", f"${metrics.get('avg_loss', 0):.2f}")
+                st.metric("Sharpe Oranı", f"{metrics['sharpe_ratio']}")
+                st.metric("Ort. Kazanç", f"${metrics['avg_win']:.2f}")
+                st.metric("Ort. Kayıp", f"${metrics['avg_loss']:.2f}")
             
             # Grafikler
             if not trades.empty and not equity.empty:
                 st.subheader("📈 Performans Grafikleri")
-                fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
+                
+                # Sadece 1 grafikle başlayalım (hata olasılığını azaltmak için)
+                fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
                 
                 # Equity curve
                 ax1.plot(equity['date'], equity['equity'], color='blue', linewidth=2)
@@ -461,47 +470,56 @@ with tab1:
                     ax2.set_ylabel('Drawdown %')
                     ax2.grid(True, alpha=0.3)
                 
-                # R Multiple dağılımı
-                if 'r_multiple' in trades.columns and not trades.empty:
-                    ax3.hist(trades['r_multiple'], bins=20, alpha=0.7, color='skyblue', edgecolor='black')
-                    ax3.axvline(trades['r_multiple'].mean(), color='red', linestyle='--', 
-                               label=f'Ort: {trades["r_multiple"].mean():.2f}')
-                    ax3.set_title('R Multiple Dağılımı', fontweight='bold')
-                    ax3.set_xlabel('R Multiple')
-                    ax3.legend()
-                    ax3.grid(True, alpha=0.3)
+                plt.tight_layout()
+                st.pyplot(fig)
                 
-                # Exit reason dağılımı
+                # İkinci grafik seti
                 if not trades.empty:
+                    fig2, (ax3, ax4) = plt.subplots(1, 2, figsize=(15, 5))
+                    
+                    # R Multiple dağılımı
+                    if 'r_multiple' in trades.columns:
+                        ax3.hist(trades['r_multiple'], bins=20, alpha=0.7, color='skyblue', edgecolor='black')
+                        ax3.axvline(trades['r_multiple'].mean(), color='red', linestyle='--', 
+                                   label=f'Ort: {trades["r_multiple"].mean():.2f}')
+                        ax3.set_title('R Multiple Dağılımı', fontweight='bold')
+                        ax3.set_xlabel('R Multiple')
+                        ax3.legend()
+                        ax3.grid(True, alpha=0.3)
+                    
+                    # Exit reason dağılımı
                     exit_counts = trades['exit_reason'].value_counts()
                     colors = sns.color_palette('pastel')[0:len(exit_counts)]
                     ax4.pie(exit_counts.values, labels=exit_counts.index, autopct='%1.1f%%', colors=colors)
                     ax4.set_title('Çıkış Nedenleri', fontweight='bold')
-                
-                plt.tight_layout()
-                st.pyplot(fig)
+                    
+                    plt.tight_layout()
+                    st.pyplot(fig2)
                 
                 # Trade tablosu
                 st.subheader("📋 İşlem Listesi")
-                display_trades = trades.copy()
-                display_trades['entry_date'] = display_trades['entry_date'].dt.strftime('%Y-%m-%d')
-                display_trades['exit_date'] = display_trades['exit_date'].dt.strftime('%Y-%m-%d')
-                st.dataframe(display_trades)
-                
-                # CSV indirme
-                csv = trades.to_csv(index=False)
-                st.download_button(
-                    "📥 İşlemleri CSV olarak indir",
-                    csv,
-                    f"swing_trades_{ticker}_{start_date}_{end_date}.csv",
-                    "text/csv"
-                )
+                if not trades.empty:
+                    display_trades = trades.copy()
+                    display_trades['entry_date'] = display_trades['entry_date'].dt.strftime('%Y-%m-%d')
+                    display_trades['exit_date'] = display_trades['exit_date'].dt.strftime('%Y-%m-%d')
+                    st.dataframe(display_trades)
+                    
+                    # CSV indirme
+                    csv = trades.to_csv(index=False)
+                    st.download_button(
+                        "📥 İşlemleri CSV olarak indir",
+                        csv,
+                        f"swing_trades_{ticker}_{start_date}_{end_date}.csv",
+                        "text/csv",
+                        key="download_csv"
+                    )
             else:
                 st.info("ℹ️ Backtest süresinde işlem gerçekleşmedi. Parametreleri değiştirmeyi deneyin.")
                     
         except Exception as e:
             st.error(f"❌ Backtest hatası: {str(e)}")
-            st.info("🔍 Hata ayıklama için verileri kontrol edin:")
+            import traceback
+            st.code(f"Hata detayı: {traceback.format_exc()}")
 
 with tab2:
     st.header("🔧 Parametre Optimizasyonu")
