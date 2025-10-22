@@ -62,8 +62,8 @@ class SwingBacktest:
         
         # ATR
         high_low = df['High'] - df['Low']
-        high_close = (df['High'] - df['Close'].shift()).abs()
-        low_close = (df['Low'] - df['Close'].shift()).abs()
+        high_close = np.abs(df['High'] - df['Close'].shift())
+        low_close = np.abs(df['Low'] - df['Close'].shift())
         true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
         df['ATR'] = true_range.rolling(14).mean()
         
@@ -72,7 +72,9 @@ class SwingBacktest:
     def swing_signal(self, df, params):
         """Swing trade sinyalleri üretir"""
         df = self.calculate_indicators(df)
-        signals = pd.DataFrame(index=df.index)
+        
+        # NaN değerleri temizle
+        df = df.dropna()
         
         # Swing sinyalleri
         trend_up = df['EMA_20'] > df['EMA_50']
@@ -83,10 +85,12 @@ class SwingBacktest:
         # AL sinyali
         buy_signal = trend_up & rsi_oversold & macd_bullish & price_above_ema20
         
+        # Signals DataFrame'ini doğru şekilde oluştur
+        signals = pd.DataFrame(index=df.index)
         signals['action'] = 'hold'
         signals.loc[buy_signal, 'action'] = 'buy'
         
-        # Stop ve TP seviyeleri
+        # Stop ve TP seviyeleri - df ile aynı index kullan
         atr_multiplier = params.get('atr_multiplier', 1.5)
         signals['stop_loss'] = df['Close'] - (df['ATR'] * atr_multiplier)
         risk_distance = df['ATR'] * atr_multiplier
@@ -98,17 +102,23 @@ class SwingBacktest:
     
     def backtest(self, df, params, initial_capital=10000):
         """Backtest yürütür"""
+        # Önce sinyalleri hesapla
         signals = self.swing_signal(df, params)
+        
+        # Index'leri hizala
+        aligned_df, aligned_signals = df.align(signals, axis=0, copy=False)
+        aligned_df = aligned_df.dropna()
+        aligned_signals = aligned_signals.dropna()
         
         trades = []
         position = None
         capital = initial_capital
         equity_curve = []
         
-        for i in range(len(signals)):
-            idx = signals.index[i]
-            row = signals.iloc[i]
-            current_data = df.loc[idx]
+        for i in range(len(aligned_signals)):
+            idx = aligned_signals.index[i]
+            row = aligned_signals.iloc[i]
+            current_data = aligned_df.loc[idx]
             
             current_price = current_data['Close']
             current_high = current_data['High']
@@ -155,6 +165,7 @@ class SwingBacktest:
                         'tp2': row['tp2'],
                         'tp3': row['tp3'],
                         'tp1_hit': False,
+                        'tp2_hit': False,
                         'breakeven': False
                     }
                     
@@ -171,22 +182,22 @@ class SwingBacktest:
                     exit_shares = position['shares'] * 0.5
                     position['shares'] -= exit_shares
                     position['tp1_hit'] = True
-                    position['breakeven'] = True  # Stop'u breakeven çek
-                    position['stop_loss'] = position['entry_price']  # Breakeven stop
+                    position['breakeven'] = True
+                    position['stop_loss'] = position['entry_price']
                     exit_reason = 'TP1'
                 
                 # TP2 kontrolü (%30 kapat)
-                elif position['tp1_hit'] and not hasattr(position, 'tp2_hit') and current_high >= position['tp2']:
+                elif position['tp1_hit'] and not position['tp2_hit'] and current_high >= position['tp2']:
                     exit_price = position['tp2'] * (1 - self.slippage)
-                    exit_shares = position['shares'] * 0.6  # Kalanın %60'ı
+                    exit_shares = position['shares'] * 0.6
                     position['shares'] -= exit_shares
                     position['tp2_hit'] = True
                     exit_reason = 'TP2'
                 
                 # TP3 kontrolü (%20 kapat)
-                elif position['tp1_hit'] and hasattr(position, 'tp2_hit') and current_high >= position['tp3']:
+                elif position['tp1_hit'] and position['tp2_hit'] and current_high >= position['tp3']:
                     exit_price = position['tp3'] * (1 - self.slippage)
-                    exit_shares = position['shares']  # Tüm kalan
+                    exit_shares = position['shares']
                     position['shares'] = 0
                     exit_reason = 'TP3'
                 
@@ -215,7 +226,7 @@ class SwingBacktest:
                         'exit_price': exit_price,
                         'shares': exit_shares,
                         'pnl': trade_pnl,
-                        'return_pct': (trade_pnl / entry_value) * 100,
+                        'return_pct': (trade_pnl / entry_value) * 100 if entry_value > 0 else 0,
                         'exit_reason': exit_reason,
                         'hold_days': (idx - position['entry_date']).days
                     })
@@ -223,14 +234,37 @@ class SwingBacktest:
                     if position['shares'] <= 0:
                         position = None
         
+        # Kapanmamış pozisyonları kapat
+        if position is not None:
+            last_price = aligned_df['Close'].iloc[-1]
+            exit_value = position['shares'] * last_price
+            commission_paid = exit_value * self.commission
+            capital += exit_value - commission_paid
+            
+            entry_value = position['shares'] * position['entry_price']
+            trade_pnl = exit_value - entry_value
+            trade_pnl -= (entry_value * self.commission) + commission_paid
+            
+            trades.append({
+                'entry_date': position['entry_date'],
+                'exit_date': aligned_df.index[-1],
+                'entry_price': position['entry_price'],
+                'exit_price': last_price,
+                'shares': position['shares'],
+                'pnl': trade_pnl,
+                'return_pct': (trade_pnl / entry_value) * 100 if entry_value > 0 else 0,
+                'exit_reason': 'OPEN',
+                'hold_days': (aligned_df.index[-1] - position['entry_date']).days
+            })
+        
         trades_df = pd.DataFrame(trades) if trades else pd.DataFrame()
-        equity_df = pd.DataFrame(equity_curve)
+        equity_df = pd.DataFrame(equity_curve) if equity_curve else pd.DataFrame()
         
         return trades_df, equity_df
     
     def calculate_metrics(self, trades_df, equity_df, initial_capital):
         """Performans metriklerini hesaplar"""
-        if trades_df.empty:
+        if trades_df.empty or equity_df.empty:
             return {
                 'total_return_%': 0,
                 'total_trades': 0,
@@ -244,48 +278,67 @@ class SwingBacktest:
                 'avg_hold_days': 0
             }
         
-        total_return = (equity_df['equity'].iloc[-1] - initial_capital) / initial_capital * 100
-        total_trades = len(trades_df)
-        winning_trades = len(trades_df[trades_df['pnl'] > 0])
-        losing_trades = len(trades_df[trades_df['pnl'] < 0])
-        win_rate = winning_trades / total_trades * 100 if total_trades > 0 else 0
-        
-        avg_win = trades_df[trades_df['pnl'] > 0]['pnl'].mean() if winning_trades > 0 else 0
-        avg_loss = trades_df[trades_df['pnl'] < 0]['pnl'].mean() if losing_trades > 0 else 0
-        profit_factor = abs(avg_win * winning_trades / (avg_loss * losing_trades)) if losing_trades > 0 else float('inf')
-        
-        # R Multiple
-        initial_risk = abs(trades_df['entry_price'] - trades_df['exit_price'])
-        trades_df['r_multiple'] = trades_df['pnl'] / initial_risk
-        avg_r = trades_df['r_multiple'].mean()
-        
-        # Drawdown
-        equity_df['peak'] = equity_df['equity'].cummax()
-        equity_df['drawdown'] = (equity_df['equity'] - equity_df['peak']) / equity_df['peak'] * 100
-        max_drawdown = equity_df['drawdown'].min()
-        
-        # Sharpe (basit)
-        equity_df['daily_return'] = equity_df['equity'].pct_change()
-        daily_returns = equity_df['daily_return'].dropna()
-        if len(daily_returns) > 1 and daily_returns.std() > 0:
-            sharpe = daily_returns.mean() / daily_returns.std() * np.sqrt(252)
-        else:
-            sharpe = 0
-        
-        metrics = {
-            'total_return_%': total_return,
-            'total_trades': total_trades,
-            'win_rate_%': win_rate,
-            'avg_win': avg_win,
-            'avg_loss': avg_loss,
-            'profit_factor': profit_factor,
-            'avg_r_multiple': avg_r,
-            'max_drawdown_%': max_drawdown,
-            'sharpe_ratio': sharpe,
-            'avg_hold_days': trades_df['hold_days'].mean()
-        }
-        
-        return metrics
+        try:
+            total_return = (equity_df['equity'].iloc[-1] - initial_capital) / initial_capital * 100
+            total_trades = len(trades_df)
+            winning_trades = len(trades_df[trades_df['pnl'] > 0])
+            losing_trades = len(trades_df[trades_df['pnl'] < 0])
+            win_rate = winning_trades / total_trades * 100 if total_trades > 0 else 0
+            
+            avg_win = trades_df[trades_df['pnl'] > 0]['pnl'].mean() if winning_trades > 0 else 0
+            avg_loss = trades_df[trades_df['pnl'] < 0]['pnl'].mean() if losing_trades > 0 else 0
+            
+            total_win = trades_df[trades_df['pnl'] > 0]['pnl'].sum()
+            total_loss = abs(trades_df[trades_df['pnl'] < 0]['pnl'].sum())
+            profit_factor = total_win / total_loss if total_loss > 0 else float('inf')
+            
+            # R Multiple
+            initial_risk = abs(trades_df['entry_price'] - (trades_df['entry_price'] - trades_df['exit_price']))  # Basitleştirilmiş risk
+            trades_df['r_multiple'] = trades_df['pnl'] / initial_risk
+            avg_r = trades_df['r_multiple'].mean()
+            
+            # Drawdown
+            equity_df['peak'] = equity_df['equity'].cummax()
+            equity_df['drawdown'] = (equity_df['equity'] - equity_df['peak']) / equity_df['peak'] * 100
+            max_drawdown = equity_df['drawdown'].min()
+            
+            # Sharpe (basit)
+            equity_df['daily_return'] = equity_df['equity'].pct_change().fillna(0)
+            daily_returns = equity_df['daily_return']
+            if len(daily_returns) > 1 and daily_returns.std() > 0:
+                sharpe = daily_returns.mean() / daily_returns.std() * np.sqrt(252)
+            else:
+                sharpe = 0
+            
+            metrics = {
+                'total_return_%': round(total_return, 2),
+                'total_trades': total_trades,
+                'win_rate_%': round(win_rate, 1),
+                'avg_win': round(avg_win, 2),
+                'avg_loss': round(avg_loss, 2),
+                'profit_factor': round(profit_factor, 2),
+                'avg_r_multiple': round(avg_r, 2),
+                'max_drawdown_%': round(max_drawdown, 2),
+                'sharpe_ratio': round(sharpe, 2),
+                'avg_hold_days': round(trades_df['hold_days'].mean(), 1)
+            }
+            
+            return metrics
+            
+        except Exception as e:
+            st.error(f"Metrik hesaplama hatası: {e}")
+            return {
+                'total_return_%': 0,
+                'total_trades': 0,
+                'win_rate_%': 0,
+                'avg_win': 0,
+                'avg_loss': 0,
+                'profit_factor': 0,
+                'avg_r_multiple': 0,
+                'max_drawdown_%': 0,
+                'sharpe_ratio': 0,
+                'avg_hold_days': 0
+            }
 
 # =========================
 # STREAMLIT UYGULAMASI
@@ -296,7 +349,7 @@ st.markdown("**Profesyonel Swing Strateji Test Platformu**")
 
 # Sidebar kontrolleri
 st.sidebar.header("⚙️ Backtest Ayarları")
-ticker = st.sidebar.selectbox("Sembol", ["BTC-USD", "ETH-USD", "ADA-USD", "BNB-USD", "XRP-USD", "SOL-USD"])
+ticker = st.sidebar.selectbox("Sembol", ["BTC-USD", "ETH-USD", "ADA-USD", "BNB-USD", "XRP-USD", "SOL-USD", "AAPL", "GOOGL", "MSFT"])
 start_date = st.sidebar.date_input("Başlangıç Tarihi", datetime(2020, 1, 1))
 end_date = st.sidebar.date_input("Bitiş Tarihi", datetime(2024, 1, 1))
 
@@ -314,11 +367,18 @@ with tab1:
     if st.button("Backtest Çalıştır", type="primary"):
         try:
             with st.spinner("Veriler yükleniyor..."):
-                data = yf.download(ticker, start=start_date, end=end_date, interval="1d")
+                # Tarih aralığını biraz genişlet (indikatörler için)
+                extended_start = start_date - timedelta(days=100)
+                data = yf.download(ticker, start=extended_start, end=end_date, interval="1d")
+                # Sadece istenen tarih aralığını kullan
+                data = data[data.index >= pd.to_datetime(start_date)]
+                data = data[data.index <= pd.to_datetime(end_date)]
             
             if data.empty:
                 st.error("❌ Veri çekilemedi - Sembolü ve tarihleri kontrol edin")
             else:
+                st.success(f"✅ {len(data)} günlük veri yüklendi")
+                
                 # Backtest çalıştır
                 backtester = SwingBacktest()
                 params = {
@@ -350,7 +410,7 @@ with tab1:
                     st.metric("Ort. Kayıp", f"${metrics.get('avg_loss', 0):.2f}")
                 
                 # Grafikler
-                if not trades.empty:
+                if not trades.empty and not equity.empty:
                     st.subheader("📈 Performans Grafikleri")
                     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
                     
@@ -361,32 +421,35 @@ with tab1:
                     ax1.grid(True, alpha=0.3)
                     
                     # Drawdown
-                    ax2.fill_between(equity['date'], equity['drawdown'], 0, alpha=0.3, color='red')
-                    ax2.set_title('Drawdown', fontweight='bold')
-                    ax2.set_ylabel('Drawdown %')
-                    ax2.grid(True, alpha=0.3)
+                    if 'drawdown' in equity.columns:
+                        ax2.fill_between(equity['date'], equity['drawdown'], 0, alpha=0.3, color='red')
+                        ax2.set_title('Drawdown', fontweight='bold')
+                        ax2.set_ylabel('Drawdown %')
+                        ax2.grid(True, alpha=0.3)
                     
                     # R Multiple dağılımı
-                    ax3.hist(trades['r_multiple'], bins=20, alpha=0.7, color='skyblue', edgecolor='black')
-                    ax3.axvline(trades['r_multiple'].mean(), color='red', linestyle='--', 
-                               label=f'Ort: {trades["r_multiple"].mean():.2f}')
-                    ax3.set_title('R Multiple Dağılımı', fontweight='bold')
-                    ax3.set_xlabel('R Multiple')
-                    ax3.legend()
-                    ax3.grid(True, alpha=0.3)
+                    if 'r_multiple' in trades.columns:
+                        ax3.hist(trades['r_multiple'], bins=20, alpha=0.7, color='skyblue', edgecolor='black')
+                        ax3.axvline(trades['r_multiple'].mean(), color='red', linestyle='--', 
+                                   label=f'Ort: {trades["r_multiple"].mean():.2f}')
+                        ax3.set_title('R Multiple Dağılımı', fontweight='bold')
+                        ax3.set_xlabel('R Multiple')
+                        ax3.legend()
+                        ax3.grid(True, alpha=0.3)
                     
                     # Exit reason dağılımı
-                    exit_counts = trades['exit_reason'].value_counts()
-                    colors = sns.color_palette('pastel')[0:len(exit_counts)]
-                    ax4.pie(exit_counts.values, labels=exit_counts.index, autopct='%1.1f%%', colors=colors)
-                    ax4.set_title('Çıkış Nedenleri', fontweight='bold')
+                    if not trades.empty:
+                        exit_counts = trades['exit_reason'].value_counts()
+                        colors = sns.color_palette('pastel')[0:len(exit_counts)]
+                        ax4.pie(exit_counts.values, labels=exit_counts.index, autopct='%1.1f%%', colors=colors)
+                        ax4.set_title('Çıkış Nedenleri', fontweight='bold')
                     
                     plt.tight_layout()
                     st.pyplot(fig)
                     
                     # Trade tablosu
                     st.subheader("📋 İşlem Listesi")
-                    display_trades = trades.head(20).copy()
+                    display_trades = trades.copy()
                     display_trades['entry_date'] = display_trades['entry_date'].dt.strftime('%Y-%m-%d')
                     display_trades['exit_date'] = display_trades['exit_date'].dt.strftime('%Y-%m-%d')
                     st.dataframe(display_trades)
@@ -404,16 +467,16 @@ with tab1:
                     
         except Exception as e:
             st.error(f"❌ Backtest hatası: {str(e)}")
+            st.info("🔍 Hata ayıklama için:")
+            st.code(f"Hata detayı: {e}")
 
 with tab2:
     st.header("🔧 Parametre Optimizasyonu")
     st.info("🚧 Optimizasyon özelliği geliştirme aşamasında...")
-    st.write("Bu sekmede grid search ile en iyi parametreleri bulacağız.")
 
 with tab3:
     st.header("📊 Sağlamlık Analizi")
     st.info("🚧 Monte Carlo ve Bootstrap analizleri geliştirme aşamasında...")
-    st.write("Bu sekmede stratejinin sağlamlığını test edeceğiz.")
 
 # Footer
 st.markdown("---")
