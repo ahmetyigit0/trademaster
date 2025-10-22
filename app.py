@@ -19,7 +19,6 @@ def check_password():
             st.session_state["password_correct"] = False
     
     if not st.session_state["password_correct"]:
-        # Eğer sadece bir hisse senedi çekiliyorsa, yfinance genellikle tek indeks verir.
         st.text_input("🔐 Şifre", type="password", on_change=password_entered, key="password")
         return False
     return True
@@ -37,9 +36,11 @@ class SwingBacktest:
     def calculate_indicators(self, df):
         df = df.copy()
         
+        # EMA'lar
         df['EMA_20'] = df['Close'].ewm(span=20, min_periods=1, adjust=False).mean()
         df['EMA_50'] = df['Close'].ewm(span=50, min_periods=1, adjust=False).mean()
         
+        # RSI
         delta = df['Close'].diff()
         gain = (delta.where(delta > 0, 0)).fillna(0)
         loss = (-delta.where(delta < 0, 0)).fillna(0)
@@ -48,12 +49,14 @@ class SwingBacktest:
         rs = avg_gain / avg_loss
         df['RSI'] = 100 - (100 / (1 + rs))
 
+        # MACD ve SİNYAL HESAPLAMASI (İşlem sayısını artırmak için eklendi)
         ema_12 = df['Close'].ewm(span=12, adjust=False).mean()
         ema_26 = df['Close'].ewm(span=26, adjust=False).mean()
         df['MACD'] = ema_12 - ema_26
         df['Signal_Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
         df['MACD_Cross_Up'] = (df['MACD'] > df['Signal_Line']) & (df['MACD'].shift(1) <= df['Signal_Line'].shift(1))
         
+        # ATR
         high_low = df['High'] - df['Low']
         high_close = np.abs(df['High'] - df['Close'].shift(1))
         low_close = np.abs(df['Low'] - df['Close'].shift(1))
@@ -114,7 +117,6 @@ class SwingBacktest:
         
         signals_df = pd.DataFrame(signals)
         if not signals_df.empty:
-            # Sinyal DataFrame'ini indeksle
             signals_df = signals_df.set_index('date')
         
         signals_df = signals_df.fillna({'stop_loss': np.nan, 'take_profit': np.nan})
@@ -131,15 +133,16 @@ class SwingBacktest:
         df_reset = df.reset_index() 
         signals_reset = signals.reset_index()
         
-        # 2. 'date' sütunu üzerinden birleştirme yapıyoruz. Bu, indeks seviyesi farklılığını önler.
+        # 2. 'date' sütunu üzerinden birleştirme yapıyoruz.
         df_combined = df_reset.merge(
             signals_reset[['date', 'action', 'stop_loss', 'take_profit']], 
             on='date', 
             how='left'
         )
         
-        # 3. 'date' sütununu tekrar index yapıyoruz (tek seviyeli indeks olmalı)
+        # 3. 'date' sütununu tekrar index yapıyoruz ve adını sabitliyoruz
         df_combined = df_combined.set_index('date') 
+        df_combined.index.name = 'Date' 
         # --- HATA ÇÖZÜMÜ SONU ---
 
         df_combined['action'] = df_combined['action'].fillna('hold')
@@ -215,7 +218,7 @@ class SwingBacktest:
                     })
                     position = None
         
-        # Kapanış pozisyonu
+        # Kapanış pozisyonu (Dönem sonu)
         if position is not None:
             last_price = float(df_combined['Close'].iloc[-1])
             exit_value = position['shares'] * last_price
@@ -286,6 +289,7 @@ start_date = st.sidebar.date_input("Başlangıç", datetime(2023, 1, 1))
 end_date = st.sidebar.date_input("Bitiş", datetime(2023, 12, 31))
 
 st.sidebar.header("📊 Parametreler")
+# RSI eşiğini 45'e çıkardık
 rsi_oversold = st.sidebar.slider("RSI Aşırı Satım", 25, 50, 45) 
 atr_multiplier = st.sidebar.slider("ATR Çarpanı (SL için)", 1.0, 3.0, 2.0)
 risk_per_trade = st.sidebar.slider("Risk % (Poz. Büyüklüğü)", 1.0, 5.0, 2.0) / 100
@@ -294,7 +298,7 @@ risk_per_trade = st.sidebar.slider("Risk % (Poz. Büyüklüğü)", 1.0, 5.0, 2.0
 if st.button("🎯 Backtest Çalıştır"):
     try:
         with st.spinner("Veri yükleniyor..."):
-            # İndikatörler için yeterli geçmiş veri için başlangıç tarihini geri çek
+            # İndikatörler için biraz daha fazla veri çekmek gerekir
             extended_start_date = start_date - timedelta(days=150)
             data = yf.download(ticker, start=extended_start_date, end=end_date, progress=False)
             
@@ -302,6 +306,7 @@ if st.button("🎯 Backtest Çalıştır"):
                 st.error("❌ Veri bulunamadı")
                 st.stop()
             
+            # Sadece istenen aralıkta çalıştır
             data_test = data[data.index >= pd.to_datetime(start_date)]
             st.success(f"✅ {len(data_test)} günlük veri ile test ediliyor.")
         
@@ -348,4 +353,4 @@ if st.button("🎯 Backtest Çalıştır"):
         st.error(f"❌ Hata: {str(e)}")
 
 st.markdown("---")
-st.markdown("**Backtest Sistemi v5.1 - Hata Giderildi ve Çift Sinyal Kullanıldı**")
+st.markdown("**Backtest Sistemi v5.2 - Final İndeks Düzeltmesi**")
