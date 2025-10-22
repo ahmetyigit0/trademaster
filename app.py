@@ -135,15 +135,16 @@ class SwingBacktest:
         # Sinyal DataFrame'ini oluşturma
         signals = pd.DataFrame(index=df.index, data={'action': 'hold'})
         
-        # Sadece sinyal olan günleri işaretle
+        # Sadece sinyal olan günleri işaretle (İlk 50 barı atlayarak)
         signals.loc[df_copy.index[50:], 'action'] = df_copy.loc[df_copy.index[50:], 'Buy_Signal'].map({True: 'buy', False: 'hold'})
         
-        # SL/TP değerlerini ekle (sadece buy aksiyonları için gereklidir)
+        # SL/TP değerlerini ekle
         signals['stop_loss'] = np.nan
         signals['take_profit'] = np.nan
         
         buy_indices = df_copy[df_copy['Buy_Signal']].index
         
+        # SL/TP değerlerini hesaplayıp doğru indekslere ata
         for date in buy_indices:
             close = df_copy.loc[date, 'Close']
             risk_pct = 0.02
@@ -158,17 +159,16 @@ class SwingBacktest:
         df = self.calculate_indicators(data)
         signals = self.generate_signals(df, params)
         
-        # *** HATA DÜZELTMESİ: İndeksleri Hizalama ***
-        # Sinyal sütununu ana veri çerçevesine birleştir (how='left' ile tüm tarihleri koru)
+        # --- HATA DÜZELTMESİ: İndeks Hizalama ---
+        # Sinyal sütunlarını ana veri çerçevesine left merge ile birleştir.
+        # Bu, her iki DataFrame'in indekslerinin eşleşmesini sağlar.
         df_combined = df.merge(signals[['action', 'stop_loss', 'take_profit']], 
                                left_index=True, right_index=True, how='left')
         
-        # Hold olmayan yerleri doldur
+        # Hold olmayan yerleri doldur ve SL/TP NaN değerlerini 0 ile doldur
         df_combined['action'] = df_combined['action'].fillna('hold')
-        
-        # SL/TP NaN değerlerini 0 ile doldur (pozisyon yokken önemsizdir)
         df_combined[['stop_loss', 'take_profit']] = df_combined[['stop_loss', 'take_profit']].fillna(0)
-        # *** HATA DÜZELTMESİ SONU ***
+        # ----------------------------------------
         
         capital = self.initial_capital
         position = None
