@@ -3,7 +3,6 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
@@ -499,57 +498,57 @@ if st.button("🎯 Gelişmiş Backtest Çalıştır", type="primary", use_contai
             tab1, tab2, tab3 = st.tabs(["Portföy Değeri", "Drawdown", "İşlem Analizi"])
             
             with tab1:
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=equity['date'], 
-                    y=equity['equity'],
-                    mode='lines',
-                    name='Portföy Değeri',
-                    line=dict(color='#00ff88', width=3)
-                ))
-                fig.update_layout(
-                    title='Portföy Değer Gelişimi',
-                    xaxis_title='Tarih',
-                    yaxis_title='Portföy Değeri ($)',
-                    template='plotly_dark'
-                )
-                st.plotly_chart(fig, use_container_width=True)
+                fig, ax = plt.subplots(figsize=(12, 6))
+                ax.plot(equity['date'], equity['equity'], color='#00ff88', linewidth=3)
+                ax.set_title('Portföy Değer Gelişimi', fontsize=14, fontweight='bold')
+                ax.set_xlabel('Tarih')
+                ax.set_ylabel('Portföy Değeri ($)')
+                ax.grid(True, alpha=0.3)
+                ax.tick_params(axis='x', rotation=45)
+                plt.tight_layout()
+                st.pyplot(fig)
             
             with tab2:
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=equity['date'], 
-                    y=equity['drawdown'],
-                    fill='tozeroy',
-                    name='Drawdown',
-                    line=dict(color='#ff4444', width=2)
-                ))
-                fig.update_layout(
-                    title='Portföy Drawdown',
-                    xaxis_title='Tarih',
-                    yaxis_title='Drawdown (%)',
-                    template='plotly_dark'
-                )
-                st.plotly_chart(fig, use_container_width=True)
+                fig, ax = plt.subplots(figsize=(12, 6))
+                ax.fill_between(equity['date'], equity['drawdown'], color='#ff4444', alpha=0.7)
+                ax.plot(equity['date'], equity['drawdown'], color='#ff4444', linewidth=2)
+                ax.set_title('Portföy Drawdown', fontsize=14, fontweight='bold')
+                ax.set_xlabel('Tarih')
+                ax.set_ylabel('Drawdown (%)')
+                ax.grid(True, alpha=0.3)
+                ax.tick_params(axis='x', rotation=45)
+                plt.tight_layout()
+                st.pyplot(fig)
             
             with tab3:
                 # İşlem sonuçları dağılımı
-                fig = go.Figure()
+                fig, ax = plt.subplots(figsize=(12, 6))
                 colors = ['green' if x > 0 else 'red' for x in trades['return_pct']]
-                fig.add_trace(go.Bar(
-                    x=list(range(len(trades))),
-                    y=trades['return_pct'],
-                    marker_color=colors,
-                    name='İşlem Getirisi'
-                ))
-                fig.update_layout(
-                    title='İşlem Getirileri Dağılımı',
-                    xaxis_title='İşlem No',
-                    yaxis_title='Getiri (%)',
-                    template='plotly_dark'
-                )
-                st.plotly_chart(fig, use_container_width=True)
+                bars = ax.bar(range(len(trades)), trades['return_pct'], color=colors, alpha=0.7)
+                ax.set_title('İşlem Getirileri Dağılımı', fontsize=14, fontweight='bold')
+                ax.set_xlabel('İşlem No')
+                ax.set_ylabel('Getiri (%)')
+                ax.grid(True, alpha=0.3)
+                plt.tight_layout()
+                st.pyplot(fig)
             
+            # İstatistikler
+            st.subheader("📊 İşlem İstatistikleri")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write("**Çıkış Nedenleri Dağılımı**")
+                exit_reasons = trades['exit_reason'].value_counts()
+                fig, ax = plt.subplots(figsize=(8, 6))
+                ax.pie(exit_reasons.values, labels=exit_reasons.index, autopct='%1.1f%%', startangle=90)
+                ax.set_title('Çıkış Nedenleri')
+                st.pyplot(fig)
+            
+            with col2:
+                st.write("**Pozisyon Tutma Süresi (Gün)**")
+                holding_stats = trades['holding_days'].describe()
+                st.dataframe(holding_stats)
+                
             # Detaylı işlem tablosu
             st.subheader("📋 Detaylı İşlem Listesi")
             
@@ -559,33 +558,27 @@ if st.button("🎯 Gelişmiş Backtest Çalıştır", type="primary", use_contai
             display_trades['pnl'] = display_trades['pnl'].round(2)
             display_trades['return_pct'] = display_trades['return_pct'].round(2)
             
-            # Renkli gösterim
-            def color_pnl(val):
-                color = 'green' if val > 0 else 'red' if val < 0 else 'gray'
-                return f'color: {color}'
+            # Renkli gösterim için CSS
+            st.markdown("""
+            <style>
+            .positive { color: green; font-weight: bold; }
+            .negative { color: red; font-weight: bold; }
+            </style>
+            """, unsafe_allow_html=True)
             
-            styled_trades = display_trades.style.applymap(color_pnl, subset=['pnl', 'return_pct'])
-            st.dataframe(styled_trades, use_container_width=True)
+            # DataFrame'i formatla
+            def format_trades_df(df):
+                styled_df = df.copy()
+                styled_df['pnl'] = styled_df['pnl'].apply(
+                    lambda x: f"<span class='positive'>${x:+.2f}</span>" if x > 0 else f"<span class='negative'>${x:.2f}</span>" if x < 0 else f"${x:.2f}"
+                )
+                styled_df['return_pct'] = styled_df['return_pct'].apply(
+                    lambda x: f"<span class='positive'>{x:+.2f}%</span>" if x > 0 else f"<span class='negative'>{x:.2f}%</span>" if x < 0 else f"{x:.2f}%"
+                )
+                return styled_df
             
-            # İstatistikler
-            st.subheader("📊 İşlem İstatistikleri")
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                exit_reasons = trades['exit_reason'].value_counts()
-                st.plotly_chart(go.Figure(
-                    data=[go.Pie(
-                        labels=exit_reasons.index,
-                        values=exit_reasons.values,
-                        hole=.3
-                    )],
-                    layout=dict(title='Çıkış Nedenleri Dağılımı')
-                ), use_container_width=True)
-            
-            with col2:
-                holding_days = trades['holding_days'].describe()
-                st.write("**Pozisyon Tutma Süresi (Gün)**")
-                st.dataframe(holding_days)
+            formatted_trades = format_trades_df(display_trades)
+            st.write(formatted_trades.to_html(escape=False), unsafe_allow_html=True)
                 
         else:
             st.info("🤷 Hiç işlem gerçekleşmedi. Parametreleri değiştirmeyi deneyin.")
