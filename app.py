@@ -80,11 +80,21 @@ class SwingBacktest:
                 rsi_val = float(row['RSI'])
                 atr_val = float(row['ATR'])
                 
-                trend_ok = ema_20_val > ema_50_val
-                rsi_ok = rsi_val < rsi_oversold
-                price_ok = close_val > ema_20_val
+                # ====================================================================
+                # YENİ SİNYAL MANTIĞI: Daha sık işlem yapmak için EMA(20) üstüne geri dönüş
+                # şartı KALDIRILMIŞTIR. Sadece trend ve RSI geri çekilmesi yeterli.
+                # ====================================================================
                 
-                buy_signal = trend_ok and rsi_ok and price_ok
+                # 1. Trend: EMA_20, EMA_50'nin üstünde (Yükseliş trendi)
+                trend_ok = ema_20_val > ema_50_val
+                
+                # 2. Geri çekilme/Momentum Kaybı: RSI, kullanıcı tarafından belirlenen aşırı satım seviyesinin altında
+                rsi_ok = rsi_val < rsi_oversold 
+                
+                # Fiyatın EMA(20) üstünde olma koşulu kaldırıldı (daha sık sinyal için).
+                # Sadece EMA(50) üstünde olmasını zorunlu tutmak istiyorsak: price_ok = close_val > ema_50_val
+                # En sık sinyal için, sadece trend ve RSI geri çekilmesi:
+                buy_signal = trend_ok and rsi_ok 
                 
                 if buy_signal:
                     stop_loss = close_val - (atr_val * atr_multiplier)
@@ -265,7 +275,8 @@ start_date = st.sidebar.date_input("Başlangıç", datetime(2023, 1, 1))
 end_date = st.sidebar.date_input("Bitiş", datetime(2023, 12, 31))
 
 st.sidebar.header("📊 Parametreler")
-rsi_oversold = st.sidebar.slider("RSI Aşırı Satım", 25, 50, 40)
+# RSI Aşırı Satım eşiğini 50'ye kadar esnettik, kullanıcı da daha yüksek değer seçerek sinyal sayısını artırabilir.
+rsi_oversold = st.sidebar.slider("RSI Aşırı Satım", 25, 50, 45) # Varsayılanı 40'tan 45'e çıkardım
 atr_multiplier = st.sidebar.slider("ATR Çarpanı", 1.0, 3.0, 2.0)
 risk_per_trade = st.sidebar.slider("Risk %", 1.0, 5.0, 2.0) / 100
 
