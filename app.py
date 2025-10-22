@@ -13,7 +13,10 @@ def check_password():
         st.session_state["password_correct"] = False
     
     def password_entered():
-        st.session_state["password_correct"] = (st.session_state.get("password","") == "efe")
+        if st.session_state["password"] == "efe":
+            st.session_state["password_correct"] = True
+        else:
+            st.session_state["password_correct"] = False
     
     if not st.session_state["password_correct"]:
         st.text_input("🔐 Şifre", type="password", on_change=password_entered, key="password")
@@ -27,278 +30,314 @@ if not check_password():
 # BACKTEST MOTORU
 # =========================
 class SwingBacktest:
-    def __init__(self, commission=0.001):
-        self.commission = float(commission)
+    def __init__(self):
+        self.commission = 0.001
     
-    @staticmethod
-    def _num(s):
-        return pd.to_numeric(s, errors="coerce")
-    
-    def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-        d = df.copy()
-        # Zorunlu kolon kontrolü ve numerik dönüşüm
-        need = ["Open","High","Low","Close","Volume"]
-        for c in need:
-            if c not in d.columns:
-                raise ValueError(f"Girdi verisinde '{c}' kolonu yok.")
-            d[c] = self._num(d[c])
+    def calculate_indicators(self, df):
+        df = df.copy()
         
         # EMA'lar
-        d["EMA_20"] = d["Close"].ewm(span=20, min_periods=1, adjust=False).mean()
-        d["EMA_50"] = d["Close"].ewm(span=50, min_periods=1, adjust=False).mean()
+        df['EMA_20'] = df['Close'].ewm(span=20, min_periods=1).mean()
+        df['EMA_50'] = df['Close'].ewm(span=50, min_periods=1).mean()
         
-        # RSI (14)
-        delta = d["Close"].diff()
-        gain = delta.clip(lower=0).rolling(window=14, min_periods=1).mean()
-        loss = (-delta.clip(upper=0)).rolling(window=14, min_periods=1).mean()
-        rs = gain / (loss + 1e-12)
-        d["RSI"] = 100 - (100 / (1 + rs))
+        # RSI
+        delta = df['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).fillna(0)
+        loss = (-delta.where(delta < 0, 0)).fillna(0)
+        avg_gain = gain.rolling(window=14, min_periods=1).mean()
+        avg_loss = loss.rolling(window=14, min_periods=1).mean()
+        rs = avg_gain / avg_loss
+        df['RSI'] = 100 - (100 / (1 + rs))
         
-        # ATR (14)
-        prev_close = d["Close"].shift(1)
-        tr = pd.concat([
-            (d["High"] - d["Low"]).abs(),
-            (d["High"] - prev_close).abs(),
-            (d["Low"] - prev_close).abs()
-        ], axis=1).max(axis=1)
-        d["ATR"] = tr.rolling(window=14, min_periods=1).mean()
+        # MACD EKLENDİ
+        exp1 = df['Close'].ewm(span=12, min_periods=1).mean()
+        exp2 = df['Close'].ewm(span=26, min_periods=1).mean()
+        df['MACD'] = exp1 - exp2
+        df['MACD_Signal'] = df['MACD'].ewm(span=9, min_periods=1).mean()
+        df['MACD_Hist'] = df['MACD'] - df['MACD_Signal']
         
-        d.replace([np.inf, -np.inf], np.nan, inplace=True)
-        d.fillna(method="bfill", inplace=True)
-        d.fillna(method="ffill", inplace=True)
-        return d
-    
-    def generate_signals(self, df: pd.DataFrame, rsi_oversold=40, atr_multiplier=2.0) -> pd.DataFrame:
-        rows = []
+        # ATR
+        high_low = df['High'] - df['Low']
+        high_close = np.abs(df['High'] - df['Close'].shift(1))
+        low_close = np.abs(df['Low'] - df['Close'].shift(1))
+        
+        true_range_values = []
         for i in range(len(df)):
-            row = df.iloc[i]
-            close_val = float(row["Close"])
-            ema20 = float(row["EMA_20"])
-            ema50 = float(row["EMA_50"])
-            rsi_val = float(row["RSI"])
-            atr_val = float(row["ATR"])
-            
-            trend_ok = ema20 > ema50
-            rsi_ok = rsi_val < float(rsi_oversold)
-            price_ok = close_val > ema20
-            
-            is_buy = bool(trend_ok and rsi_ok and price_ok)
-            if is_buy:
-                sl = close_val - atr_val * float(atr_multiplier)
-                tp = close_val + atr_val * float(atr_multiplier) * 2.0
+            if i == 0:
+                true_range_values.append(float(high_low.iloc[i]))
             else:
-                sl = 0.0; tp = 0.0
-            
-            rows.append({
-                "date": df.index[i],
-                "action": "buy" if is_buy else "hold",
-                "is_buy": is_buy,
-                "price": close_val,
-                "stop_loss": sl,
-                "take_profit": tp
-            })
+                tr = max(float(high_low.iloc[i]), float(high_close.iloc[i]), float(low_close.iloc[i]))
+                true_range_values.append(tr)
         
-        sig = pd.DataFrame(rows)
-        if sig.empty:
-            return sig
-        sig = sig.set_index("date")
-        # Aynı timestamp varsa son kaydı al → Series ambiguity önlenir
-        sig = sig.groupby(level=0).last()
-        return sig
+        df['ATR'] = pd.Series(true_range_values, index=df.index).rolling(window=14, min_periods=1).mean()
+        df = df.fillna(method='bfill').fillna(method='ffill')
+        
+        return df
     
-    def run_backtest(self, data: pd.DataFrame, rsi_oversold=40, atr_multiplier=2.0, risk_per_trade=0.02):
-        df = self.calculate_indicators(data)
-        sigs = self.generate_signals(df, rsi_oversold, atr_multiplier)
+    def generate_signals(self, df, rsi_oversold=40, atr_multiplier=2.0):
+        signals = []
         
-        capital = 10000.0
+        for i in range(len(df)):
+            try:
+                row = df.iloc[i]
+                
+                close_val = float(row['Close'])
+                ema_20_val = float(row['EMA_20'])
+                ema_50_val = float(row['EMA_50'])
+                rsi_val = float(row['RSI'])
+                atr_val = float(row['ATR'])
+                macd_hist_val = float(row['MACD_Hist'])
+                
+                # TEMEL KOŞULLAR
+                trend_ok = ema_20_val > ema_50_val
+                rsi_ok = rsi_val < rsi_oversold
+                price_ok = close_val > ema_20_val
+                macd_ok = macd_hist_val > 0  # MACD pozitif
+                
+                # 3 FARKLI STRATEJİ
+                strategy1 = trend_ok and rsi_ok and price_ok  # Sadece RSI
+                strategy2 = trend_ok and macd_ok and price_ok  # Sadece MACD
+                strategy3 = trend_ok and rsi_ok and macd_ok    # RSI + MACD
+                
+                # HERHANGİ BİR STRATEJİ SİNYAL VERİRSE AL
+                buy_signal = strategy1 or strategy2 or strategy3
+                
+                if buy_signal:
+                    stop_loss = close_val - (atr_val * atr_multiplier)
+                    take_profit = close_val + (atr_val * atr_multiplier * 2)
+                    
+                    signals.append({
+                        'date': df.index[i],
+                        'action': 'buy',
+                        'stop_loss': stop_loss,
+                        'take_profit': take_profit
+                    })
+                else:
+                    signals.append({
+                        'date': df.index[i],
+                        'action': 'hold'
+                    })
+                    
+            except:
+                signals.append({
+                    'date': df.index[i],
+                    'action': 'hold'
+                })
+        
+        signals_df = pd.DataFrame(signals)
+        if not signals_df.empty:
+            signals_df = signals_df.set_index('date')
+        
+        return signals_df
+    
+    def run_backtest(self, data, rsi_oversold=40, atr_multiplier=2.0, risk_per_trade=0.02):
+        df = self.calculate_indicators(data)
+        signals = self.generate_signals(df, rsi_oversold, atr_multiplier)
+        
+        capital = 10000
         position = None
         trades = []
         equity_curve = []
         
         for date in df.index:
-            price = float(df.loc[date, "Close"])
-            # Mark-to-market
-            current_equity = capital + (position["shares"] * price if position is not None else 0.0)
-            equity_curve.append({"date": date, "equity": current_equity})
+            current_price = float(df.loc[date, 'Close'])
+            signal = signals.loc[date]
             
-            # Güvenli sinyal çekme
-            sig = None
-            if date in sigs.index:
-                row = sigs.loc[date]
-                if isinstance(row, pd.DataFrame):
-                    row = row.iloc[-1]
-                sig = row
+            current_equity = capital
+            if position is not None:
+                current_equity += position['shares'] * current_price
             
-            if position is None:
-                is_buy = bool(sig["is_buy"]) if sig is not None and "is_buy" in sig else False
-                if is_buy:
-                    sl = float(sig["stop_loss"])
-                    risk_per_share = price - sl
-                    if risk_per_share <= 0:
-                        continue
-                    risk_amt = capital * float(risk_per_trade)
-                    shares = max(risk_amt / risk_per_share, 0.0)
-                    if shares > 0:
-                        cost = shares * price
-                        fee = cost * self.commission
-                        capital -= (cost + fee)
-                        position = {
-                            "entry_date": date,
-                            "entry_price": price,
-                            "shares": shares,
-                            "stop_loss": sl,
-                            "take_profit": float(sig["take_profit"])
-                        }
-            else:
-                exit_reason = None
-                exit_price = None
-                if price <= position["stop_loss"]:
-                    exit_reason, exit_price = "SL", position["stop_loss"]
-                elif price >= position["take_profit"]:
-                    exit_reason, exit_price = "TP", position["take_profit"]
+            equity_curve.append({'date': date, 'equity': current_equity})
+            
+            if position is None and signal['action'] == 'buy':
+                stop_loss = float(signal['stop_loss'])
+                risk_per_share = current_price - stop_loss
                 
-                if exit_reason:
-                    exit_value = position["shares"] * float(exit_price)
-                    fee = exit_value * self.commission
-                    capital += (exit_value - fee)
+                if risk_per_share > 0:
+                    risk_amount = capital * risk_per_trade
+                    shares = risk_amount / risk_per_share
                     
-                    entry_value = position["shares"] * float(position["entry_price"])
-                    entry_fee = entry_value * self.commission
-                    pnl = (exit_value - fee) - (entry_value + entry_fee)
+                    if shares > 0:
+                        position = {
+                            'entry_date': date,
+                            'entry_price': current_price,
+                            'shares': shares,
+                            'stop_loss': stop_loss,
+                            'take_profit': float(signal['take_profit'])
+                        }
+                        capital -= shares * current_price
+            
+            elif position is not None:
+                if current_price <= position['stop_loss']:
+                    exit_price = position['stop_loss']
+                    exit_value = position['shares'] * exit_price
+                    capital += exit_value
+                    
+                    entry_value = position['shares'] * position['entry_price']
+                    pnl = exit_value - entry_value
                     
                     trades.append({
-                        "entry_date": position["entry_date"],
-                        "exit_date": date,
-                        "entry_price": float(position["entry_price"]),
-                        "exit_price": float(exit_price),
-                        "shares": float(position["shares"]),
-                        "pnl": float(pnl),
-                        "return_pct": float(pnl / (entry_value + entry_fee) * 100.0) if entry_value > 0 else 0.0,
-                        "exit_reason": exit_reason
+                        'entry_date': position['entry_date'],
+                        'exit_date': date,
+                        'entry_price': position['entry_price'],
+                        'exit_price': exit_price,
+                        'pnl': pnl,
+                        'return_pct': (pnl / entry_value) * 100,
+                        'exit_reason': 'SL'
+                    })
+                    position = None
+                
+                elif current_price >= position['take_profit']:
+                    exit_price = position['take_profit']
+                    exit_value = position['shares'] * exit_price
+                    capital += exit_value
+                    
+                    entry_value = position['shares'] * position['entry_price']
+                    pnl = exit_value - entry_value
+                    
+                    trades.append({
+                        'entry_date': position['entry_date'],
+                        'exit_date': date,
+                        'entry_price': position['entry_price'],
+                        'exit_price': exit_price,
+                        'pnl': pnl,
+                        'return_pct': (pnl / entry_value) * 100,
+                        'exit_reason': 'TP'
                     })
                     position = None
         
-        # Son bar: açık pozisyonu kapat
         if position is not None:
-            last_price = float(df["Close"].iloc[-1])
-            exit_value = position["shares"] * last_price
-            fee = exit_value * self.commission
-            capital += (exit_value - fee)
+            last_price = float(df['Close'].iloc[-1])
+            exit_value = position['shares'] * last_price
+            capital += exit_value
             
-            entry_value = position["shares"] * float(position["entry_price"])
-            entry_fee = entry_value * self.commission
-            pnl = (exit_value - fee) - (entry_value + entry_fee)
+            entry_value = position['shares'] * position['entry_price']
+            pnl = exit_value - entry_value
             
             trades.append({
-                "entry_date": position["entry_date"],
-                "exit_date": df.index[-1],
-                "entry_price": float(position["entry_price"]),
-                "exit_price": float(last_price),
-                "shares": float(position["shares"]),
-                "pnl": float(pnl),
-                "return_pct": float(pnl / (entry_value + entry_fee) * 100.0) if entry_value > 0 else 0.0,
-                "exit_reason": "OPEN"
+                'entry_date': position['entry_date'],
+                'exit_date': df.index[-1],
+                'entry_price': position['entry_price'],
+                'exit_price': last_price,
+                'pnl': pnl,
+                'return_pct': (pnl / entry_value) * 100,
+                'exit_reason': 'OPEN'
             })
         
         trades_df = pd.DataFrame(trades) if trades else pd.DataFrame()
         equity_df = pd.DataFrame(equity_curve)
+        
         return trades_df, equity_df
     
-    @staticmethod
-    def calculate_metrics(trades_df: pd.DataFrame, equity_df: pd.DataFrame):
-        if trades_df.empty or equity_df.empty:
+    def calculate_metrics(self, trades_df, equity_df):
+        if trades_df.empty:
             return {
-                "total_return": "0.0%",
-                "total_trades": "0",
-                "win_rate": "0.0%",
-                "avg_win": "$0.00",
-                "avg_loss": "$0.00",
+                'total_return': "0.0%",
+                'total_trades': "0",
+                'win_rate': "0.0%",
+                'avg_win': "$0.00",
+                'avg_loss': "$0.00"
             }
-        initial_equity = float(equity_df["equity"].iloc[0])
-        final_equity = float(equity_df["equity"].iloc[-1])
-        total_return = (final_equity - initial_equity) / initial_equity * 100.0
         
-        total_trades = len(trades_df)
-        wins = trades_df[trades_df["pnl"] > 0]
-        win_rate = (len(wins) / total_trades * 100.0) if total_trades > 0 else 0.0
-        avg_win = float(wins["pnl"].mean()) if not wins.empty else 0.0
-        losses = trades_df[trades_df["pnl"] < 0]
-        avg_loss = float(losses["pnl"].mean()) if not losses.empty else 0.0
-        
-        return {
-            "total_return": f"{round(total_return, 2)}%",
-            "total_trades": f"{total_trades}",
-            "win_rate": f"{round(win_rate, 1)}%",
-            "avg_win": f"${round(avg_win, 2)}",
-            "avg_loss": f"${round(avg_loss, 2)}",
-        }
+        try:
+            initial_equity = 10000.0
+            final_equity = float(equity_df['equity'].iloc[-1])
+            total_return = (final_equity - initial_equity) / initial_equity * 100.0
+            
+            total_trades = len(trades_df)
+            winning_trades = len(trades_df[trades_df['pnl'] > 0])
+            win_rate = (winning_trades / total_trades) * 100.0 if total_trades > 0 else 0.0
+            
+            avg_win = float(trades_df[trades_df['pnl'] > 0]['pnl'].mean()) if winning_trades > 0 else 0.0
+            avg_loss = float(trades_df[trades_df['pnl'] < 0]['pnl'].mean()) if (total_trades - winning_trades) > 0 else 0.0
+            
+            return {
+                'total_return': f"{round(total_return, 2)}%",
+                'total_trades': str(total_trades),
+                'win_rate': f"{round(win_rate, 1)}%",
+                'avg_win': f"${round(avg_win, 2)}",
+                'avg_loss': f"${round(avg_loss, 2)}"
+            }
+            
+        except:
+            return {
+                'total_return': "0.0%",
+                'total_trades': "0",
+                'win_rate': "0.0%",
+                'avg_win': "$0.00",
+                'avg_loss': "$0.00"
+            }
 
 # =========================
 # STREAMLIT UYGULAMASI
 # =========================
 st.set_page_config(page_title="Swing Backtest", layout="wide")
-st.title("🚀 Swing Trading Backtest (Stabil)")
+st.title("🚀 Swing Trading Backtest - MACD Eklendi")
 
 # Sidebar
 st.sidebar.header("⚙️ Ayarlar")
-ticker = st.sidebar.selectbox("Sembol", ["AAPL", "GOOGL", "MSFT", "TSLA", "BTC-USD", "ETH-USD"], index=4)
+ticker = st.sidebar.selectbox("Sembol", ["AAPL", "GOOGL", "MSFT", "TSLA", "BTC-USD", "ETH-USD"])
 start_date = st.sidebar.date_input("Başlangıç", datetime(2023, 1, 1))
 end_date = st.sidebar.date_input("Bitiş", datetime(2023, 12, 31))
 
 st.sidebar.header("📊 Parametreler")
 rsi_oversold = st.sidebar.slider("RSI Aşırı Satım", 25, 50, 40)
 atr_multiplier = st.sidebar.slider("ATR Çarpanı", 1.0, 3.0, 2.0)
-risk_per_trade = st.sidebar.slider("Risk %", 1.0, 5.0, 2.0) / 100.0
+risk_per_trade = st.sidebar.slider("Risk %", 1.0, 5.0, 2.0) / 100
 
 # Ana içerik
-if st.button("🎯 Backtest Çalıştır", type="primary"):
+if st.button("🎯 Backtest Çalıştır"):
     try:
         with st.spinner("Veri yükleniyor..."):
-            extended_start = start_date - timedelta(days=100)  # indikatör ısınma
-            data = yf.download(ticker, start=extended_start, end=end_date, progress=False)
+            data = yf.download(ticker, start=start_date, end=end_date, progress=False)
+            
             if data.empty:
-                st.error("❌ Veri bulunamadı"); st.stop()
-            # Seçili aralığı kes
-            data = data[(data.index >= pd.to_datetime(start_date)) & (data.index <= pd.to_datetime(end_date))]
+                st.error("❌ Veri bulunamadı")
+                st.stop()
+            
             st.success(f"✅ {len(data)} günlük veri yüklendi")
-            st.info(f"📈 Fiyat aralığı: ${data['Close'].min():.2f} - ${data['Close'].max():.2f}")
         
-        backtester = SwingBacktest(commission=0.001)
+        backtester = SwingBacktest()
+        
         with st.spinner("Backtest çalıştırılıyor..."):
             trades, equity = backtester.run_backtest(data, rsi_oversold, atr_multiplier, risk_per_trade)
             metrics = backtester.calculate_metrics(trades, equity)
         
         st.subheader("📊 Performans Özeti")
         col1, col2, col3 = st.columns(3)
+        
         with col1:
             st.metric("Toplam Getiri", metrics['total_return'])
             st.metric("Toplam İşlem", metrics['total_trades'])
+        
         with col2:
             st.metric("Win Rate", metrics['win_rate'])
             st.metric("Ort. Kazanç", metrics['avg_win'])
+        
         with col3:
             st.metric("Ort. Kayıp", metrics['avg_loss'])
         
-        if not trades.empty and not equity.empty:
+        if not trades.empty:
             st.subheader("📈 Performans Grafikleri")
-            fig, ax = plt.subplots(1, 1, figsize=(12, 6))
-            ax.plot(equity['date'], equity['equity'], linewidth=2)
+            
+            fig, ax = plt.subplots(figsize=(12, 6))
+            ax.plot(equity['date'], equity['equity'], color='green', linewidth=2)
             ax.set_title('Portföy Değeri')
             ax.set_ylabel('Equity ($)')
             ax.grid(True, alpha=0.3)
             st.pyplot(fig)
             
             st.subheader("📋 İşlem Listesi")
-            disp = trades.copy()
-            for c in ["entry_date","exit_date"]:
-                if c in disp and pd.api.types.is_datetime64_any_dtype(disp[c]):
-                    disp[c] = disp[c].dt.strftime("%Y-%m-%d")
-            st.dataframe(disp, use_container_width=True)
+            display_trades = trades.copy()
+            display_trades['entry_date'] = display_trades['entry_date'].dt.strftime('%Y-%m-%d')
+            display_trades['exit_date'] = display_trades['exit_date'].dt.strftime('%Y-%m-%d')
+            st.dataframe(display_trades)
+            
         else:
-            st.info("🤷 Hiç işlem gerçekleşmedi. RSI eşiğini yükseltmeyi veya tarih aralığını genişletmeyi deneyin.")
+            st.info("🤷 Hiç işlem gerçekleşmedi.")
             
     except Exception as e:
         st.error(f"❌ Hata: {str(e)}")
 
 st.markdown("---")
-st.caption("Backtest Sistemi (stabil sinyal erişimi + komisyon)")
+st.markdown("**Backtest Sistemi v2.0 | MACD Eklendi**")
