@@ -99,20 +99,21 @@ class SwingBacktest:
             df = df.bfill().ffill()
             return df
     
-    def generate_signals(self, df, params):
+       def generate_signals(self, df, params):
         df_copy = df.copy()
         
-        # Vektörel Koşullar
-        df_copy['Trend_Up'] = df_copy['EMA_20'] > df_copy['EMA_50']
-        df_copy['Momentum_Buy'] = df_copy['RSI'] < params['rsi_oversold']
-        df_copy['Support_Touch'] = df_copy['Close'] < df_copy['BB_Lower'] 
-        df_copy['Fib_Support_Hit'] = df_copy['Close'] <= df_copy['Fib_Support_382'] * 1.01
+        # Vektörel Koşullar — NaN'ları False ile doldur ve boolean yap
+        df_copy['Trend_Up'] = (df_copy['EMA_20'] > df_copy['EMA_50']).fillna(False).astype(bool)
+        df_copy['Momentum_Buy'] = (df_copy['RSI'] < params['rsi_oversold']).fillna(False).astype(bool)
+        df_copy['Support_Touch'] = (df_copy['Close'] < df_copy['BB_Lower']).fillna(False).astype(bool)
+        df_copy['Fib_Support_Hit'] = (df_copy['Close'] <= df_copy['Fib_Support_382'] * 1.01).fillna(False).astype(bool)
         
-        # MACD Kesişimi (Vektörel)
-        df_copy['MACD_Cross_Up'] = (
+        # MACD Kesişimi (shift sonrası NaN olabilir)
+        macd_cross = (
             (df_copy['MACD'] > df_copy['Signal_Line']) & 
             (df_copy['MACD'].shift(1) <= df_copy['Signal_Line'].shift(1))
         )
+        df_copy['MACD_Cross_Up'] = macd_cross.fillna(False).astype(bool)
         
         # Nihai Alım Sinyali
         df_copy['Buy_Signal'] = (
@@ -133,26 +134,18 @@ class SwingBacktest:
         
         if not buy_indices.empty:
             risk_pct = 0.02
-            
-            # Sadece sinyal olan satırları al
             buy_data = df_copy.loc[buy_indices].copy()
-            
-            # SL/TP hesapla
             stop_losses = buy_data['Close'] * (1 - risk_pct)
             take_profits = buy_data['Close'] * (1 + (risk_pct * params['reward_ratio']))
             
-            # Sinyaller DataFrame'ine yerleştir
             signals.loc[buy_indices, 'action'] = 'buy'
             signals.loc[buy_indices, 'stop_loss'] = stop_losses
             signals.loc[buy_indices, 'take_profit'] = take_profits
 
-        # NaN'ları 'hold' olarak temizle
         signals['action'] = signals['action'].fillna('hold')
-        
         buy_count = signals['action'].value_counts().get('buy', 0)
         st.info(f"🎯 {buy_count} karmaşık alış sinyali bulundu")
         return signals
-    
     def run_backtest(self, data, params):
         df = self.calculate_indicators(data)
         signals = self.generate_signals(df, params)
