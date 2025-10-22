@@ -60,13 +60,13 @@ class SwingBacktest:
             high_close = np.abs(df['High'] - df['Close'].shift(1))
             low_close = np.abs(df['Low'] - df['Close'].shift(1))
             
-            # Tek boyutlu array oluştur
+            # HATA DÜZELTME: Tek boyutlu array oluştur
             true_range_values = []
             for i in range(len(df)):
                 if i == 0:
-                    true_range_values.append(high_low.iloc[i])
+                    true_range_values.append(float(high_low.iloc[i]))
                 else:
-                    tr = max(high_low.iloc[i], high_close.iloc[i], low_close.iloc[i])
+                    tr = max(float(high_low.iloc[i]), float(high_close.iloc[i]), float(low_close.iloc[i]))
                     true_range_values.append(tr)
             
             df['ATR'] = pd.Series(true_range_values, index=df.index).rolling(window=14, min_periods=1).mean()
@@ -89,12 +89,14 @@ class SwingBacktest:
                 try:
                     row = df.iloc[i]
                     
+                    # HATA DÜZELTME: Tüm değerleri float'a çevir
                     close_val = float(row['Close'])
                     ema_20_val = float(row['EMA_20'])
                     ema_50_val = float(row['EMA_50'])
                     rsi_val = float(row['RSI'])
                     atr_val = float(row['ATR'])
                     
+                    # HATA DÜZELTME: Series karşılaştırması yok, sadece float değerler
                     trend_ok = ema_20_val > ema_50_val
                     rsi_ok = rsi_val < rsi_oversold
                     price_ok = close_val > ema_20_val
@@ -125,7 +127,7 @@ class SwingBacktest:
                     signals.append({
                         'date': df.index[i],
                         'action': 'hold',
-                        'price': df.iloc[i]['Close'],
+                        'price': float(df.iloc[i]['Close']),
                         'stop_loss': 0,
                         'take_profit': 0
                     })
@@ -303,7 +305,7 @@ class SwingBacktest:
 # =========================
 st.set_page_config(page_title="Swing Backtest", layout="wide")
 st.title("🚀 Swing Trading Backtest")
-st.markdown("**Tam Çalışan Backtest Sistemi**")
+st.markdown("**Hatasız Çalışan Versiyon**")
 
 # Sidebar
 st.sidebar.header("⚙️ Ayarlar")
