@@ -419,73 +419,41 @@ if st.button("🎯 Backtest Çalıştır", type="primary"):
         if not trades.empty:
             st.subheader("📈 Performans Grafikleri")
             
-            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
-            
-            # Equity curve
-            ax1.plot(equity['ity['date'], equity['equitydate'], equity['equity'], color='green', line'], color='green', linewidthwidth=2)
-            ax1.set=2)
+            # Portfolio Equity Grafiği
+            fig1, ax1 = plt.subplots(figsize=(12, 6))
+            ax1.plot(equity['date'], equity['equity'], color='green', linewidth=2)
             ax1.set_title('Portföy Değeri')
             ax1.set_ylabel('Equity ($)')
-            ax1.grid(_title('Portföy Değeri')
-            ax1.set_ylabel('Equity ($)')
-            ax1.grid(TrueTrue, alpha=0.3)
+            ax1.grid(True, alpha=0.3)
             ax1.tick_params(axis='x', rotation=45)
+            plt.tight_layout()
+            st.pyplot(fig1)
             
-            # Drawdown
-            ax2.fill, alpha=0.3)
-            ax1.tick_params(axis='x', rotation=45)
-            
-            # Drawdown
+            # Drawdown Grafiği
+            fig2, ax2 = plt.subplots(figsize=(12, 4))
             ax2.fill_between(equity['date'], equity['drawdown'], color='red', alpha=0.3)
             ax2.plot(equity['date'], equity['drawdown'], color='red', linewidth=1)
             ax2.set_title('Drawdown')
-_between(equity['date'], equity['drawdown'], color='red', alpha=0.3)
-            ax2.plot(equity['date'], equity['drawdown'], color='red', linewidth=1)
-            ax2.set_title('Draw            ax2.set_ylabel('Drawdown (%)')
-            ax2.set_xlabel('Taridown')
             ax2.set_ylabel('Drawdown (%)')
-            ax2.set_xlabel('h')
+            ax2.set_xlabel('Tarih')
             ax2.grid(True, alpha=0.3)
-            ax2.tickTarih')
-            ax2.grid(True, alpha=0.3)
-            ax2.tick_params(axis='x',_params(axis='x', rotation=45)
-            
+            ax2.tick_params(axis='x', rotation=45)
             plt.tight_layout()
-            st.pyplot(fig)
+            st.pyplot(fig2)
             
-            st.subheader("📋 İşlem rotation=45)
-            
-            plt.tight_layout()
-            st.pyplot(fig)
-            
-            st Listesi")
-            display_trades = trades.copy()
-            display_trades['entry_date'] = display_trades['entry_date'].dt.subheader("📋 İşlem Listesi")
+            st.subheader("📋 İşlem Listesi")
             display_trades = trades.copy()
             display_trades['entry_date'] = display_trades['entry_date'].dt.strftime('%Y-%m-%d')
-            display_trades['exit_date'] = display_t.strftime('%Y-%m-%d')
             display_trades['exit_date'] = display_trades['exit_date'].dt.strftime('%Y-%m-%d')
-            display_trades['pnlrades['exit_date'].dt.strftime('%Y-%m-%d'] = display_trades['pnl'].round(2)
-            display_trades['return_pct'] = display_trades')
             display_trades['pnl'] = display_trades['pnl'].round(2)
             display_trades['return_pct'] = display_trades['return_pct'].round(2)
-            st.dataframe(display_t['return_pct'].round(2)
             st.dataframe(display_trades)
-            
-        else:
-            st.info("🤷 Hiç işlem gerçekrades)
             
         else:
             st.info("🤷 Hiç işlem gerçekleşmedi.")
             
     except Exception as e:
-        st.errorleşmedi.")
-            
-    except Exception as e:
         st.error(f"❌ Hata: {str(e)}")
 
 st.markdown("---")
-st.markdown("**Swing Backtest(f"❌ Hata: {str(e)}")
-
-st.markdown("---")
-st.markdown("**Swing Backtest S Sistemi v3.0 | Profesyonel Strateji**")
+st.markdown("**Swing Backtest Sistemi v3.0 | Profesyonel Strateji**")
