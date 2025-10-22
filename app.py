@@ -100,13 +100,6 @@ st.markdown("""
         border-radius: 12px;
         text-align: center;
     }
-    .mini-chart {
-        background: white;
-        padding: 1rem;
-        border-radius: 10px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        margin: 0.5rem 0;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -155,7 +148,7 @@ def create_pro_chart(data):
     """Profesyonel price chart"""
     fig, ax = plt.subplots(figsize=(12, 6))
     
-    # Basit line chart - candlestick yerine
+    # Basit line chart
     ax.plot(data.index, data['Close'], color='blue', linewidth=2, label='Price')
     ax.plot(data.index, data['EMA_20'], color='orange', linewidth=1, label='EMA 20')
     ax.plot(data.index, data['EMA_50'], color='red', linewidth=1, label='EMA 50')
@@ -245,7 +238,7 @@ try:
     data['BB_Upper'], data['BB_Middle'], data['BB_Lower'] = calculate_bollinger_bands(data['Close'])
     data['ATR'] = calculate_atr(data['High'], data['Low'], data['Close'])
 
-    # Mevcut değerler
+    # Mevcut değerler - FLOAT'a çevir
     current_price = float(data['Close'].iloc[-1])
     rsi = float(data['RSI'].iloc[-1])
     ema_20 = float(data['EMA_20'].iloc[-1])
@@ -254,37 +247,39 @@ try:
     macd = float(data['MACD'].iloc[-1])
     macd_signal = float(data['MACD_Signal'].iloc[-1])
     atr = float(data['ATR'].iloc[-1])
+    prev_price = float(data['Close'].iloc[-2])
 
     # Sinyal hesaplama
     buy_signals = sum([
         rsi < 35,
-        current_price > ema_20 > ema_50,
+        current_price > ema_20 and ema_20 > ema_50,
         ema_50 > ema_200,
         macd > macd_signal,
-        current_price < data['BB_Lower'].iloc[-1]
+        current_price < float(data['BB_Lower'].iloc[-1])
     ])
     
     sell_signals = sum([
         rsi > 65,
-        current_price < ema_20 < ema_50,
+        current_price < ema_20 and ema_20 < ema_50,
         ema_50 < ema_200,
         macd < macd_signal,
-        current_price > data['BB_Upper'].iloc[-1]
+        current_price > float(data['BB_Upper'].iloc[-1])
     ])
 
-    # Ana metrikler
+    # Ana metrikler - DÜZELTİLMİŞ
     st.markdown("### 📊 Real-Time Dashboard")
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        price_change = ((current_price - data['Close'].iloc[-2]) / data['Close'].iloc[-2]) * 100
+        price_change = ((current_price - prev_price) / prev_price) * 100
         st.metric("Current Price", f"${current_price:.2f}", f"{price_change:+.2f}%")
     
     with col2:
-        st.metric("RSI", f"{rsi:.1f}", "Oversold" if rsi < 30 else "Overbought" if rsi > 70 else "Neutral")
+        rsi_label = "Oversold" if rsi < 30 else "Overbought" if rsi > 70 else "Neutral"
+        st.metric("RSI", f"{rsi:.1f}", rsi_label)
     
     with col3:
-        trend = "Bullish" if ema_20 > ema_50 > ema_200 else "Bearish" if ema_20 < ema_50 < ema_200 else "Neutral"
+        trend = "Bullish" if ema_20 > ema_50 and ema_50 > ema_200 else "Bearish" if ema_20 < ema_50 and ema_50 < ema_200 else "Neutral"
         st.metric("Trend", trend)
     
     with col4:
@@ -309,12 +304,15 @@ try:
     
     with tab1:
         st.pyplot(create_pro_chart(data.tail(50)))
+        plt.close()
     
     with tab2:
         st.pyplot(create_advanced_rsi_chart(data.tail(50)))
+        plt.close()
     
     with tab3:
         st.pyplot(create_macd_chart(data.tail(50)))
+        plt.close()
 
     # Trading stratejisi
     st.markdown("### 💡 Trading Strategy")
@@ -323,8 +321,12 @@ try:
         stop_loss = current_price - (atr * 1.5)
         risk_amount = capital * (risk_percent / 100)
         risk_per_coin = current_price - stop_loss
-        position_size = risk_amount / risk_per_coin
         
+        if risk_per_coin > 0:
+            position_size = risk_amount / risk_per_coin
+        else:
+            position_size = 0
+            
         col1, col2 = st.columns(2)
         with col1:
             st.markdown("""
@@ -337,23 +339,29 @@ try:
             st.metric("Position Size", f"{position_size:.4f} {ticker_input.split('-')[0]}")
         
         with col2:
-            tp1_pct = (risk_per_coin/current_price*100)
-            tp2_pct = (risk_per_coin*2/current_price*100)
-            tp3_pct = (risk_per_coin*3/current_price*100)
-            
-            st.markdown(f"""
-            **Take Profit Levels:**
-            - TP1 (1:1): +{tp1_pct:.2f}%
-            - TP2 (1:2): +{tp2_pct:.2f}%
-            - TP3 (1:3): +{tp3_pct:.2f}%
-            """)
+            if risk_per_coin > 0:
+                tp1_pct = (risk_per_coin/current_price*100)
+                tp2_pct = (risk_per_coin*2/current_price*100)
+                tp3_pct = (risk_per_coin*3/current_price*100)
+                
+                st.markdown(f"""
+                **Take Profit Levels:**
+                - TP1 (1:1): +{tp1_pct:.2f}%
+                - TP2 (1:2): +{tp2_pct:.2f}%
+                - TP3 (1:3): +{tp3_pct:.2f}%
+                """)
+            else:
+                st.markdown("Invalid risk calculation")
 
     elif recommendation == "SELL":
+        resistance = float(data['High'].tail(20).max())
+        support = float(data['Low'].tail(20).min())
+        
         st.markdown(f"""
         **Short Strategy:**
         - Consider short positions or wait for better entry
-        - Key resistance: ${data['High'].tail(20).max():.2f}
-        - Support level: ${data['Low'].tail(20).min():.2f}
+        - Key resistance: ${resistance:.2f}
+        - Support level: ${support:.2f}
         """)
 
     # Market insights
@@ -363,22 +371,27 @@ try:
     
     with col1:
         st.markdown("**Trend Analysis**")
-        st.write(f"EMA Alignment: {'✅ Bullish' if ema_20 > ema_50 > ema_200 else '❌ Bearish' if ema_20 < ema_50 < ema_200 else '⚡ Mixed'}")
+        trend_emoji = "✅ Bullish" if ema_20 > ema_50 and ema_50 > ema_200 else "❌ Bearish" if ema_20 < ema_50 and ema_50 < ema_200 else "⚡ Mixed"
+        st.write(f"EMA Alignment: {trend_emoji}")
         st.write(f"Price vs EMA20: {'Above' if current_price > ema_20 else 'Below'}")
     
     with col2:
         st.markdown("**Momentum**")
-        st.write(f"RSI: {'Oversold' if rsi < 30 else 'Overbought' if rsi > 70 else 'Neutral'}")
-        st.write(f"MACD: {'Bullish' if macd > macd_signal else 'Bearish'}")
+        rsi_status = "Oversold" if rsi < 30 else "Overbought" if rsi > 70 else "Neutral"
+        st.write(f"RSI: {rsi_status}")
+        macd_status = "Bullish" if macd > macd_signal else "Bearish"
+        st.write(f"MACD: {macd_status}")
     
     with col3:
         st.markdown("**Risk Assessment**")
         vol_ratio = (atr / current_price * 100)
-        st.write(f"Volatility: {'High' if vol_ratio > 5 else 'Low' if vol_ratio < 2 else 'Medium'}")
+        vol_status = "High" if vol_ratio > 5 else "Low" if vol_ratio < 2 else "Medium"
+        st.write(f"Volatility: {vol_status}")
         st.write(f"Signal Strength: {max(buy_signals, sell_signals)}/5")
 
 except Exception as e:
     st.error(f"❌ System error: {str(e)}")
+    st.info("Please check your internet connection and try again")
 
 # Footer
 st.markdown("---")
