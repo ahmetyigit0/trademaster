@@ -55,12 +55,11 @@ class SwingBacktest:
             rs = avg_gain / avg_loss
             df['RSI'] = 100 - (100 / (1 + rs))
             
-            # ATR - DÜZELTİLMİŞ
+            # ATR
             high_low = df['High'] - df['Low']
             high_close = np.abs(df['High'] - df['Close'].shift(1))
             low_close = np.abs(df['Low'] - df['Close'].shift(1))
             
-            # HATA DÜZELTME: Tek boyutlu array oluştur
             true_range_values = []
             for i in range(len(df)):
                 if i == 0:
@@ -80,8 +79,8 @@ class SwingBacktest:
             st.error(f"İndikatör hatası: {e}")
             return df
     
-    def generate_signals(self, df, rsi_oversold=30, atr_multiplier=2.0):
-        """Sinyal üret"""
+    def generate_signals(self, df, rsi_oversold=40, atr_multiplier=2.0):
+        """Sinyal üret - DAHA GEVŞEK PARAMETRELER"""
         try:
             signals = []
             
@@ -89,16 +88,19 @@ class SwingBacktest:
                 try:
                     row = df.iloc[i]
                     
-                    # HATA DÜZELTME: Tüm değerleri float'a çevir
                     close_val = float(row['Close'])
                     ema_20_val = float(row['EMA_20'])
                     ema_50_val = float(row['EMA_50'])
                     rsi_val = float(row['RSI'])
                     atr_val = float(row['ATR'])
                     
-                    # HATA DÜZELTME: Series karşılaştırması yok, sadece float değerler
+                    # DAHA GEVŞEK KOŞULLAR:
+                    # 1. Sadece trend koşulu (EMA20 > EMA50)
+                    # 2. RSI 40'tan küçük (daha gevşek)
+                    # 3. Fiyat EMA20'nin üstünde
+                    
                     trend_ok = ema_20_val > ema_50_val
-                    rsi_ok = rsi_val < rsi_oversold
+                    rsi_ok = rsi_val < rsi_oversold  # 30 yerine 40
                     price_ok = close_val > ema_20_val
                     
                     buy_signal = trend_ok and rsi_ok and price_ok
@@ -135,13 +137,15 @@ class SwingBacktest:
             signals_df = pd.DataFrame(signals)
             if not signals_df.empty:
                 signals_df = signals_df.set_index('date')
+            
+            st.info(f"📊 {len([s for s in signals if s['action'] == 'buy'])} alış sinyali bulundu")
             return signals_df
             
         except Exception as e:
             st.error(f"Sinyal hatası: {e}")
             return pd.DataFrame()
     
-    def run_backtest(self, data, rsi_oversold=30, atr_multiplier=2.0, risk_per_trade=0.02):
+    def run_backtest(self, data, rsi_oversold=40, atr_multiplier=2.0, risk_per_trade=0.02):
         """Backtest çalıştır"""
         try:
             df = self.calculate_indicators(data)
@@ -305,30 +309,44 @@ class SwingBacktest:
 # =========================
 st.set_page_config(page_title="Swing Backtest", layout="wide")
 st.title("🚀 Swing Trading Backtest")
-st.markdown("**Hatasız Çalışan Versiyon**")
+st.markdown("**Daha Gevşek Strateji ile**")
 
 # Sidebar
 st.sidebar.header("⚙️ Ayarlar")
-ticker = st.sidebar.selectbox("Sembol", ["AAPL", "GOOGL", "MSFT", "TSLA", "BTC-USD", "ETH-USD"])
-start_date = st.sidebar.date_input("Başlangıç", datetime(2023, 1, 1))
+ticker = st.sidebar.selectbox("Sembol", ["AAPL", "GOOGL", "MSFT", "TSLA", "BTC-USD", "ETH-USD", "NVDA", "AMZN"])
+start_date = st.sidebar.date_input("Başlangıç", datetime(2022, 1, 1))  # Daha uzun tarih
 end_date = st.sidebar.date_input("Bitiş", datetime(2023, 12, 31))
 
 st.sidebar.header("📊 Parametreler")
-rsi_oversold = st.sidebar.slider("RSI Aşırı Satım", 20, 40, 30)
+rsi_oversold = st.sidebar.slider("RSI Aşırı Satım", 25, 50, 40)  # 40'a çıkarıldı
 atr_multiplier = st.sidebar.slider("ATR Çarpanı", 1.0, 3.0, 2.0)
 risk_per_trade = st.sidebar.slider("Risk %", 1.0, 5.0, 2.0) / 100
+
+st.sidebar.info("""
+**Strateji:**
+- EMA20 > EMA50 (Trend)
+- RSI < Seçilen Değer (Aşırı Satım)
+- Fiyat > EMA20
+""")
 
 # Ana içerik
 if st.button("🎯 Backtest Çalıştır", type="primary"):
     try:
         with st.spinner("Veri yükleniyor..."):
-            data = yf.download(ticker, start=start_date, end=end_date, progress=False)
+            # Daha uzun tarih aralığı
+            extended_start = start_date - timedelta(days=100)
+            data = yf.download(ticker, start=extended_start, end=end_date, progress=False)
             
             if data.empty:
                 st.error("❌ Veri bulunamadı")
                 st.stop()
             
+            # Sadece istenen tarih aralığını kullan
+            data = data[data.index >= pd.to_datetime(start_date)]
+            data = data[data.index <= pd.to_datetime(end_date)]
+            
             st.success(f"✅ {len(data)} günlük veri yüklendi")
+            st.info(f"📈 Fiyat aralığı: ${data['Close'].min():.2f} - ${data['Close'].max():.2f}")
         
         backtester = SwingBacktest()
         
@@ -380,10 +398,16 @@ if st.button("🎯 Backtest Çalıştır", type="primary"):
             st.dataframe(display_trades)
             
         else:
-            st.info("🤷 Hiç işlem gerçekleşmedi. Parametreleri değiştirmeyi deneyin.")
+            st.warning("""
+            **🤔 Hala işlem yok! Şunları deneyin:**
+            - RSI değerini 45-50'ye çıkarın
+            - Farklı sembol deneyin (BTC-USD, TSLA daha volatil)
+            - Tarih aralığını genişletin
+            - ATR çarpanını 1.5'e düşürün
+            """)
             
     except Exception as e:
         st.error(f"❌ Hata: {str(e)}")
 
 st.markdown("---")
-st.markdown("**Swing Backtest v1.0 | Tam Çalışır**")
+st.markdown("**Swing Backtest v2.0 | Gevşek Strateji**")
