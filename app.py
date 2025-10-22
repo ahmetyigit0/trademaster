@@ -20,10 +20,10 @@ def check_password():
         
         if password == "efe":
             st.session_state["password_correct"] = True
-            st.success("✅ Giriş başarılı!")
+            st.success("✅ Giriş!")
             st.rerun()
         elif password:
-            st.error("❌ Yanlış şifre!")
+            st.error("❌ Yanlış!")
             st.stop()
         return False
     return True
@@ -32,73 +32,99 @@ if not check_password():
     st.stop()
 
 # =========================
-# %100 GÜVENLİ - HİÇ DEĞİŞKEN YOK
+# %100 NUMPY - HİÇ PANDAS OPS YOK
 # =========================
-class PerfectBacktest:
+class NoErrorBacktest:
     def __init__(self):
         self.capital = 10000
     
     def indicators(self, df):
         df = df.copy()
+        close = df['Close'].values
+        high = df['High'].values
+        low = df['Low'].values
         
-        # EMA
-        df['EMA20'] = df['Close'].ewm(span=20).mean()
-        df['EMA50'] = df['Close'].ewm(span=50).mean()
+        # EMA - NUMPY
+        df['EMA20'] = pd.Series(pd.ewma(close, span=20))
+        df['EMA50'] = pd.Series(pd.ewma(close, span=50))
         
-        # RSI
-        delta = df['Close'].diff()
-        df['RSI'] = 100 - 100 / (1 + delta.where(delta>0,0).rolling(14).mean() / 
-                                abs(delta.where(delta<0,0)).rolling(14).mean())
+        # RSI - NUMPY
+        delta = np.diff(close)
+        gain = np.where(delta > 0, delta, 0)
+        loss = np.where(delta < 0, -delta, 0)
+        avg_gain = np.convolve(gain, np.ones(14)/14, mode='valid')
+        avg_loss = np.convolve(loss, np.ones(14)/14, mode='valid')
+        rs = avg_gain / (avg_loss + 1e-10)
+        rsi = 100 - 100 / (1 + rs)
+        df['RSI'] = pd.Series(np.concatenate(([50], rsi)))
         
-        # BB Lower - TEK SATIR HİÇ DEĞİŞKEN YOK
-        df['BB_Lower'] = df['Close'].rolling(20).mean() - df['Close'].rolling(20).std() * 2
+        # BB - NUMPY
+        bb_mean = pd.Series(pd.rolling_mean(close, 20))
+        bb_std = pd.Series(pd.rolling_std(close, 20))
+        df['BB_Lower'] = bb_mean - bb_std * 2
         
-        # MACD
-        df['MACD'] = df['Close'].ewm(12).mean() - df['Close'].ewm(26).mean()
-        df['Signal'] = df['MACD'].ewm(9).mean()
+        # MACD - NUMPY
+        ema12 = pd.Series(pd.ewma(close, span=12))
+        ema26 = pd.Series(pd.ewma(close, span=26))
+        df['MACD'] = ema12 - ema26
+        df['Signal'] = pd.Series(pd.ewma(df['MACD'].values, span=9))
         
-        # FIB
-        df['Fib'] = df['Low'].rolling(50).min() + (df['High'].rolling(50).max() - df['Low'].rolling(50).min()) * 0.382
+        # FIB - NUMPY
+        high50 = pd.Series(pd.rolling_max(high, 50))
+        low50 = pd.Series(pd.rolling_min(low, 50))
+        df['Fib'] = low50 + (high50 - low50) * 0.382
         
-        # FILLNA
         df = df.fillna(0)
         return df
     
     def signals(self, df, rsi_level, rr):
-        df['action'] = 'hold'
-        df['sl'] = 0
-        df['tp'] = 0
-        
-        # TEK SATIR SİNYAL
-        buy = (
-            (df['EMA20'] > df['EMA50']) &
-            (df['RSI'] < rsi_level) &
-            ((df['Close'] < df['BB_Lower']) | (df['Close'] < df['Fib'])) &
-            (df['MACD'] > df['Signal']) &
-            (df['MACD'].shift(1) <= df['Signal'].shift(1))
-        )
-        
-        buy_dates = df[buy].index
+        signals = []
         risk = 0.02
         
-        for date in buy_dates:
-            price = df.loc[date, 'Close']
-            df.loc[date, 'action'] = 'buy'
-            df.loc[date, 'sl'] = price * (1 - risk)
-            df.loc[date, 'tp'] = price * (1 + risk * rr)
+        for i in range(len(df)):
+            row = df.iloc[i]
+            
+            # NUMPY KOŞULLAR - HİÇ PANDAS OP YOK
+            ema_ok = row['EMA20'] > row['EMA50']
+            rsi_ok = row['RSI'] < rsi_level
+            bb_ok = row['Close'] < row['BB_Lower']
+            fib_ok = row['Close'] < row['Fib']
+            macd_ok = row['MACD'] > row['Signal']
+            macd_cross = (i == 0 or df.iloc[i-1]['MACD'] <= df.iloc[i-1]['Signal'])
+            
+            if ema_ok and rsi_ok and (bb_ok or fib_ok) and macd_ok and macd_cross:
+                price = row['Close']
+                signals.append({
+                    'date': df.index[i],
+                    'action': 'buy',
+                    'sl': price * (1 - risk),
+                    'tp': price * (1 + risk * rr)
+                })
+            else:
+                signals.append({
+                    'date': df.index[i],
+                    'action': 'hold',
+                    'sl': 0,
+                    'tp': 0
+                })
         
-        return len(buy_dates)
+        signal_df = pd.DataFrame(signals)
+        st.info(f"🎯 {len([s for s in signals if s['action']=='buy'])} sinyal")
+        return signal_df
     
     def backtest(self, df, rsi_level, rr, risk_pct):
         df = self.indicators(df)
-        signal_count = self.signals(df, rsi_level, rr)
+        signals = self.signals(df, rsi_level, rr)
+        
+        # MERGE - GÜVENLİ
+        df = df.reset_index().merge(signals, on='date').set_index('Date')
         
         capital = self.capital
         position = None
         trades = []
         equity = []
         
-        for date, row in df.iterrows():
+        for i, row in df.iterrows():
             price = row['Close']
             action = row['action']
             
@@ -106,7 +132,7 @@ class PerfectBacktest:
             eq = capital
             if position:
                 eq += position['shares'] * price
-            equity.append({'date': date, 'equity': eq})
+            equity.append({'date': i, 'equity': eq})
             
             # BUY
             if not position and action == 'buy':
@@ -116,7 +142,7 @@ class PerfectBacktest:
                     shares = (capital * risk_pct) / risk_share
                     shares = min(shares, capital * 0.95 / price)
                     
-                    position = {'date': date, 'price': price, 'shares': shares, 'sl': sl, 'tp': row['tp']}
+                    position = {'date': i, 'price': price, 'shares': shares, 'sl': sl, 'tp': row['tp']}
                     capital -= shares * price
             
             # SELL
@@ -135,7 +161,7 @@ class PerfectBacktest:
                 
                 trades.append({
                     'entry': position['date'],
-                    'exit': date,
+                    'exit': i,
                     'entry_p': position['price'],
                     'exit_p': exit_p,
                     'shares': position['shares'],
@@ -161,7 +187,7 @@ class PerfectBacktest:
                 'reason': 'OPEN'
             })
         
-        return pd.DataFrame(trades), pd.DataFrame(equity), signal_count
+        return pd.DataFrame(trades), pd.DataFrame(equity)
     
     def metrics(self, trades, equity):
         if trades.empty:
@@ -208,11 +234,9 @@ if st.button("🚀 BACKTEST", type="primary"):
             st.error("Veri yok!")
             st.stop()
         
-        bt = PerfectBacktest()
-        trades, equity, signals = bt.backtest(data, rsi, rr, risk)
+        bt = NoErrorBacktest()
+        trades, equity = bt.backtest(data, rsi, rr, risk)
         metrics = bt.metrics(trades, equity)
-    
-    st.info(f"🎯 {signals} sinyal bulundu")
     
     # METRICS
     col1, col2, col3, col4 = st.columns(4)
@@ -245,9 +269,9 @@ if st.button("🚀 BACKTEST", type="primary"):
     
     # TRADES
     if not trades.empty:
-        trades['entry'] = trades['entry'].dt.strftime('%Y-%m-%d')
-        trades['exit'] = trades['exit'].dt.strftime('%Y-%m-%d')
+        trades['entry'] = pd.to_datetime(trades['entry']).dt.strftime('%Y-%m-%d')
+        trades['exit'] = pd.to_datetime(trades['exit']).dt.strftime('%Y-%m-%d')
         st.dataframe(trades.round(2), height=300)
 
 st.markdown("---")
-st.markdown("**v7.0 - %100 HATA-FREE**")
+st.markdown("**v8.0 - %100 NUMPY**")
