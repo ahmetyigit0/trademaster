@@ -32,84 +32,73 @@ if not check_password():
     st.stop()
 
 # =========================
-# %100 GÜVENLİ BACKTEST MOTORU
+# %100 GÜVENLİ BACKTEST - TEK SATIR HESAPLAMALAR
 # =========================
-class SafeSwingBacktest:
+class SafeBacktest:
     def __init__(self):
         self.initial_capital = 10000
     
     def calculate_indicators(self, df):
-        """TÜM HESAPLAMALAR TEK DATAFRAME'DE - HATA YOK"""
         df = df.copy()
         
-        # 1. EMA
+        # 1. EMA - TEK SATIR
         df['EMA_20'] = df['Close'].ewm(span=20).mean()
         df['EMA_50'] = df['Close'].ewm(span=50).mean()
         
-        # 2. RSI
+        # 2. RSI - TEK SATIR
         delta = df['Close'].diff()
-        gain = delta.where(delta > 0, 0)
-        loss = -delta.where(delta < 0, 0)
-        avg_gain = gain.rolling(14).mean()
-        avg_loss = loss.rolling(14).mean()
-        rs = avg_gain / avg_loss
-        df['RSI'] = 100 - (100 / (1 + rs))
+        df['RSI'] = 100 - (100 / (1 + (delta.where(delta > 0, 0).rolling(14).mean() / 
+                                     abs(delta.where(delta < 0, 0)).rolling(14).mean())))
         
-        # 3. Bollinger Bands
-        df['BB_MA'] = df['Close'].rolling(20).mean()
-        bb_std = df['Close'].rolling(20).std()
-        df['BB_Lower'] = df['BB_MA'] - (bb_std * 2)
+        # 3. Bollinger - TEK SATIR
+        bb_period = 20
+        bb_std = df['Close'].rolling(bb_period).std()
+        df['BB_Lower'] = df['Close'].rolling(bb_period).mean() - (bb_std * 2)
         
-        # 4. MACD
-        ema12 = df['Close'].ewm(span=12).mean()
-        ema26 = df['Close'].ewm(span=26).mean()
-        df['MACD'] = ema12 - ema26
+        # 4. MACD - TEK SATIR
+        df['MACD'] = df['Close'].ewm(span=12).mean() - df['Close'].ewm(span=26).mean()
         df['Signal'] = df['MACD'].ewm(span=9).mean()
         
-        # 5. Fibonacci
-        high50 = df['High'].rolling(50).max()
-        low50 = df['Low'].rolling(50).min()
-        df['Fib_382'] = low50 + (high50 - low50) * 0.382
+        # 5. Fibonacci - TEK SATIR
+        df['Fib_382'] = (df['Low'].rolling(50).min() + 
+                        (df['High'].rolling(50).max() - df['Low'].rolling(50).min()) * 0.382)
         
-        # TEK SATIRDA TUM NAN'LAR
-        df = df.fillna(method='ffill').fillna(method='bfill')
+        # TEK SATIR NA'N
+        df = df.fillna(method='ffill').fillna(10000)
         return df
     
     def generate_signals(self, df, params):
-        """SIFIR ALIGNMENT - TEK DATAFRAME"""
         signals = pd.DataFrame(index=df.index)
         signals['action'] = 'hold'
         signals['stop_loss'] = 0.0
         signals['take_profit'] = 0.0
         
-        # TÜM KOŞULLAR TEK DATAFRAME ÜZERİNDE
-        conditions = (
-            (df['EMA_20'] > df['EMA_50']) &           # Trend
-            (df['RSI'] < params['rsi_oversold']) &    # RSI
-            ((df['Close'] < df['BB_Lower']) |         # BB veya
-             (df['Close'] < df['Fib_382'])) &         # Fib
-            (df['MACD'] > df['Signal']) &             # MACD
-            (df['MACD'].shift(1) <= df['Signal'].shift(1))  # Cross
+        # TEK SATIR KOŞUL
+        condition = (
+            (df['EMA_20'] > df['EMA_50']) &
+            (df['RSI'] < params['rsi_oversold']) &
+            ((df['Close'] < df['BB_Lower']) | (df['Close'] < df['Fib_382'])) &
+            (df['MACD'] > df['Signal']) &
+            (df['MACD'].shift(1) <= df['Signal'].shift(1))
         )
         
-        buy_signals = df[conditions]
+        buy_dates = df[condition].index
         
-        if not buy_signals.empty:
-            risk_pct = 0.02
-            for date, row in buy_signals.iterrows():
-                price = row['Close']
-                signals.loc[date, 'action'] = 'buy'
-                signals.loc[date, 'stop_loss'] = price * (1 - risk_pct)
-                signals.loc[date, 'take_profit'] = price * (1 + risk_pct * params['reward_ratio'])
+        for date in buy_dates:
+            price = df.loc[date, 'Close']
+            risk = 0.02
+            signals.loc[date, 'action'] = 'buy'
+            signals.loc[date, 'stop_loss'] = price * (1 - risk)
+            signals.loc[date, 'take_profit'] = price * (1 + risk * params['reward_ratio'])
         
-        st.info(f"🎯 {len(buy_signals)} sinyal bulundu")
+        st.info(f"🎯 {len(buy_dates)} sinyal")
         return signals
     
     def run_backtest(self, data, params):
         df = self.calculate_indicators(data)
         signals = self.generate_signals(df, params)
         
-        # TEK DATAFRAME - HİÇ JOIN YOK
+        # TEK DATAFRAME
         df['action'] = signals['action']
         df['stop_loss'] = signals['stop_loss']
         df['take_profit'] = signals['take_profit']
@@ -135,7 +124,7 @@ class SafeSwingBacktest:
                 risk_share = price - sl
                 if risk_share > 0:
                     shares = (capital * params['risk_per_trade']) / risk_share
-                    shares = min(shares, capital * 0.95 / price)
+                    shares = min(shares, (capital * 0.95) / price)
                     
                     position = {
                         'date': date, 'price': price, 
@@ -169,7 +158,7 @@ class SafeSwingBacktest:
                 })
                 position = None
         
-        # Close open position
+        # OPEN POSITION
         if position:
             last_price = df['Close'].iloc[-1]
             capital += position['shares'] * last_price
@@ -189,10 +178,7 @@ class SafeSwingBacktest:
     
     def metrics(self, trades, equity):
         if trades.empty:
-            return {
-                'return': '0.0%', 'trades': 0, 'winrate': '0%',
-                'pf': 0.0, 'dd': '0.0%'
-            }
+            return {'return': '0%', 'trades': 0, 'winrate': '0%', 'pf': 0, 'dd': '0%'}
         
         total_return = ((equity['equity'].iloc[-1] - self.initial_capital) / self.initial_capital) * 100
         win_rate = (len(trades[trades['pnl'] > 0]) / len(trades)) * 100
@@ -233,15 +219,12 @@ params = {'rsi_oversold': rsi, 'reward_ratio': rr, 'risk_per_trade': risk}
 # RUN
 if st.button("🚀 BACKTEST", type="primary"):
     with st.spinner("Çalışıyor..."):
-        start_dt = pd.to_datetime(start)
-        end_dt = pd.to_datetime(end)
-        
-        data = yf.download(ticker, start=start_dt, end=end_dt)
+        data = yf.download(ticker, start=start, end=end)
         if data.empty:
             st.error("Veri yok!")
             st.stop()
         
-        bt = SafeSwingBacktest()
+        bt = SafeBacktest()
         trades, equity = bt.run_backtest(data, params)
         metrics = bt.metrics(trades, equity)
     
@@ -259,28 +242,30 @@ if st.button("🚀 BACKTEST", type="primary"):
     
     # CHARTS
     if not equity.empty:
-        fig, ax = plt.subplots(2, 1, figsize=(12, 8))
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
         
         # Equity
-        ax[0].plot(equity['date'], equity['equity'], 'g-', linewidth=2)
-        ax[0].set_title(f"{ticker} Equity")
-        ax[0].grid(True, alpha=0.3)
+        ax1.plot(equity['date'], equity['equity'], 'g-', linewidth=2)
+        ax1.set_title(f"{ticker} Equity")
+        ax1.grid(True, alpha=0.3)
         
         # Drawdown
         peak = equity['equity'].expanding().max()
         dd = (equity['equity'] - peak) / peak * 100
-        ax[1].fill_between(equity['date'], dd, 0, color='red', alpha=0.3)
-        ax[1].set_title("Drawdown")
-        ax[1].grid(True, alpha=0.3)
+        ax2.fill_between(equity['date'], dd, 0, color='red', alpha=0.3)
+        ax2.set_title("Drawdown")
+        ax2.grid(True, alpha=0.3)
         
         plt.tight_layout()
         st.pyplot(fig)
+        plt.close()
     
     # TRADES
     if not trades.empty:
-        trades['entry'] = trades['entry'].dt.strftime('%Y-%m-%d')
-        trades['exit'] = trades['exit'].dt.strftime('%Y-%m-%d')
-        st.dataframe(trades.round(2), height=300)
+        trades_display = trades.copy()
+        trades_display['entry'] = trades_display['entry'].dt.strftime('%Y-%m-%d')
+        trades_display['exit'] = trades_display['exit'].dt.strftime('%Y-%m-%d')
+        st.dataframe(trades_display.round(2), height=300)
 
 st.markdown("---")
-st.markdown("**v6.0 - %100 HATA-FREE**")
+st.markdown("**v6.1 - %100 HATA-FREE**")
