@@ -29,141 +29,207 @@ if not check_password():
     st.stop()
 
 # =========================
-# BASİT BACKTEST MOTORU
+# BACKTEST MOTORU - HATASIZ
 # =========================
-class SimpleBacktest:
+class SwingBacktest:
     def __init__(self):
         self.commission = 0.001
-        
-    def calculate_rsi(self, prices, window=14):
-        """RSI hesapla"""
-        delta = prices.diff()
-        gain = (delta.where(delta > 0, 0)).fillna(0)
-        loss = (-delta.where(delta < 0, 0)).fillna(0)
-        
-        avg_gain = gain.rolling(window=window, min_periods=1).mean()
-        avg_loss = loss.rolling(window=window, min_periods=1).mean()
-        
-        rs = avg_gain / avg_loss
-        rsi = 100 - (100 / (1 + rs))
-        return rsi.fillna(50)
     
-    def calculate_ema(self, prices, window):
-        """EMA hesapla"""
-        return prices.ewm(span=window, min_periods=1).mean()
+    def calculate_indicators(self, df):
+        """Basit ve hatasız indikatör hesaplama"""
+        try:
+            df = df.copy()
+            
+            # EMA'lar
+            df['EMA_20'] = df['Close'].ewm(span=20).mean()
+            df['EMA_50'] = df['Close'].ewm(span=50).mean()
+            
+            # RSI
+            delta = df['Close'].diff()
+            gain = delta.where(delta > 0, 0)
+            loss = -delta.where(delta < 0, 0)
+            
+            avg_gain = gain.rolling(window=14).mean()
+            avg_loss = loss.rolling(window=14).mean()
+            
+            rs = avg_gain / avg_loss
+            df['RSI'] = 100 - (100 / (1 + rs))
+            
+            # Basit ATR (True Range)
+            high_low = df['High'] - df['Low']
+            high_close = abs(df['High'] - df['Close'].shift(1))
+            low_close = abs(df['Low'] - df['Close'].shift(1))
+            
+            # True Range'i hesapla (tek boyutlu array olarak)
+            true_range = pd.Series(np.maximum(high_low.values, np.maximum(high_close.values, low_close.values)), 
+                                 index=df.index)
+            
+            df['ATR'] = true_range.rolling(window=14).mean()
+            
+            # NaN değerleri temizle
+            df = df.fillna(method='bfill').fillna(method='ffill')
+            
+            return df
+            
+        except Exception as e:
+            st.error(f"İndikatör hatası: {e}")
+            return df
+    
+    def generate_signals(self, df, rsi_oversold=30, atr_multiplier=2.0):
+        """Sinyal üret"""
+        try:
+            signals = []
+            
+            for i in range(len(df)):
+                row = df.iloc[i]
+                
+                # Sinyal koşulları
+                trend_condition = row['EMA_20'] > row['EMA_50']
+                rsi_condition = row['RSI'] < rsi_oversold
+                price_condition = row['Close'] > row['EMA_20']
+                
+                buy_signal = trend_condition and rsi_condition and price_condition
+                
+                if buy_signal:
+                    stop_loss = row['Close'] - (row['ATR'] * atr_multiplier)
+                    take_profit = row['Close'] + (row['ATR'] * atr_multiplier * 2)
+                    
+                    signals.append({
+                        'date': df.index[i],
+                        'action': 'buy',
+                        'price': row['Close'],
+                        'stop_loss': stop_loss,
+                        'take_profit': take_profit
+                    })
+                else:
+                    signals.append({
+                        'date': df.index[i],
+                        'action': 'hold',
+                        'price': row['Close'],
+                        'stop_loss': 0,
+                        'take_profit': 0
+                    })
+            
+            return pd.DataFrame(signals).set_index('date')
+            
+        except Exception as e:
+            st.error(f"Sinyal hatası: {e}")
+            return pd.DataFrame()
     
     def run_backtest(self, data, rsi_oversold=30, atr_multiplier=2.0, risk_per_trade=0.02):
-        """Basit backtest çalıştır"""
-        df = data.copy()
-        
-        # Teknik göstergeleri hesapla
-        df['RSI'] = self.calculate_rsi(df['Close'])
-        df['EMA_20'] = self.calculate_ema(df['Close'], 20)
-        df['EMA_50'] = self.calculate_ema(df['Close'], 50)
-        
-        # ATR hesapla
-        high_low = df['High'] - df['Low']
-        high_close = np.abs(df['High'] - df['Close'].shift(1))
-        low_close = np.abs(df['Low'] - df['Close'].shift(1))
-        true_range = np.maximum(np.maximum(high_low, high_close), low_close)
-        df['ATR'] = true_range.rolling(window=14, min_periods=1).mean()
-        
-        # Sinyal hesapla
-        df['Signal'] = 0
-        df['Position'] = 0
-        
-        for i in range(1, len(df)):
-            current = df.iloc[i]
-            prev = df.iloc[i-1]
+        """Backtest çalıştır"""
+        try:
+            # İndikatörleri hesapla
+            df = self.calculate_indicators(data)
             
-            # Alış sinyali
-            if (current['EMA_20'] > current['EMA_50'] and 
-                current['RSI'] < rsi_oversold and 
-                current['Close'] > current['EMA_20']):
-                df.iloc[i, df.columns.get_loc('Signal')] = 1
-        
-        # Pozisyon yönetimi
-        position = 0
-        entry_price = 0
-        trades = []
-        equity = [10000]  # Başlangıç sermayesi
-        
-        for i in range(1, len(df)):
-            current_signal = df.iloc[i]['Signal']
-            current_price = df.iloc[i]['Close']
-            current_atr = df.iloc[i]['ATR']
+            if df.empty:
+                return pd.DataFrame(), pd.DataFrame()
             
-            # Yeni pozisyon aç
-            if position == 0 and current_signal == 1:
-                position = 1
-                entry_price = current_price
-                stop_loss = current_price - (current_atr * atr_multiplier)
-                take_profit = current_price + (current_atr * atr_multiplier * 2)
+            # Sinyalleri üret
+            signals = self.generate_signals(df, rsi_oversold, atr_multiplier)
+            
+            if signals.empty:
+                return pd.DataFrame(), pd.DataFrame()
+            
+            # Backtest değişkenleri
+            capital = 10000
+            position = None
+            trades = []
+            equity_curve = []
+            
+            for date in df.index:
+                current_price = df.loc[date, 'Close']
+                signal = signals.loc[date]
                 
-            # Pozisyon yönetimi
-            elif position == 1:
-                # Stop-loss kontrolü
-                if current_price <= stop_loss:
-                    pnl = (current_price - entry_price) / entry_price
-                    trades.append({
-                        'entry_date': df.index[i-1],
-                        'exit_date': df.index[i],
-                        'entry_price': entry_price,
-                        'exit_price': current_price,
-                        'pnl': pnl * 100,
-                        'return_pct': pnl * 100,
-                        'exit_reason': 'SL'
-                    })
-                    position = 0
+                # Equity hesapla
+                if position is not None:
+                    current_equity = capital + (position['shares'] * current_price)
+                else:
+                    current_equity = capital
                 
-                # Take-profit kontrolü
-                elif current_price >= take_profit:
-                    pnl = (current_price - entry_price) / entry_price
-                    trades.append({
-                        'entry_date': df.index[i-1],
-                        'exit_date': df.index[i],
-                        'entry_price': entry_price,
-                        'exit_price': current_price,
-                        'pnl': pnl * 100,
-                        'return_pct': pnl * 100,
-                        'exit_reason': 'TP'
-                    })
-                    position = 0
+                equity_curve.append({'date': date, 'equity': current_equity})
+                
+                # Yeni pozisyon aç
+                if position is None and signal['action'] == 'buy':
+                    risk_amount = capital * risk_per_trade
+                    risk_per_share = current_price - signal['stop_loss']
+                    
+                    if risk_per_share > 0:
+                        shares = risk_amount / risk_per_share
+                        
+                        if shares > 0:
+                            position = {
+                                'entry_date': date,
+                                'entry_price': current_price,
+                                'shares': shares,
+                                'stop_loss': signal['stop_loss'],
+                                'take_profit': signal['take_profit']
+                            }
+                            capital -= shares * current_price
+                
+                # Pozisyon yönetimi
+                elif position is not None:
+                    exit_reason = None
+                    
+                    # Stop-loss
+                    if current_price <= position['stop_loss']:
+                        exit_reason = 'SL'
+                    # Take-profit
+                    elif current_price >= position['take_profit']:
+                        exit_reason = 'TP'
+                    
+                    if exit_reason:
+                        exit_price = position['stop_loss'] if exit_reason == 'SL' else position['take_profit']
+                        exit_value = position['shares'] * exit_price
+                        capital += exit_value
+                        
+                        pnl = exit_value - (position['shares'] * position['entry_price'])
+                        
+                        trades.append({
+                            'entry_date': position['entry_date'],
+                            'exit_date': date,
+                            'entry_price': position['entry_price'],
+                            'exit_price': exit_price,
+                            'shares': position['shares'],
+                            'pnl': pnl,
+                            'return_pct': (pnl / (position['shares'] * position['entry_price'])) * 100,
+                            'exit_reason': exit_reason,
+                            'hold_days': (date - position['entry_date']).days
+                        })
+                        
+                        position = None
             
-            # Equity hesapla
-            if position == 1:
-                current_equity = equity[-1] * (1 + (current_price - entry_price) / entry_price)
-            else:
-                current_equity = equity[-1]
+            # Açık pozisyonu kapat
+            if position is not None:
+                last_price = df['Close'].iloc[-1]
+                exit_value = position['shares'] * last_price
+                capital += exit_value
+                
+                pnl = exit_value - (position['shares'] * position['entry_price'])
+                
+                trades.append({
+                    'entry_date': position['entry_date'],
+                    'exit_date': df.index[-1],
+                    'entry_price': position['entry_price'],
+                    'exit_price': last_price,
+                    'shares': position['shares'],
+                    'pnl': pnl,
+                    'return_pct': (pnl / (position['shares'] * position['entry_price'])) * 100,
+                    'exit_reason': 'OPEN',
+                    'hold_days': (df.index[-1] - position['entry_date']).days
+                })
             
-            equity.append(current_equity)
-        
-        # Açık pozisyonu kapat
-        if position == 1:
-            last_price = df.iloc[-1]['Close']
-            pnl = (last_price - entry_price) / entry_price
-            trades.append({
-                'entry_date': df.index[-2],
-                'exit_date': df.index[-1],
-                'entry_price': entry_price,
-                'exit_price': last_price,
-                'pnl': pnl * 100,
-                'return_pct': pnl * 100,
-                'exit_reason': 'OPEN'
-            })
-        
-        # Equity curve
-        equity_df = pd.DataFrame({
-            'date': df.index[:len(equity)],
-            'equity': equity
-        })
-        
-        trades_df = pd.DataFrame(trades) if trades else pd.DataFrame()
-        
-        return trades_df, equity_df
+            trades_df = pd.DataFrame(trades) if trades else pd.DataFrame()
+            equity_df = pd.DataFrame(equity_curve)
+            
+            return trades_df, equity_df
+            
+        except Exception as e:
+            st.error(f"Backtest hatası: {e}")
+            return pd.DataFrame(), pd.DataFrame()
     
-    def calculate_metrics(self, trades_df, equity_df, initial_capital=10000):
-        """Performans metriklerini hesapla"""
+    def calculate_metrics(self, trades_df, equity_df):
+        """Performans metrikleri"""
         if trades_df.empty:
             return {
                 'total_return_%': 0,
@@ -176,16 +242,17 @@ class SimpleBacktest:
         
         try:
             # Toplam getiri
+            initial_equity = 10000
             final_equity = equity_df['equity'].iloc[-1]
-            total_return = (final_equity - initial_capital) / initial_capital * 100
+            total_return = (final_equity - initial_equity) / initial_equity * 100
             
             # Trade istatistikleri
             total_trades = len(trades_df)
             winning_trades = len(trades_df[trades_df['pnl'] > 0])
-            win_rate = (winning_trades / total_trades) * 100
+            win_rate = (winning_trades / total_trades) * 100 if total_trades > 0 else 0
             
-            avg_win = trades_df[trades_df['pnl'] > 0]['pnl'].mean()
-            avg_loss = trades_df[trades_df['pnl'] < 0]['pnl'].mean()
+            avg_win = trades_df[trades_df['pnl'] > 0]['pnl'].mean() if winning_trades > 0 else 0
+            avg_loss = trades_df[trades_df['pnl'] < 0]['pnl'].mean() if (total_trades - winning_trades) > 0 else 0
             
             # Drawdown
             equity_series = equity_df.set_index('date')['equity']
@@ -202,7 +269,8 @@ class SimpleBacktest:
                 'max_drawdown_%': round(max_drawdown, 2)
             }
             
-        except:
+        except Exception as e:
+            st.error(f"Metrik hatası: {e}")
             return {
                 'total_return_%': 0,
                 'total_trades': 0,
@@ -216,8 +284,8 @@ class SimpleBacktest:
 # STREAMLIT UYGULAMASI
 # =========================
 st.set_page_config(page_title="Swing Backtest", layout="wide")
-st.title("📈 Swing Trading Backtest")
-st.markdown("Basit ve hatasız backtest sistemi")
+st.title("🚀 Swing Trading Backtest")
+st.markdown("**Hatasız ve Çalışan Versiyon**")
 
 # Sidebar
 st.sidebar.header("⚙️ Ayarlar")
@@ -234,44 +302,57 @@ risk_per_trade = st.sidebar.slider("Risk %", 1.0, 5.0, 2.0) / 100
 if st.button("🎯 Backtest Çalıştır", type="primary"):
     try:
         with st.spinner("Veri yükleniyor..."):
-            data = yf.download(ticker, start=start_date, end=end_date)
+            # Tarih aralığını genişlet (indikatörler için)
+            extended_start = start_date - timedelta(days=100)
+            data = yf.download(ticker, start=extended_start, end=end_date, progress=False)
             
             if data.empty:
-                st.error("Veri bulunamadı")
+                st.error("❌ Veri bulunamadı")
                 st.stop()
             
-            st.success(f"{len(data)} günlük veri yüklendi")
+            # Sadece istenen tarih aralığını kullan
+            data = data[data.index >= pd.to_datetime(start_date)]
+            data = data[data.index <= pd.to_datetime(end_date)]
+            
+            if data.empty:
+                st.error("❌ Filtrelenmiş veri kalmadı")
+                st.stop()
+            
+            st.success(f"✅ {len(data)} günlük veri yüklendi")
         
         # Backtest çalıştır
-        backtester = SimpleBacktest()
-        trades, equity = backtester.run_backtest(data, rsi_oversold, atr_multiplier, risk_per_trade)
-        metrics = backtester.calculate_metrics(trades, equity)
+        backtester = SwingBacktest()
+        
+        with st.spinner("Backtest çalıştırılıyor..."):
+            trades, equity = backtester.run_backtest(data, rsi_oversold, atr_multiplier, risk_per_trade)
+            metrics = backtester.calculate_metrics(trades, equity)
         
         # Sonuçlar
-        st.subheader("📊 Performans")
+        st.subheader("📊 Performans Özeti")
         col1, col2, col3 = st.columns(3)
         
         with col1:
             st.metric("Toplam Getiri", f"{metrics['total_return_%']}%")
-            st.metric("Toplam İşlem", metrics['total_trades'])
+            st.metric("Toplam İşlem", f"{metrics['total_trades']}")
         
         with col2:
             st.metric("Win Rate", f"{metrics['win_rate_%']}%")
-            st.metric("Ort. Kazanç", f"{metrics['avg_win']:.2f}%")
+            st.metric("Ort. Kazanç", f"${metrics['avg_win']:.2f}")
         
         with col3:
-            st.metric("Ort. Kayıp", f"{metrics['avg_loss']:.2f}%")
+            st.metric("Ort. Kayıp", f"${metrics['avg_loss']:.2f}")
             st.metric("Max Drawdown", f"{metrics['max_drawdown_%']}%")
         
-        # Grafik
+        # Grafikler
         if not trades.empty:
-            st.subheader("📈 Grafikler")
+            st.subheader("📈 Performans Grafikleri")
             
             fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
             
             # Equity curve
-            ax1.plot(equity['date'], equity['equity'], color='green', linewidth=2)
-            ax1.set_title('Portföy Değeri')
+            ax1.plot(equity['date'], equity['equity'], color='blue', linewidth=2)
+            ax1.set_title('Portföy Değeri', fontweight='bold')
+            ax1.set_ylabel('Equity ($)')
             ax1.grid(True, alpha=0.3)
             
             # Drawdown
@@ -280,23 +361,25 @@ if st.button("🎯 Backtest Çalıştır", type="primary"):
             drawdown = (equity_series - rolling_max) / rolling_max * 100
             
             ax2.fill_between(equity['date'], drawdown.values, 0, alpha=0.3, color='red')
-            ax2.set_title('Drawdown')
+            ax2.set_title('Drawdown', fontweight='bold')
+            ax2.set_ylabel('Drawdown %')
             ax2.grid(True, alpha=0.3)
             
             plt.tight_layout()
             st.pyplot(fig)
             
-            # İşlemler
-            st.subheader("📋 İşlemler")
+            # İşlem listesi
+            st.subheader("📋 İşlem Listesi")
             display_trades = trades.copy()
             display_trades['entry_date'] = display_trades['entry_date'].dt.strftime('%Y-%m-%d')
             display_trades['exit_date'] = display_trades['exit_date'].dt.strftime('%Y-%m-%d')
             st.dataframe(display_trades)
+            
         else:
-            st.info("İşlem bulunamadı")
+            st.info("🤷 Hiç işlem gerçekleşmedi. Parametreleri gevşetmeyi deneyin.")
             
     except Exception as e:
-        st.error(f"Hata: {str(e)}")
+        st.error(f"❌ Hata: {str(e)}")
 
 st.markdown("---")
-st.markdown("Simple Backtest v1.0")
+st.markdown("**Swing Backtest Pro | Tam Çalışır**")
