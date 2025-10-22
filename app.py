@@ -40,17 +40,16 @@ class SwingBacktest:
         df['EMA_20'] = df['Close'].ewm(span=20, min_periods=1, adjust=False).mean()
         df['EMA_50'] = df['Close'].ewm(span=50, min_periods=1, adjust=False).mean()
         
-        # RSI
+        # RSI (SMMA bazlı yerine EWA bazlı RSI kullanıldı)
         delta = df['Close'].diff()
         gain = (delta.where(delta > 0, 0)).fillna(0)
         loss = (-delta.where(delta < 0, 0)).fillna(0)
-        # RSI hesaplamasını daha stabil hale getiriyoruz (Exponential Moving Average yerine)
         avg_gain = gain.ewm(span=14, adjust=False).mean()
         avg_loss = loss.ewm(span=14, adjust=False).mean()
         rs = avg_gain / avg_loss
         df['RSI'] = 100 - (100 / (1 + rs))
 
-        # YENİ: MACD ve SİNYAL HESAPLAMASI
+        # MACD ve SİNYAL HESAPLAMASI
         ema_12 = df['Close'].ewm(span=12, adjust=False).mean()
         ema_26 = df['Close'].ewm(span=26, adjust=False).mean()
         df['MACD'] = ema_12 - ema_26
@@ -62,7 +61,6 @@ class SwingBacktest:
         high_close = np.abs(df['High'] - df['Close'].shift(1))
         low_close = np.abs(df['Low'] - df['Close'].shift(1))
         
-        # Vektörel max alma
         true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
         df['ATR'] = true_range.ewm(span=14, adjust=False).mean() 
         
@@ -88,7 +86,7 @@ class SwingBacktest:
                 rsi_ok = rsi_val < rsi_oversold 
                 
                 # Sinyal 2 (Momentum Geri Dönüş): Orta Aşırı Satım + MACD Cross
-                # RSI'yı biraz gevşetiyoruz (örn: 1.25 çarpanı ile 40'tan 50'ye kadar)
+                # RSI 1.25 çarpanı ile 40'tan 50'ye kadar esneklik sağlar
                 rsi_medium_ok = rsi_val < rsi_oversold * 1.25 
                 macd_cross_ok = row['MACD_Cross_Up']
                 
@@ -97,9 +95,7 @@ class SwingBacktest:
                              (rsi_medium_ok and macd_cross_ok)
                 
                 if buy_signal:
-                    # Risk, ATR'nin altındaki destekten hesaplanır
                     stop_loss = close_val - (atr_val * atr_multiplier)
-                    # Kar, riskin iki katı olarak ayarlanır (Risk/Ödül 1:2)
                     take_profit = close_val + (atr_val * atr_multiplier * 2) 
                     
                     signals.append({
@@ -114,8 +110,7 @@ class SwingBacktest:
                         'action': 'hold'
                     })
                     
-            except Exception as e:
-                # Olası NaN hatalarını yakalamak için (Eski verilerden kalanlar)
+            except:
                 signals.append({
                     'date': df.index[i],
                     'action': 'hold'
@@ -125,7 +120,6 @@ class SwingBacktest:
         if not signals_df.empty:
             signals_df = signals_df.set_index('date')
         
-        # NaN'ları doldur
         signals_df = signals_df.fillna({'stop_loss': np.nan, 'take_profit': np.nan})
         
         return signals_df
@@ -134,18 +128,28 @@ class SwingBacktest:
         df = self.calculate_indicators(data)
         signals = self.generate_signals(df, rsi_oversold, atr_multiplier)
         
-        # İndeksleri birleştirme (Güvenli)
-        df_combined = df.merge(signals[['action', 'stop_loss', 'take_profit']], 
-                               left_index=True, right_index=True, how='left')
+        # --- KRİTİK HATA ÇÖZÜMÜ: TEK SEVİYELİ MERGE ---
+        df_reset = df.reset_index() 
+        signals_reset = signals.reset_index()
+        
+        df_combined = df_reset.merge(
+            signals_reset[['date', 'action', 'stop_loss', 'take_profit']], 
+            on='date', 
+            how='left'
+        )
+        
+        df_combined = df_combined.set_index('date') # İndeksi tekrar tarih yap
+        # --- HATA ÇÖZÜMÜ SONU ---
+
+        # NaN sinyalleri doldurma
+        df_combined['action'] = df_combined['action'].fillna('hold')
         
         capital = 10000.0
         position = None
         trades = []
         equity_curve = []
-        initial_capital = capital
         
         for date in df_combined.index:
-            # Tüm değerleri float olarak zorla
             current_price = float(df_combined.loc[date, 'Close'])
             signal_action = df_combined.loc[date, 'action']
             
@@ -157,24 +161,29 @@ class SwingBacktest:
             
             # ALIM
             if position is None and signal_action == 'buy':
-                stop_loss = float(df_combined.loc[date, 'stop_loss'])
-                take_profit = float(df_combined.loc[date, 'take_profit'])
+                # Sinyal dataframe'indeki NaN'lardan kaçınmak için kontrol
+                sl_val = df_combined.loc[date, 'stop_loss']
+                tp_val = df_combined.loc[date, 'take_profit']
                 
-                risk_per_share = current_price - stop_loss
-                
-                if risk_per_share > 0:
-                    risk_amount = capital * risk_per_trade
-                    shares = risk_amount / risk_per_share
+                if pd.notna(sl_val) and pd.notna(tp_val):
+                    stop_loss = float(sl_val)
+                    take_profit = float(tp_val)
                     
-                    if shares > 0:
-                        position = {
-                            'entry_date': date,
-                            'entry_price': current_price,
-                            'shares': shares,
-                            'stop_loss': stop_loss,
-                            'take_profit': take_profit
-                        }
-                        capital -= shares * current_price * (1 + self.commission) # Komisyon dahil
+                    risk_per_share = current_price - stop_loss
+                    
+                    if risk_per_share > 0:
+                        risk_amount = capital * risk_per_trade
+                        shares = risk_amount / risk_per_share
+                        
+                        if shares > 0:
+                            position = {
+                                'entry_date': date,
+                                'entry_price': current_price,
+                                'shares': shares,
+                                'stop_loss': stop_loss,
+                                'take_profit': take_profit
+                            }
+                            capital -= shares * current_price * (1 + self.commission) 
             
             # ÇIKIŞ
             elif position is not None:
@@ -191,10 +200,11 @@ class SwingBacktest:
 
                 if exit_price is not None:
                     exit_value = position['shares'] * exit_price
-                    capital += exit_value * (1 - self.commission) # Komisyon dahil
+                    capital += exit_value * (1 - self.commission) 
                     
                     entry_value = position['shares'] * position['entry_price']
-                    pnl = (exit_value - entry_value) - (entry_value * self.commission + exit_value * self.commission) # Komisyon düşüldü
+                    # P&L hesaplaması komisyonları içerir
+                    pnl = (exit_value - entry_value) - (entry_value * self.commission + exit_value * self.commission)
                     
                     trades.append({
                         'entry_date': position['entry_date'],
@@ -268,7 +278,7 @@ class SwingBacktest:
 # STREAMLIT UYGULAMASI
 # =========================
 st.set_page_config(page_title="Swing Backtest", layout="wide")
-st.title("🚀 Swing Trading Backtest (Geliştirilmiş Sinyal)")
+st.title("🚀 Swing Trading Backtest (Çift Sinyal + Hata Çözümü)")
 
 # Sidebar
 st.sidebar.header("⚙️ Ayarlar")
@@ -277,8 +287,7 @@ start_date = st.sidebar.date_input("Başlangıç", datetime(2023, 1, 1))
 end_date = st.sidebar.date_input("Bitiş", datetime(2023, 12, 31))
 
 st.sidebar.header("📊 Parametreler")
-# RSI eşiğini 45'e çıkardık
-rsi_oversold = st.sidebar.slider("RSI Aşırı Satım", 25, 50, 45)
+rsi_oversold = st.sidebar.slider("RSI Aşırı Satım", 25, 50, 45) # Daha esnek başlangıç
 atr_multiplier = st.sidebar.slider("ATR Çarpanı (SL için)", 1.0, 3.0, 2.0)
 risk_per_trade = st.sidebar.slider("Risk % (Poz. Büyüklüğü)", 1.0, 5.0, 2.0) / 100
 
@@ -286,7 +295,6 @@ risk_per_trade = st.sidebar.slider("Risk % (Poz. Büyüklüğü)", 1.0, 5.0, 2.0
 if st.button("🎯 Backtest Çalıştır"):
     try:
         with st.spinner("Veri yükleniyor..."):
-            # İndikatörler için yeterli geçmiş veri için başlangıç tarihini geri çek
             extended_start_date = start_date - timedelta(days=150)
             data = yf.download(ticker, start=extended_start_date, end=end_date, progress=False)
             
@@ -294,7 +302,6 @@ if st.button("🎯 Backtest Çalıştır"):
                 st.error("❌ Veri bulunamadı")
                 st.stop()
             
-            # Backtest sadece istenen aralıkta yapılır
             data_test = data[data.index >= pd.to_datetime(start_date)]
             st.success(f"✅ {len(data_test)} günlük veri ile test ediliyor.")
         
@@ -304,7 +311,6 @@ if st.button("🎯 Backtest Çalıştır"):
             trades, equity = backtester.run_backtest(data_test, rsi_oversold, atr_multiplier, risk_per_trade)
             metrics = backtester.calculate_metrics(trades, equity)
         
-        # Metrikler ve Grafikler
         st.subheader("📊 Performans Özeti")
         col1, col2, col3 = st.columns(3)
         
@@ -342,4 +348,4 @@ if st.button("🎯 Backtest Çalıştır"):
         st.error(f"❌ Hata: {str(e)}")
 
 st.markdown("---")
-st.markdown("**Backtest Sistemi v5.0 - Çift Sinyal Girişi**")
+st.markdown("**Backtest Sistemi v5.1 - Hata Giderildi ve Çift Sinyal Kullanıldı**")
