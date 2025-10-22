@@ -54,6 +54,7 @@ class SwingBacktest:
     def calculate_indicators(self, df):
         df = df.copy()
         try:
+            # İndikatör Hesaplamaları (Aynı)
             df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
             df['EMA_50'] = df['Close'].ewm(span=50, adjust=False).mean()
             
@@ -110,7 +111,7 @@ class SwingBacktest:
             (df_copy['MACD'].shift(1) <= df_copy['Signal_Line'].shift(1))
         )
         
-        # Nihai Alım Sinyali (Tüm koşulların sağlanması)
+        # Nihai Alım Sinyali
         df_copy['Buy_Signal'] = (
             df_copy['Trend_Up'] & 
             df_copy['Momentum_Buy'] & 
@@ -135,12 +136,13 @@ class SwingBacktest:
             stop_losses = buy_data['Close'] * (1 - risk_pct)
             take_profits = buy_data['Close'] * (1 + (risk_pct * params['reward_ratio']))
             
-            # Sinyaller DataFrame'ine yerleştir (Bu, indeks hizalamayı garanti eder)
+            # Sinyaller DataFrame'ine yerleştir
             signals.loc[buy_indices, 'action'] = 'buy'
             signals.loc[buy_indices, 'stop_loss'] = stop_losses
             signals.loc[buy_indices, 'take_profit'] = take_profits
 
-        # İlk 50 satır (NaN olan indikatörlerden dolayı) 'hold' olarak kalır.
+        # NaN'ları 'hold' olarak temizle
+        signals['action'] = signals['action'].fillna('hold')
         
         buy_count = signals['action'].value_counts().get('buy', 0)
         st.info(f"🎯 {buy_count} karmaşık alış sinyali bulundu")
@@ -150,36 +152,35 @@ class SwingBacktest:
         df = self.calculate_indicators(data)
         signals = self.generate_signals(df, params)
         
-        # *** HATA DÜZELTMESİ: İndeksleri Hizalama ***
-        # Bu adım, sinyallerin ana fiyata tam olarak hizalanmasını sağlar.
+        # İndeksleri Hizalama (Sinyallerin tüm tarih aralığını kapsamasını sağlar)
         df_combined = df.merge(signals[['action', 'stop_loss', 'take_profit']], 
                                left_index=True, right_index=True, how='left')
         
-        # NaN'ları güvenli değerlerle doldur
         df_combined['action'] = df_combined['action'].fillna('hold')
-        df_combined[['stop_loss', 'take_profit']] = df_combined[['stop_loss', 'take_profit']].fillna(0)
-        # ----------------------------------------
-        
-        capital = self.initial_capital
+        df_combined[['stop_loss', 'take_profit']] = df_combined[['stop_loss', 'take_profit']].fillna(0.0) # Float olarak dolduruldu
+
+        capital = float(self.initial_capital) # Başlangıç sermayesini kesin float yap
         position = None
         trades = []
         equity_curve = []
         
-        # Döngü artık tamamen hizalanmış df_combined üzerinde çalışıyor
         for date in df_combined.index:
             row = df_combined.loc[date]
-            current_price = row['Close']
+            current_price = float(row['Close']) # Fiyatı kesin float yap
             signal_action = row['action']
             
-            current_equity = capital
-            if position is not None:
-                current_equity += position['shares'] * current_price
+            current_equity = float(capital) # Sermayeyi kesin float yap
             
+            if position is not None:
+                # Pozisyon açıkken sermaye hesabına ekle
+                current_equity += float(position['shares']) * current_price
+            
+            # Equity'yi listeye ekle (Kesin sayı)
             equity_curve.append({'date': date, 'equity': current_equity})
             
             # ALIM KOŞULU
             if position is None and signal_action == 'buy':
-                stop_loss = row['stop_loss']
+                stop_loss = float(row['stop_loss']) # SL'yi kesin float yap
                 risk_per_share = current_price - stop_loss
                 
                 if risk_per_share > 0:
@@ -192,7 +193,7 @@ class SwingBacktest:
                             'entry_price': current_price,
                             'shares': shares,
                             'stop_loss': stop_loss,
-                            'take_profit': row['take_profit']
+                            'take_profit': float(row['take_profit']) # TP'yi kesin float yap
                         }
                         capital -= shares * current_price
             
@@ -232,7 +233,7 @@ class SwingBacktest:
         
         # Kapanış pozisyonu (Son gün)
         if position is not None:
-            last_price = df_combined['Close'].iloc[-1]
+            last_price = float(df_combined['Close'].iloc[-1])
             exit_value = position['shares'] * last_price
             capital += exit_value
             
@@ -255,6 +256,7 @@ class SwingBacktest:
         return trades_df, equity_df
     
     def calculate_metrics(self, trades_df, equity_df):
+        # Metrik hesaplama (Aynı)
         if trades_df.empty:
             return {
                 'total_return': "0.0%",
