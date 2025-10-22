@@ -94,6 +94,7 @@ class SwingBacktest:
             
         except Exception as e:
             st.error(f"Gösterge hesaplama hatası: {e}")
+            # Hata durumunda default değerler atama
             df['EMA_20'] = df['Close']
             df['EMA_50'] = df['Close']
             df['RSI'] = 50
@@ -119,6 +120,7 @@ class SwingBacktest:
         df_copy['Fib_Support_Hit'] = df_copy['Close'] <= df_copy['Fib_Support_382'] * 1.01
         
         # 5. MACD Kesişimi (Vektörel Güvenli Yöntem)
+        # Bu işlem saf vektörel olduğu için indeks hatası vermez
         df_copy['MACD_Cross_Up'] = (
             (df_copy['MACD'] > df_copy['Signal_Line']) & 
             (df_copy['MACD'].shift(1) <= df_copy['Signal_Line'].shift(1))
@@ -132,36 +134,36 @@ class SwingBacktest:
             df_copy['MACD_Cross_Up']
         )
         
-        # Sinyal DataFrame'ini oluşturma
-        signals = pd.DataFrame(index=df.index, data={'action': 'hold'})
+        # SL/TP Değerlerini hesaplama (Sadece sinyal olan günler için)
+        buy_signals_df = df_copy[df_copy['Buy_Signal']].copy()
         
-        # Sadece sinyal olan günleri işaretle (İlk 50 barı atlayarak)
-        signals.loc[df_copy.index[50:], 'action'] = df_copy.loc[df_copy.index[50:], 'Buy_Signal'].map({True: 'buy', False: 'hold'})
-        
-        # SL/TP değerlerini ekle
-        signals['stop_loss'] = np.nan
-        signals['take_profit'] = np.nan
-        
-        buy_indices = df_copy[df_copy['Buy_Signal']].index
-        
-        # SL/TP değerlerini hesaplayıp doğru indekslere ata
-        for date in buy_indices:
-            close = df_copy.loc[date, 'Close']
+        if not buy_signals_df.empty:
             risk_pct = 0.02
-            signals.loc[date, 'stop_loss'] = close * (1 - risk_pct)
-            signals.loc[date, 'take_profit'] = close * (1 + (risk_pct * params['reward_ratio']))
-
-        buy_count = signals['action'].value_counts().get('buy', 0)
+            
+            buy_signals_df['stop_loss'] = buy_signals_df['Close'] * (1 - risk_pct)
+            buy_signals_df['take_profit'] = buy_signals_df['Close'] * (1 + (risk_pct * params['reward_ratio']))
+            buy_signals_df['action'] = 'buy'
+            
+            # Gerekli sütunları seç
+            signals = buy_signals_df[['action', 'stop_loss', 'take_profit']]
+        else:
+            signals = pd.DataFrame(index=df.index)
+        
+        # Sonuç DataFrame'i oluşturma (Tüm index'i içeren)
+        signals_final = pd.DataFrame(index=df.index, data={'action': 'hold'})
+        signals_final = signals_final.merge(signals, left_index=True, right_index=True, how='left')
+        signals_final['action'] = signals_final['action'].fillna('hold')
+        
+        buy_count = signals_final['action'].value_counts().get('buy', 0)
         st.info(f"🎯 {buy_count} karmaşık alış sinyali bulundu")
-        return signals
+        return signals_final
     
     def run_backtest(self, data, params):
         df = self.calculate_indicators(data)
         signals = self.generate_signals(df, params)
         
-        # --- HATA DÜZELTMESİ: İndeks Hizalama ---
+        # --- HATA DÜZELTMESİ: İndeksleri Hizalama ***
         # Sinyal sütunlarını ana veri çerçevesine left merge ile birleştir.
-        # Bu, her iki DataFrame'in indekslerinin eşleşmesini sağlar.
         df_combined = df.merge(signals[['action', 'stop_loss', 'take_profit']], 
                                left_index=True, right_index=True, how='left')
         
@@ -175,6 +177,7 @@ class SwingBacktest:
         trades = []
         equity_curve = []
         
+        # Döngü artık tamamen hizalanmış df_combined üzerinde çalışıyor
         for date in df_combined.index:
             row = df_combined.loc[date]
             current_price = row['Close']
