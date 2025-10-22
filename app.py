@@ -84,103 +84,89 @@ class SwingBacktest:
             high_50 = df['High'].rolling(window=window_fib).max()
             low_50 = df['Low'].rolling(window=window_fib).min()
             
-            # Basit Fibonacci Geri Çekilme Seviyeleri (Destek olarak)
             fib_382 = low_50 + (high_50 - low_50) * 0.382
-            fib_618 = low_50 + (high_50 - low_50) * 0.618
-            
             df['Fib_Support_382'] = fib_382
-            df['Fib_Support_618'] = fib_618
             
-            # NaN değerleri temizle (Tüm göstergeler için gerekli olan ilk 50 barı doldurur)
+            # NaN değerleri temizle
             df = df.fillna(method='bfill').fillna(method='ffill')
             
             return df
             
         except Exception as e:
             st.error(f"Gösterge hesaplama hatası: {e}")
-            # Acil durum göstergeleri
             df['EMA_20'] = df['Close']
             df['EMA_50'] = df['Close']
             df['RSI'] = 50
             df['BB_Lower'] = df['Close'] * 0.95
             df['MACD'] = 0
+            df['Signal_Line'] = 0
+            df['Fib_Support_382'] = df['Close'] * 0.9
             return df
     
     def generate_signals(self, df, params):
-        signals = []
+        # Tüm sinyalleri Pandas vektör operasyonlarıyla hesapla (Döngüden daha güvenli)
+        df_copy = df.copy()
         
-        for i in range(len(df)):
-            if i < 50: # Fibonacci ve BB için 50 bar bekler
-                signals.append({'date': df.index[i], 'action': 'hold'})
-                continue
-                    
-            row = df.iloc[i]
-            
-            close = row['Close']
-            ema_20 = row['EMA_20']
-            ema_50 = row['EMA_50']
-            rsi = row['RSI']
-            bb_lower = row['BB_Lower']
-            macd = row['MACD']
-            signal_line = row['Signal_Line']
-            fib_support = row['Fib_Support_382'] # %38.2 seviyesini destek olarak alalım
-            
-            # YÜKSEK SİNYAL KOMBİNASYONU:
-            
-            # 1. Trend Onayı (EMA: Uzun vadeli trend yukarıda mı?)
-            trend_up = ema_20 > ema_50
-            
-            # 2. Momentum Onayı (RSI aşırı satımda değil ama geri çekiliyor: 30-45 aralığı)
-            momentum_buy = rsi < params['rsi_oversold']
-            
-            # 3. Volatilite/Kanal Desteği (BB'nin alt bandına veya altına dokunuyor)
-            support_touch = close < bb_lower 
-            
-            # 4. Makro Destek (Fibonacci seviyesine yakın)
-            fib_support_hit = close <= fib_support * 1.01 # %1 toleransla
-            
-            # 5. MACD Sinyali (MACD çizgisi, Sinyal çizgisini aşağıdan yukarı kesti mi?)
-            # *Günün bir önceki barı kontrol etmeliyiz*
-            prev_row = df.iloc[i-1]
-            macd_cross_up = (macd > signal_line) and (prev_row['MACD'] <= prev_row['Signal_Line'])
-
-            
-            # ALIM KOŞULU: Trend yukarı + RSI geri çekilmede + Fiyat destekte (BB veya Fib) + MACD Kesişimi
-            buy_signal = (
-                trend_up and 
-                momentum_buy and 
-                (support_touch or fib_support_hit) and 
-                macd_cross_up
-            )
-            
-            if buy_signal:
-                # Risk yönetimi
-                risk_pct = 0.02  # %2 risk
+        # 1. Trend Onayı (EMA)
+        df_copy['Trend_Up'] = df_copy['EMA_20'] > df_copy['EMA_50']
+        
+        # 2. Momentum Onayı (RSI)
+        df_copy['Momentum_Buy'] = df_copy['RSI'] < params['rsi_oversold']
+        
+        # 3. Volatilite/Kanal Desteği (BB)
+        df_copy['Support_Touch'] = df_copy['Close'] < df_copy['BB_Lower'] 
+        
+        # 4. Makro Destek (Fibonacci)
+        df_copy['Fib_Support_Hit'] = df_copy['Close'] <= df_copy['Fib_Support_382'] * 1.01
+        
+        # 5. MACD Kesişimi (Buradaki mantık düzeltildi)
+        # MACD yukarı kesti AND önceki MACD altındaydı
+        df_copy['MACD_Cross_Up'] = (
+            (df_copy['MACD'] > df_copy['Signal_Line']) & 
+            (df_copy['MACD'].shift(1) <= df_copy['Signal_Line'].shift(1))
+        )
+        
+        # ALIM KOŞULU
+        # Trend yukarı + RSI geri çekilmede + Fiyat destekte (BB veya Fib) + MACD Kesişimi
+        df_copy['Buy_Signal'] = (
+            df_copy['Trend_Up'] & 
+            df_copy['Momentum_Buy'] & 
+            (df_copy['Support_Touch'] | df_copy['Fib_Support_Hit']) & 
+            df_copy['MACD_Cross_Up']
+        )
+        
+        # Sonuçları listeye dönüştür
+        signals = []
+        for i in range(len(df_copy)):
+            date = df_copy.index[i]
+            if i < 50 or not df_copy.iloc[i]['Buy_Signal']:
+                signals.append({'date': date, 'action': 'hold'})
+            else:
+                row = df_copy.iloc[i]
+                close = row['Close']
+                risk_pct = 0.02
                 stop_loss = close * (1 - risk_pct)
                 take_profit = close * (1 + (risk_pct * params['reward_ratio']))
                 
                 signals.append({
-                    'date': df.index[i],
+                    'date': date,
                     'action': 'buy',
                     'stop_loss': stop_loss,
                     'take_profit': take_profit
                 })
-            else:
-                signals.append({
-                    'date': df.index[i],
-                    'action': 'hold'
-                })
-                    
         
-        signals_df = pd.DataFrame(signals)
-        if not signals_df.empty:
-            signals_df = signals_df.set_index('date')
+        signals_df = pd.DataFrame(signals).set_index('date')
         
-        buy_count = len([s for s in signals if s.get('action') == 'buy'])
+        buy_count = signals_df['action'].value_counts().get('buy', 0)
         st.info(f"🎯 {buy_count} karmaşık alış sinyali bulundu")
         return signals_df
     
+    # run_backtest ve calculate_metrics metodları aynı kalacak
+    # Sadece gereksiz yere tekrar yazmaktan kaçınmak için buraya koymuyorum.
+    # Ancak yukarıdaki kod bloğuna dahil ettiğinizde çalışacaktır.
+
     def run_backtest(self, data, params):
+        # Bu metotun içeriği, bir önceki tam kodunuzdaki gibi kalmalıdır.
         df = self.calculate_indicators(data)
         signals = self.generate_signals(df, params)
         
@@ -282,6 +268,7 @@ class SwingBacktest:
         return trades_df, equity_df
     
     def calculate_metrics(self, trades_df, equity_df):
+        # Bu metotun içeriği, bir önceki tam kodunuzdaki gibi kalmalıdır.
         if trades_df.empty:
             return {
                 'total_return': "0.0%",
@@ -315,13 +302,12 @@ class SwingBacktest:
                 'total_trades': str(total_trades),
                 'win_rate': f"{win_rate:.1f}%",
                 'avg_win': f"${avg_win:.2f}",
-                'avg_loss': f"${abs(avg_loss):.2f}", # Kayıp pozitif gösterilir
+                'avg_loss': f"${abs(avg_loss):.2f}", 
                 'best_trade': f"{best_trade:.2f}%",
                 'worst_trade': f"{worst_trade:.2f}%"
             }
             
         except Exception as e:
-            # Hata oluştuğunda boş değerler döndür
             return {
                 'total_return': "HATA",
                 'total_trades': "HATA",
@@ -333,7 +319,7 @@ class SwingBacktest:
             }
 
 # =========================
-# STREAMLIT UYGULAMASI
+# STREAMLIT UYGULAMASI (Aynı kalıyor)
 # =========================
 st.set_page_config(page_title="Kombine Swing Backtest", layout="wide")
 st.title("🧠 Kombine Swing Trading Backtest")
@@ -360,7 +346,6 @@ params = {
 if st.button("🎯 Kombine Backtest Çalıştır", type="primary"):
     try:
         with st.spinner("Veri yükleniyor..."):
-            # Ekstra veri çekimi (Fibonacci için uzun bir geçmiş gerekebilir)
             extended_start = start_date - timedelta(days=150) 
             data = yf.download(ticker, start=extended_start, end=end_date, progress=False)
             
@@ -368,7 +353,6 @@ if st.button("🎯 Kombine Backtest Çalıştır", type="primary"):
                 st.error("❌ Veri bulunamadı")
                 st.stop()
             
-            # Backtest için veri aralığını filtrele
             data = data[data.index >= pd.to_datetime(start_date)]
             data = data[data.index <= pd.to_datetime(end_date)]
             
@@ -401,9 +385,8 @@ if st.button("🎯 Kombine Backtest Çalıştır", type="primary"):
         if not trades.empty and 'equity' in equity.columns: 
             st.subheader("📈 Performans Grafikleri")
             
-            # Equity Grafiği
             fig, ax = plt.subplots(figsize=(12, 6))
-            ax.plot(equity['date'], equity['equity'], color='purple', linewidth=2) # Renk mor yapıldı
+            ax.plot(equity['date'], equity['equity'], color='purple', linewidth=2)
             ax.set_title(f'{ticker} Portföy Değeri')
             ax.set_ylabel('Equity ($)')
             ax.grid(True, alpha=0.3)
