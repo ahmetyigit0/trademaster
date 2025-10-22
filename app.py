@@ -3,6 +3,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
@@ -21,7 +22,30 @@ def check_password():
             st.session_state["password_correct"] = False
     
     if not st.session_state["password_correct"]:
-        st.text_input("🔐 Şifre", type="password", on_change=password_entered, key="password")
+        st.markdown("""
+            <style>
+                .main {
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    height: 100vh;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                }
+                .login-box {
+                    background: white;
+                    padding: 3rem;
+                    border-radius: 15px;
+                    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+                    text-align: center;
+                }
+            </style>
+        """, unsafe_allow_html=True)
+        
+        st.markdown('<div class="login-box">', unsafe_allow_html=True)
+        st.title("🔐 Crypto AI Pro")
+        st.markdown("**Profesyonel Algoritmik Analiz Platformu**")
+        st.text_input("Şifre", type="password", on_change=password_entered, key="password", label_visibility="collapsed")
+        st.markdown('</div>', unsafe_allow_html=True)
         return False
     return True
 
@@ -29,11 +53,63 @@ if not check_password():
     st.stop()
 
 # =========================
-# PAGE CONFIG
+# PAGE CONFIG - MODERN
 # =========================
-st.set_page_config(page_title="Crypto AI Pro", layout="wide")
-st.title("🚀 Crypto AI Pro")
-st.markdown("**Eğitim amaçlıdır; yatırım tavsiyesi değildir.**")
+st.set_page_config(
+    page_title="Crypto AI Pro", 
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+# Modern CSS
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.5rem;
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-align: center;
+        margin-bottom: 1rem;
+    }
+    .metric-card {
+        background: white;
+        padding: 1.5rem;
+        border-radius: 12px;
+        border-left: 4px solid #667eea;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        margin: 0.5rem 0;
+    }
+    .signal-buy {
+        background: linear-gradient(135deg, #00b09b 0%, #96c93d 100%);
+        color: white;
+        padding: 1.5rem;
+        border-radius: 12px;
+        text-align: center;
+    }
+    .signal-sell {
+        background: linear-gradient(135deg, #ff416c 0%, #ff4b2b 100%);
+        color: white;
+        padding: 1.5rem;
+        border-radius: 12px;
+        text-align: center;
+    }
+    .signal-neutral {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 1.5rem;
+        border-radius: 12px;
+        text-align: center;
+    }
+    .mini-chart {
+        background: white;
+        padding: 1rem;
+        border-radius: 10px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        margin: 0.5rem 0;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # =========================
 # YARDIMCI FONKSİYONLAR
@@ -76,166 +152,135 @@ def calculate_atr(high, low, close, period=14):
     atr = tr.rolling(period).mean()
     return atr
 
-def create_bollinger_mini_chart(data, height=120):
-    try:
-        if len(data) < 20:
-            return None
-        
-        recent_data = data.tail(20)
-        fig, ax = plt.subplots(figsize=(6, height/80))
-        
-        # Basit çözüm: Doğrudan fiyat ve bantları çiz
-        x_values = range(len(recent_data))
-        
-        ax.plot(x_values, recent_data['Close'].values, color='blue', linewidth=2, label='Fiyat')
-        ax.plot(x_values, recent_data['BB_Upper'].values, color='red', linestyle='--', linewidth=1, label='Üst Band')
-        ax.plot(x_values, recent_data['BB_Lower'].values, color='green', linestyle='--', linewidth=1, label='Alt Band')
-        ax.plot(x_values, recent_data['BB_Middle'].values, color='orange', linestyle=':', linewidth=1, label='Orta Band')
-        
-        ax.set_ylabel('Fiyat & Bantlar')
-        ax.legend(fontsize=6)
-        ax.grid(True, alpha=0.3)
-        plt.tight_layout()
-        return fig
-    except Exception as e:
-        return None
+def create_pro_chart(data):
+    """Profesyonel TradingView benzeri grafik"""
+    fig = go.Figure()
 
-def create_rsi_mini_chart(data, height=120):
-    try:
-        if len(data) < 20:
-            return None
-        
-        recent_data = data.tail(20)
-        fig, ax = plt.subplots(figsize=(6, height/80))
-        
-        x_values = range(len(recent_data))
-        ax.plot(x_values, recent_data['RSI'].values, color='purple', linewidth=1.5)
-        ax.axhline(y=30, color='green', linestyle='--', alpha=0.8, linewidth=1.2)
-        ax.axhline(y=70, color='red', linestyle='--', alpha=0.8, linewidth=1.2)
-        ax.axhline(y=50, color='gray', linestyle=':', alpha=0.5, linewidth=0.8)
-        ax.plot(len(recent_data)-1, recent_data['RSI'].iloc[-1], 'ro', markersize=5)
-        
-        ax.set_ylim(0, 100)
-        ax.set_ylabel('RSI')
-        ax.grid(True, alpha=0.3)
-        plt.tight_layout()
-        return fig
-    except:
-        return None
+    # Candlestick
+    fig.add_trace(go.Candlestick(
+        x=data.index,
+        open=data['Open'],
+        high=data['High'],
+        low=data['Low'],
+        close=data['Close'],
+        name="Price"
+    ))
 
-def create_macd_bars(data):
-    try:
-        recent_data = data.tail(5)
-        macd_hist = recent_data['MACD_Hist']
-        
-        bars_html = ""
-        for hist in macd_hist:
-            color = "#00ff00" if hist > 0 else "#ff0000"
-            height = min(abs(float(hist)) * 1000, 20)
-            bars_html += f'<div style="display:inline-block; width:16px; height:{height}px; background-color:{color}; margin:0 3px; border: 1px solid #333;"></div>'
-        
-        return bars_html
-    except:
-        return ""
+    # EMA'lar
+    fig.add_trace(go.Scatter(
+        x=data.index, y=data['EMA_20'],
+        name='EMA 20',
+        line=dict(color='orange', width=1)
+    ))
+    fig.add_trace(go.Scatter(
+        x=data.index, y=data['EMA_50'],
+        name='EMA 50',
+        line=dict(color='red', width=1)
+    ))
 
-def create_price_mini_chart(data, height=120):
-    try:
-        if len(data) < 20:
-            return None
-        
-        recent_data = data.tail(20)
-        fig, ax = plt.subplots(figsize=(6, height/80))
-        
-        ax.plot(recent_data['Close'].values, color='blue', linewidth=2, label='Fiyat')
-        ax.plot(recent_data['EMA_20'].values, color='orange', linewidth=1, label='EMA 20')
-        ax.plot(recent_data['EMA_50'].values, color='red', linewidth=1, label='EMA 50')
-        
-        ax.set_ylabel('Fiyat')
-        ax.legend(fontsize=6)
-        ax.grid(True, alpha=0.3)
-        plt.tight_layout()
-        return fig
-    except:
-        return None
+    # Bollinger Bantları
+    fig.add_trace(go.Scatter(
+        x=data.index, y=data['BB_Upper'],
+        name='BB Upper',
+        line=dict(color='gray', width=1, dash='dash')
+    ))
+    fig.add_trace(go.Scatter(
+        x=data.index, y=data['BB_Lower'],
+        name='BB Lower',
+        line=dict(color='gray', width=1, dash='dash'),
+        fill='tonexty'
+    ))
 
-def create_fib_mini_chart(data, height=120):
-    try:
-        if len(data) < 10:
-            return None
-            
-        recent_data = data.tail(10)
-        high = recent_data['High'].max()
-        low = recent_data['Low'].min()
-        diff = high - low
-        
-        fib_levels = {
-            '0.0': high,
-            '0.236': high - diff * 0.236,
-            '0.382': high - diff * 0.382, 
-            '0.5': high - diff * 0.5,
-            '0.618': high - diff * 0.618,
-            '0.786': high - diff * 0.786,
-            '1.0': low
-        }
-        
-        current_price = data['Close'].iloc[-1]
-        
-        fig, ax = plt.subplots(figsize=(4, height/80))
-        
-        for level, price in fib_levels.items():
-            color = 'red' if level in ['0.0', '1.0'] else 'gray'
-            ax.axhline(y=price, color=color, linestyle='--', alpha=0.7, linewidth=0.8)
-        
-        ax.axhline(y=current_price, color='blue', linewidth=2, linestyle='-', alpha=0.8)
-        
-        ax.set_ylabel('Fib Seviyeleri')
-        ax.grid(True, alpha=0.3)
-        plt.tight_layout()
-        return fig
-    except:
-        return None
+    fig.update_layout(
+        title=f'Profesyonel Price Chart',
+        height=400,
+        xaxis_rangeslider_visible=False,
+        template='plotly_white'
+    )
+    return fig
 
-def line(text, kind="neutral"):
-    if kind == "pos":
-        emoji, color = "🟢", "#0f9d58"
-    elif kind == "neg":
-        emoji, color = "🔴", "#d93025"
-    else:
-        emoji, color = "🟠", "#f29900"
-    
-    st.markdown(f"{emoji} <span style='color:{color}; font-weight:600;'>{text}</span>", unsafe_allow_html=True)
+def create_advanced_rsi_chart(data):
+    """Gelişmiş RSI grafiği"""
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=data.index, y=data['RSI'],
+        name='RSI',
+        line=dict(color='purple', width=2)
+    ))
+
+    fig.add_hline(y=30, line_dash="dash", line_color="green")
+    fig.add_hline(y=70, line_dash="dash", line_color="red")
+    fig.add_hline(y=50, line_dash="dot", line_color="gray")
+
+    fig.update_layout(
+        title='RSI Momentum',
+        height=200,
+        yaxis_range=[0, 100],
+        template='plotly_white'
+    )
+    return fig
+
+def create_macd_chart(data):
+    """MACD grafiği"""
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=data.index, y=data['MACD'],
+        name='MACD',
+        line=dict(color='blue', width=2)
+    ))
+    fig.add_trace(go.Scatter(
+        x=data.index, y=data['MACD_Signal'],
+        name='Signal',
+        line=dict(color='red', width=1)
+    ))
+
+    # Histogram
+    colors = ['green' if x >= 0 else 'red' for x in data['MACD_Hist']]
+    fig.add_trace(go.Bar(
+        x=data.index, y=data['MACD_Hist'],
+        name='Histogram',
+        marker_color=colors,
+        opacity=0.5
+    ))
+
+    fig.update_layout(
+        title='MACD',
+        height=200,
+        template='plotly_white'
+    )
+    return fig
 
 # =========================
-# SIDEBAR
+# MODERN ARAYÜZ
 # =========================
-st.sidebar.header("⚙️ Analiz Ayarları")
-ticker_input = st.sidebar.text_input("🎯 Kripto Sembolü", "BTC-USD")
+st.markdown('<h1 class="main-header">🚀 Crypto AI Pro</h1>', unsafe_allow_html=True)
+st.markdown("**Profesyonel Algoritmik Analiz Platformu**")
 
-timeframe = st.sidebar.selectbox("⏰ Zaman Dilimi", ["1d", "1wk"], index=0)
-period_map = {"1d": "6mo", "1wk": "1y"}
-period = period_map[timeframe]
+# Hızlı ayar çubuğu
+col1, col2, col3, col4 = st.columns(4)
+with col1:
+    ticker_input = st.selectbox("🎯 Asset", ["BTC-USD", "ETH-USD", "ADA-USD", "BNB-USD", "XRP-USD", "SOL-USD"], index=0)
+with col2:
+    timeframe = st.selectbox("⏰ Timeframe", ["1d", "1wk"], index=0)
+with col3:
+    capital = st.number_input("💰 Capital", 1000, 1000000, 10000, step=1000)
+with col4:
+    risk_percent = st.slider("📉 Risk %", 1.0, 5.0, 2.0, 0.1)
 
-st.sidebar.header("🎯 Risk Yönetimi")
-capital = st.sidebar.number_input("💰 Sermaye ($)", 1000, 1000000, 5000, step=1000)
-risk_percent = st.sidebar.slider("📉 İşlem Risk %", 1.0, 5.0, 2.0, 0.1)
-max_position = st.sidebar.slider("📊 Maks. Pozisyon %", 10.0, 50.0, 25.0, 5.0)
-
-st.sidebar.header("🔧 Strateji Parametreleri")
-rsi_oversold = st.sidebar.slider("📊 RSI Aşırı Satım", 20, 40, 30, 1)
-rsi_overbought = st.sidebar.slider("📈 RSI Aşırı Alım", 60, 80, 70, 1)
-atr_multiplier = st.sidebar.slider("🎯 ATR Çarpanı", 1.0, 3.0, 1.5, 0.1)
-
-# =========================
-# ANA UYGULAMA
-# =========================
+# Ana içerik
 try:
-    with st.spinner(f"🔄 {ticker_input} verileri çekiliyor..."):
+    with st.spinner(f"🔄 Loading {ticker_input} data..."):
+        period_map = {"1d": "6mo", "1wk": "1y"}
+        period = period_map[timeframe]
         data = yf.download(ticker_input, period=period, interval=timeframe, progress=False)
     
     if data.empty:
-        st.error("❌ Veri çekilemedi - Sembolü ve internet bağlantınızı kontrol edin")
+        st.error("❌ Data loading failed")
         st.stop()
-    
+
+    # Hesaplamalar
     data['RSI'] = calculate_rsi(data['Close'])
     data['EMA_20'] = calculate_ema(data['Close'], 20)
     data['EMA_50'] = calculate_ema(data['Close'], 50)
@@ -243,7 +288,8 @@ try:
     data['MACD'], data['MACD_Signal'], data['MACD_Hist'] = calculate_macd(data['Close'])
     data['BB_Upper'], data['BB_Middle'], data['BB_Lower'] = calculate_bollinger_bands(data['Close'])
     data['ATR'] = calculate_atr(data['High'], data['Low'], data['Close'])
-    
+
+    # Mevcut değerler
     current_price = float(data['Close'].iloc[-1])
     rsi = float(data['RSI'].iloc[-1])
     ema_20 = float(data['EMA_20'].iloc[-1])
@@ -251,281 +297,138 @@ try:
     ema_200 = float(data['EMA_200'].iloc[-1])
     macd = float(data['MACD'].iloc[-1])
     macd_signal = float(data['MACD_Signal'].iloc[-1])
-    macd_prev = float(data['MACD'].iloc[-2])
-    macd_signal_prev = float(data['MACD_Signal'].iloc[-2])
     atr = float(data['ATR'].iloc[-1])
-    bb_upper = float(data['BB_Upper'].iloc[-1])
-    bb_lower = float(data['BB_Lower'].iloc[-1])
-    
-    buy_signals = 0
-    sell_signals = 0
-    
-    if rsi < rsi_oversold: buy_signals += 1
-    if current_price > ema_20 and ema_20 > ema_50: buy_signals += 1
-    if ema_50 > ema_200: buy_signals += 1
-    if macd > macd_signal and macd_prev <= macd_signal_prev: buy_signals += 1
-    if current_price < bb_lower: buy_signals += 1
-    
-    if rsi > rsi_overbought: sell_signals += 1
-    if current_price < ema_20 and ema_20 < ema_50: sell_signals += 1
-    if ema_50 < ema_200: sell_signals += 1
-    if macd < macd_signal and macd_prev >= macd_signal_prev: sell_signals += 1
-    if current_price > bb_upper: sell_signals += 1
-    
-    tab_analiz, tab_rehber = st.tabs(["📈 Analiz", "📚 Rehber"])
-    
-    with tab_analiz:
-        st.subheader(f"📊 {ticker_input} - Gerçek Zamanlı Analiz")
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            price_change = ((current_price - float(data['Close'].iloc[-2])) / float(data['Close'].iloc[-2])) * 100
-            st.metric("💰 Mevcut Fiyat", f"${current_price:.2f}", f"{price_change:+.2f}%")
-        
-        with col2:
-            rsi_color = "🟢" if rsi < 30 else "🔴" if rsi > 70 else "🟡"
-            st.metric("📊 RSI", f"{rsi:.1f}", f"{rsi_color}")
-        
-        with col3:
-            trend = "🟢 YÜKSELİŞ" if ema_20 > ema_50 and ema_50 > ema_200 else "🔴 DÜŞÜŞ" if ema_20 < ema_50 and ema_50 < ema_200 else "🟡 YANAL"
-            st.metric("🎯 Trend", trend)
-        
-        with col4:
-            macd_trend = "🟢 YUKARI" if macd > macd_signal else "🔴 AŞAĞI"
-            st.metric("📈 MACD", f"{macd:.4f}", macd_trend)
-        
-        st.markdown("### 📈 Mini Göstergeler - Satır 1")
-        col1, col2, col3, col4 = st.columns([2, 2, 1, 2])
-        
-        with col1:
-            st.write("**Bollinger Bantları**")
-            bb_chart = create_bollinger_mini_chart(data)
-            if bb_chart:
-                st.pyplot(bb_chart)
-                plt.close()
-            else:
-                st.info("⏳")
-        
-        with col2:
-            st.write("**RSI Momentum**")
-            rsi_chart = create_rsi_mini_chart(data)
-            if rsi_chart:
-                st.pyplot(rsi_chart)
-                plt.close()
-            else:
-                st.info("⏳")
-        
-        with col3:
-            st.write("**MACD Histogram**")
-            macd_bars = create_macd_bars(data)
-            if macd_bars:
-                st.markdown(f'<div style="text-align: center; padding: 20px 0;">{macd_bars}</div>', unsafe_allow_html=True)
-                current_hist = data['MACD_Hist'].iloc[-1]
-                direction = "🟢 Pozitif" if current_hist > 0 else "🔴 Negatif"
-                st.write(f"**{direction}**")
-            else:
-                st.info("⏳")
-        
-        with col4:
-            st.write("**Fiyat & EMA**")
-            price_chart = create_price_mini_chart(data)
-            if price_chart:
-                st.pyplot(price_chart)
-                plt.close()
-            else:
-                st.info("⏳")
-        
-        st.markdown("### 📊 Mini Göstergeler - Satır 2")
-        col5, col6, col7, col8 = st.columns([2, 2, 1, 2])
-        
-        with col5:
-            st.write("**Fibonacci Seviyeleri**")
-            fib_chart = create_fib_mini_chart(data)
-            if fib_chart:
-                st.pyplot(fib_chart)
-                plt.close()
-            else:
-                st.info("⏳")
-        
-        with col6:
-            st.write("**Volatilite (ATR)**")
-            st.metric("ATR Değeri", f"${atr:.2f}")
-            vol_ratio = atr / current_price * 100
-            st.metric("Volatilite %", f"%{vol_ratio:.1f}")
-        
-        with col7:
-            st.write("**Sinyal Özeti**")
-            st.write(f"Al: **{buy_signals}**/5")
-            st.write(f"Sat: **{sell_signals}**/5")
-        
-        with col8:
-            st.write("**Bollinger Durumu**")
-            if current_price < bb_lower:
-                st.info("Alt Bantta")
-            elif current_price > bb_upper:
-                st.warning("Üst Bantta")
-            else:
-                st.success("Bant İçinde")
-        
-        st.markdown("---")
-        
-        risk_score = min(100, abs(buy_signals - sell_signals) * 20)
-        
-        if buy_signals >= 4:
-            st.success(f"🎯 **GÜÇLÜ AL SİNYALİ** - Al: {buy_signals}/5 | Sat: {sell_signals}/5")
-            recommendation = "AL"
-        elif sell_signals >= 4:
-            st.error(f"🎯 **GÜÇLÜ SAT SİNYALİ** - Al: {buy_signals}/5 | Sat: {sell_signals}/5")
-            recommendation = "SAT"
-        elif buy_signals > sell_signals:
-            st.warning(f"🎯 **ZAYIF AL SİNYALİ** - Al: {buy_signals}/5 | Sat: {sell_signals}/5")
-            recommendation = "AL"
-        elif sell_signals > buy_signals:
-            st.warning(f"🎯 **ZAYIF SAT SİNYALİ** - Al: {buy_signals}/5 | Sat: {sell_signals}/5")
-            recommendation = "SAT"
-        else:
-            st.info(f"🎯 **NÖTR SİNYAL** - Al: {buy_signals}/5 | Sat: {sell_signals}/5")
-            recommendation = "BEKLE"
-        
-        st.markdown("---")
-        
-        if recommendation in ["AL", "SAT"]:
-            st.subheader("🎯 Detaylı İşlem Stratejisi")
-            
-            if recommendation == "AL":
-                stop_loss = current_price - (atr * atr_multiplier)
-                risk_per_coin = current_price - stop_loss
-                
-                tp1 = current_price + (risk_per_coin * 1.0)
-                tp2 = current_price + (risk_per_coin * 2.0)
-                tp3 = current_price + (risk_per_coin * 3.0)
-                
-                risk_amount = capital * (risk_percent / 100)
-                position_size = risk_amount / risk_per_coin
-                max_position_size = (capital * (max_position / 100)) / current_price
-                final_position_size = min(position_size, max_position_size)
-                position_value = final_position_size * current_price
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.write("**🎯 Giriş ve Çıkış Seviyeleri:**")
-                    st.write(f"- 📈 Mevcut Fiyat: `${current_price:.2f}`")
-                    st.write(f"- 🛑 Stop Loss: `${stop_loss:.2f}` (%{((current_price-stop_loss)/current_price*100):.1f})")
-                    st.write(f"- 🎯 TP1 (1R): `${tp1:.2f}`")
-                    st.write(f"- 🎯 TP2 (2R): `${tp2:.2f}`")
-                    st.write(f"- 🎯 TP3 (3R): `${tp3:.2f}`")
-                    
-                with col2:
-                    st.write("**💰 Pozisyon Bilgileri:**")
-                    st.write(f"- 📊 Pozisyon: `{final_position_size:.4f} {ticker_input.split('-')[0]}`")
-                    st.write(f"- 💰 Değer: `${position_value:.2f}`")
-                    st.write(f"- 📉 Risk: `${risk_amount:.2f}`")
-                    st.write(f"- ⚖️ Risk/Reward: `1:3`")
-                    st.write(f"- 🎯 Başarı Şansı: `%{min(80, risk_score + 30):.0f}`")
-            
-            else:
-                base_level = max(float(data['Low'].tail(20).min()), bb_lower)
-                reentry_low = base_level - (atr * 0.5)
-                reentry_high = base_level + (atr * 0.5)
-                
-                st.write("**📉 SAT Stratejisi - Yeniden Alım Bölgesi:**")
-                st.write(f"- 🎯 Taban Seviye: `${base_level:.2f}`")
-                st.write(f"- 📥 Alım Bölgesi: `${reentry_low:.2f}` - `${reentry_high:.2f}`")
-                st.write(f"- 📊 Kademeli Alım:**")
-                st.write(f"  - %50: `${reentry_low:.2f}` - `${base_level:.2f}`")
-                st.write(f"  - %30: `${base_level:.2f}`")
-                st.write(f"  - %20: `${base_level:.2f}` - `${reentry_high:.2f}`")
-                st.write(f"- 🛑 Stop Loss: `${reentry_low - atr:.2f}`")
-        
-        st.markdown("---")
-        
-        st.subheader("🧠 Detaylı Sinyal Gerekçeleri")
-        
-        line(f"EMA 20 (${ema_20:.2f}) > EMA 50 (${ema_50:.2f}) > EMA 200 (${ema_200:.2f})", 
-             "pos" if ema_20 > ema_50 > ema_200 else "neg" if ema_20 < ema_50 < ema_200 else "neutral")
-        
-        line(f"Fiyat EMA 20'nin {'üstünde' if current_price > ema_20 else 'altında'}", 
-             "pos" if current_price > ema_20 else "neg")
-        
-        if rsi < 30:
-            line(f"RSI {rsi:.1f} - Aşırı satım bölgesi (AL sinyali)", "pos")
-        elif rsi > 70:
-            line(f"RSI {rsi:.1f} - Aşırı alım bölgesi (SAT sinyali)", "neg")
-        else:
-            line(f"RSI {rsi:.1f} - Nötr bölge", "neutral")
-        
-        if macd > macd_signal:
-            line(f"MACD ({macd:.4f}) > Sinyal ({macd_signal:.4f}) - Pozitif momentum", "pos")
-        else:
-            line(f"MACD ({macd:.4f}) < Sinyal ({macd_signal:.4f}) - Negatif momentum", "neg")
-        
-        if current_price < bb_lower:
-            line(f"Fiyat Bollinger alt bandında - Potansiyel dip", "pos")
-        elif current_price > bb_upper:
-            line(f"Fiyat Bollinger üst bandında - Potansiyel tepe", "neg")
-        else:
-            line(f"Fiyat Bollinger bantları içinde - Nötr", "neutral")
-        
-        vol_ratio = atr / current_price * 100
-        if vol_ratio > 5:
-            line(f"Yüksek volatilite (%{vol_ratio:.1f}) - Dikkatli pozisyon", "neg")
-        elif vol_ratio < 2:
-            line(f"Düşük volatilite (%{vol_ratio:.1f}) - Sakin piyasa", "pos")
-        else:
-            line(f"Orta volatilite (%{vol_ratio:.1f}) - Normal risk", "neutral")
-    
-    with tab_rehber:
-        st.subheader("📚 Teknik Analiz Rehberi")
-        
-        st.markdown("""
-        ### 📊 RSI (Relative Strength Index)
-        - **14 periyot** standarttır
-        - **<30**: Aşırı satım - Potansiyel alım fırsatı
-        - **>70**: Aşırı alım - Potansiyel satım sinyali
-        - **30-70**: Nötr bölge - Trend takibi önemli
-        
-        ### 📈 MACD (Moving Average Convergence Divergence)
-        - **MACD > Sinyal**: Yukarı momentum
-        - **MACD < Sinyal**: Aşağı momentum  
-        - **Kesişimler**: Trend değişim sinyali
-        - **Histogram**: Momentum gücü
-        
-        ### 🎯 EMA (Exponential Moving Average)
-        - **EMA 20**: Kısa vade trend
-        - **EMA 50**: Orta vade trend
-        - **EMA 200**: Uzun vade trend
-        - **Sıralama**: EMA20 > EMA50 > EMA200 = Güçlü yükseliş
-        
-        ### 📉 Bollinger Bantları
-        - **Üst/Alt bant**: Volatilite göstergesi
-        - **Daralma**: Volatilite düşüşü, kırılım yakın
-        - **Genişleme**: Volatilite artışı
-        - **Alt bant testi**: Potansiyel alım
-        - **Üst bant testi**: Potansiyel satım
-        
-        ### ⚖️ Risk/Reward (R:R) Oranı
-        - **R = Fiyat - Stop Loss** (Risk birimi)
-        - **TP1 = 1R, TP2 = 2R, TP3 = 3R** (Take Profit)
-        - **Minimum 1:2 R:R** önerilir
-        - **Formül**: Beklenen Getiri = (Kazanç Oranı × R:R) - Kayıp Oranı
-        
-        ### 💰 Kademeli Alım Stratejisi
-        1. **İlk giriş** %50 - Mevcut fiyat
-        2. **İkinci giriş** %30 - Dip seviyelerde  
-        3. **Son giriş** %20 - Trend onayında
-        4. **Stop loss** tüm pozisyon için ortak
-        
-        ### 🛑 Risk Yönetimi
-        - **Pozisyon büyüklüğü** = (Sermaye × Risk%) / R
-        - **Maksimum pozisyon** %25'i geçmemeli
-        - **Stop loss** olmadan işlem yapılmaz
-        - **Emotional trading**'den kaçının
-        """)
-        
-except Exception as e:
-    st.error(f"❌ Sistem hatası: {str(e)}")
-    st.info("Lütfen internet bağlantınızı kontrol edin ve tekrar deneyin")
 
+    # Sinyal hesaplama
+    buy_signals = sum([
+        rsi < 35,
+        current_price > ema_20 > ema_50,
+        ema_50 > ema_200,
+        macd > macd_signal,
+        current_price < data['BB_Lower'].iloc[-1]
+    ])
+    
+    sell_signals = sum([
+        rsi > 65,
+        current_price < ema_20 < ema_50,
+        ema_50 < ema_200,
+        macd < macd_signal,
+        current_price > data['BB_Upper'].iloc[-1]
+    ])
+
+    # Ana metrikler
+    st.markdown("### 📊 Real-Time Dashboard")
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        price_change = ((current_price - data['Close'].iloc[-2]) / data['Close'].iloc[-2]) * 100
+        st.metric("Current Price", f"${current_price:.2f}", f"{price_change:+.2f}%")
+    
+    with col2:
+        st.metric("RSI", f"{rsi:.1f}", "Oversold" if rsi < 30 else "Overbought" if rsi > 70 else "Neutral")
+    
+    with col3:
+        trend = "Bullish" if ema_20 > ema_50 > ema_200 else "Bearish" if ema_20 < ema_50 < ema_200 else "Neutral"
+        st.metric("Trend", trend)
+    
+    with col4:
+        st.metric("Volatility", f"${atr:.2f}")
+
+    # Sinyal gösterimi
+    st.markdown("### 🎯 Trading Signal")
+    if buy_signals >= 4:
+        st.markdown(f'<div class="signal-buy"><h2>🚀 STRONG BUY SIGNAL</h2><p>Confidence: {buy_signals}/5 indicators bullish</p></div>', unsafe_allow_html=True)
+        recommendation = "BUY"
+    elif sell_signals >= 4:
+        st.markdown(f'<div class="signal-sell"><h2>🔻 STRONG SELL SIGNAL</h2><p>Confidence: {sell_signals}/5 indicators bearish</p></div>', unsafe_allow_html=True)
+        recommendation = "SELL"
+    else:
+        st.markdown(f'<div class="signal-neutral"><h2>⚡ NEUTRAL SIGNAL</h2><p>Market consolidating - Wait for confirmation</p></div>', unsafe_allow_html=True)
+        recommendation = "HOLD"
+
+    # Profesyonel grafikler
+    st.markdown("### 📈 Advanced Charts")
+    
+    tab1, tab2, tab3 = st.tabs(["Price Action", "RSI Momentum", "MACD Analysis"])
+    
+    with tab1:
+        st.plotly_chart(create_pro_chart(data.tail(100)), use_container_width=True)
+    
+    with tab2:
+        st.plotly_chart(create_advanced_rsi_chart(data.tail(100)), use_container_width=True)
+    
+    with tab3:
+        st.plotly_chart(create_macd_chart(data.tail(100)), use_container_width=True)
+
+    # Trading stratejisi
+    st.markdown("### 💡 Trading Strategy")
+    
+    if recommendation == "BUY":
+        stop_loss = current_price - (atr * 1.5)
+        risk_amount = capital * (risk_percent / 100)
+        risk_per_coin = current_price - stop_loss
+        position_size = risk_amount / risk_per_coin
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("""
+            **Entry Strategy:**
+            - Market Buy: 60% at current price
+            - Limit Buy: 40% at 2% below
+            """)
+            
+            st.metric("Stop Loss", f"${stop_loss:.2f}")
+            st.metric("Position Size", f"{position_size:.4f} {ticker_input.split('-')[0]}")
+        
+        with col2:
+            st.markdown("""
+            **Take Profit Levels:**
+            - TP1 (1:1): +{:.2f}%
+            - TP2 (1:2): +{:.2f}%
+            - TP3 (1:3): +{:.2f}%
+            """.format(
+                (risk_per_coin/current_price*100),
+                (risk_per_coin*2/current_price*100),
+                (risk_per_coin*3/current_price*100)
+            ))
+
+    elif recommendation == "SELL":
+        st.markdown("""
+        **Short Strategy:**
+        - Consider short positions or wait for better entry
+        - Key resistance: ${:.2f}
+        - Support level: ${:.2f}
+        """.format(data['High'].tail(20).max(), data['Low'].tail(20).min()))
+
+    # Market insights
+    st.markdown("### 🔍 Market Insights")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("**Trend Analysis**")
+        st.write(f"EMA Alignment: {'✅ Bullish' if ema_20 > ema_50 > ema_200 else '❌ Bearish' if ema_20 < ema_50 < ema_200 else '⚡ Mixed'}")
+        st.write(f"Price vs EMA20: {'Above' if current_price > ema_20 else 'Below'}")
+    
+    with col2:
+        st.markdown("**Momentum**")
+        st.write(f"RSI: {'Oversold' if rsi < 30 else 'Overbought' if rsi > 70 else 'Neutral'}")
+        st.write(f"MACD: {'Bullish' if macd > macd_signal else 'Bearish'}")
+    
+    with col3:
+        st.markdown("**Risk Assessment**")
+        vol_ratio = (atr / current_price * 100)
+        st.write(f"Volatility: {'High' if vol_ratio > 5 else 'Low' if vol_ratio < 2 else 'Medium'}")
+        st.write(f"Signal Strength: {max(buy_signals, sell_signals)}/5")
+
+except Exception as e:
+    st.error(f"❌ System error: {str(e)}")
+
+# Footer
 st.markdown("---")
-st.caption("🤖 Crypto AI Pro - Gelişmiş Algoritmik Analiz Sistemi | V2.0")
+st.markdown("""
+<div style='text-align: center; color: #666;'>
+    <p><strong>⚠️ Risk Disclaimer:</strong> This is for educational purposes only. Cryptocurrency trading involves substantial risk.</p>
+    <p>Crypto AI Pro v3.0 | Professional Algorithmic Analysis</p>
+</div>
+""", unsafe_allow_html=True)
