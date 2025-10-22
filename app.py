@@ -55,43 +55,38 @@ class SwingBacktest:
         df = df.copy()
         
         try:
-            # EMA'lar - basit ve güvenilir
+            # 1. EMA'lar - Çok güvenilir
             df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
             df['EMA_50'] = df['Close'].ewm(span=50, adjust=False).mean()
             
-            # RSI - basitleştirilmiş
+            # 2. RSI - Basit ve etkili
             delta = df['Close'].diff()
-            gain = delta.where(delta > 0, 0)
-            loss = -delta.where(delta < 0, 0)
-            
-            avg_gain = gain.rolling(window=14).mean()
-            avg_loss = loss.rolling(window=14).mean()
-            
-            rs = avg_gain / avg_loss
+            gain = (delta.where(delta > 0, 0)).rolling(window=14, min_periods=1).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14, min_periods=1).mean()
+            rs = gain / loss
             df['RSI'] = 100 - (100 / (1 + rs))
             
-            # MACD
+            # 3. MACD - Güvenilir momentum göstergesi
             exp12 = df['Close'].ewm(span=12, adjust=False).mean()
             exp26 = df['Close'].ewm(span=26, adjust=False).mean()
             df['MACD'] = exp12 - exp26
             df['MACD_Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
             df['MACD_Hist'] = df['MACD'] - df['MACD_Signal']
             
-            # Bollinger Bands - DÜZELTİLMİŞ
-            df['BB_Middle'] = df['Close'].rolling(window=20).mean()
-            bb_std = df['Close'].rolling(window=20).std()
-            # Tek tek sütun atamaları
-            df['BB_Upper'] = df['BB_Middle'] + (bb_std * 2)
-            df['BB_Lower'] = df['BB_Middle'] - (bb_std * 2)
+            # 4. Price Channels (Bollinger yerine) - Basit destek/direnç
+            df['Upper_Channel'] = df['High'].rolling(window=20, min_periods=1).max()
+            df['Lower_Channel'] = df['Low'].rolling(window=20, min_periods=1).min()
+            df['Middle_Channel'] = (df['Upper_Channel'] + df['Lower_Channel']) / 2
             
-            # ATR - basitleştirilmiş
+            # 5. ATR - Volatilite için
             high_low = df['High'] - df['Low']
-            high_close_prev = np.abs(df['High'] - df['Close'].shift(1))
-            low_close_prev = np.abs(df['Low'] - df['Close'].shift(1))
+            high_close = np.abs(df['High'] - df['Close'].shift(1))
+            low_close = np.abs(df['Low'] - df['Close'].shift(1))
+            true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+            df['ATR'] = true_range.rolling(window=14, min_periods=1).mean()
             
-            # True Range hesaplama
-            tr = pd.concat([high_low, high_close_prev, low_close_prev], axis=1).max(axis=1)
-            df['ATR'] = tr.rolling(window=14).mean()
+            # 6. Price Position (Basit overbought/oversold)
+            df['Price_Rank'] = (df['Close'] - df['Lower_Channel']) / (df['Upper_Channel'] - df['Lower_Channel']) * 100
             
             # NaN değerleri temizle
             df = df.fillna(method='bfill').fillna(method='ffill')
@@ -100,13 +95,13 @@ class SwingBacktest:
             
         except Exception as e:
             st.error(f"Gösterge hesaplama hatası: {e}")
-            # Hata durumunda temel göstergelerle devam et
-            df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
-            df['EMA_50'] = df['Close'].ewm(span=50, adjust=False).mean()
-            df['RSI'] = 50  # Varsayılan değer
-            df['BB_Upper'] = df['Close'] * 1.1
-            df['BB_Lower'] = df['Close'] * 0.9
+            # Acil durum göstergeleri
+            df['EMA_20'] = df['Close'].ewm(span=20).mean()
+            df['EMA_50'] = df['Close'].ewm(span=50).mean()
+            df['RSI'] = 50
+            df['MACD_Hist'] = 0
             df['ATR'] = df['Close'] * 0.02
+            df['Price_Rank'] = 50
             return df.fillna(method='bfill')
     
     def generate_signals(self, df, params):
@@ -114,31 +109,39 @@ class SwingBacktest:
         
         for i in range(len(df)):
             try:
-                if i < 20:  # Daha az bekleyelim
+                if i < 20:
                     signals.append({'date': df.index[i], 'action': 'hold'})
                     continue
                     
                 row = df.iloc[i]
                 
                 # Basit değer atamaları
-                close_val = row['Close']
-                ema_20_val = row['EMA_20']
-                ema_50_val = row['EMA_50']
-                rsi_val = row['RSI']
-                atr_val = row['ATR']
-                macd_hist_val = row['MACD_Hist']
-                bb_lower_val = row['BB_Lower']
+                close = row['Close']
+                ema_20 = row['EMA_20']
+                ema_50 = row['EMA_50']
+                rsi = row['RSI']
+                atr = row['ATR']
+                macd_hist = row['MACD_Hist']
+                price_rank = row['Price_Rank']
+                lower_channel = row['Lower_Channel']
                 
-                # Basit ve etkili koşullar
-                trend_ok = ema_20_val > ema_50_val
-                rsi_ok = rsi_val < params['rsi_oversold']
-                macd_ok = macd_hist_val > 0
-                near_bb_lower = close_val <= bb_lower_val * 1.02
+                # BASİT ve ETKİLİ SİNYAL KOŞULLARI
                 
-                # 3 ana strateji
-                strategy1 = trend_ok and rsi_ok and near_bb_lower
-                strategy2 = trend_ok and rsi_ok and macd_ok
-                strategy3 = trend_ok and near_bb_lower and macd_ok
+                # 1. Trend koşulu
+                trend_up = ema_20 > ema_50
+                
+                # 2. Momentum koşulları
+                rsi_oversold = rsi < params['rsi_oversold']
+                macd_bullish = macd_hist > 0
+                price_low = price_rank < 30  # Fiyat kanalın alt %30'unda
+                
+                # 3. Destek seviyesi
+                near_support = close <= lower_channel * 1.02
+                
+                # Stratejiler
+                strategy1 = trend_up and rsi_oversold and near_support
+                strategy2 = trend_up and macd_bullish and price_low
+                strategy3 = trend_up and rsi_oversold and macd_bullish
                 
                 buy_signals = [strategy1, strategy2, strategy3]
                 confirmed_signals = sum(buy_signals)
@@ -146,8 +149,8 @@ class SwingBacktest:
                 buy_signal = confirmed_signals >= params['min_signal_strength']
                 
                 if buy_signal:
-                    stop_loss = close_val - (atr_val * params['atr_multiplier'])
-                    take_profit = close_val + (atr_val * params['atr_multiplier'] * params['reward_ratio'])
+                    stop_loss = close - (atr * params['atr_multiplier'])
+                    take_profit = close + (atr * params['atr_multiplier'] * params['reward_ratio'])
                     
                     signals.append({
                         'date': df.index[i],
@@ -290,7 +293,9 @@ class SwingBacktest:
                 'total_trades': "0",
                 'win_rate': "0.0%",
                 'avg_win': "$0.00",
-                'avg_loss': "$0.00"
+                'avg_loss': "$0.00",
+                'best_trade': "0.0%",
+                'worst_trade': "0.0%"
             }
         
         try:
@@ -305,12 +310,17 @@ class SwingBacktest:
             avg_win = trades_df[trades_df['pnl'] > 0]['pnl'].mean() if winning_trades > 0 else 0
             avg_loss = trades_df[trades_df['pnl'] < 0]['pnl'].mean() if (total_trades - winning_trades) > 0 else 0
             
+            best_trade = trades_df['return_pct'].max() if not trades_df.empty else 0
+            worst_trade = trades_df['return_pct'].min() if not trades_df.empty else 0
+            
             return {
                 'total_return': f"{total_return:+.2f}%",
                 'total_trades': str(total_trades),
                 'win_rate': f"{win_rate:.1f}%",
                 'avg_win': f"${avg_win:.2f}",
-                'avg_loss': f"${avg_loss:.2f}"
+                'avg_loss': f"${avg_loss:.2f}",
+                'best_trade': f"{best_trade:.2f}%",
+                'worst_trade': f"{worst_trade:.2f}%"
             }
             
         except:
@@ -319,7 +329,9 @@ class SwingBacktest:
                 'total_trades': "0",
                 'win_rate': "0.0%",
                 'avg_win': "$0.00",
-                'avg_loss': "$0.00"
+                'avg_loss': "$0.00",
+                'best_trade': "0.0%",
+                'worst_trade': "0.0%"
             }
 
 # =========================
@@ -327,13 +339,13 @@ class SwingBacktest:
 # =========================
 st.set_page_config(page_title="Swing Backtest", layout="wide")
 st.title("🚀 Swing Trading Backtest")
-st.markdown("**5 İndikatörlü Profesyonel Strateji**")
+st.markdown("**4 İndikatörlü Profesyonel Strateji - EMA, RSI, MACD, Price Channels**")
 
 # Sidebar
 st.sidebar.header("⚙️ Ayarlar")
 ticker = st.sidebar.selectbox("Sembol", ["BTC-USD", "ETH-USD", "TSLA", "NVDA", "AAPL", "GOOGL", "MSFT"])
 start_date = st.sidebar.date_input("Başlangıç", datetime(2023, 1, 1))
-end_date = st.sidebar.date_input("Bitiş", datetime(2023, 12, 31))
+end_date = st.sidebar.date_input("Bitiş", datetime(2024, 1, 1))
 
 st.sidebar.header("📊 Parametreler")
 rsi_oversold = st.sidebar.slider("RSI Aşırı Satım", 25, 45, 35)
@@ -373,7 +385,7 @@ if st.button("🎯 Backtest Çalıştır", type="primary"):
             metrics = backtester.calculate_metrics(trades, equity)
         
         st.subheader("📊 Performans Özeti")
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             st.metric("Toplam Getiri", metrics['total_return'])
@@ -385,6 +397,10 @@ if st.button("🎯 Backtest Çalıştır", type="primary"):
         
         with col3:
             st.metric("Ort. Kayıp", metrics['avg_loss'])
+            st.metric("En İyi İşlem", metrics['best_trade'])
+        
+        with col4:
+            st.metric("En Kötü İşlem", metrics['worst_trade'])
         
         if not trades.empty:
             st.subheader("📈 Performans Grafikleri")
@@ -400,13 +416,15 @@ if st.button("🎯 Backtest Çalıştır", type="primary"):
             display_trades = trades.copy()
             display_trades['entry_date'] = display_trades['entry_date'].dt.strftime('%Y-%m-%d')
             display_trades['exit_date'] = display_trades['exit_date'].dt.strftime('%Y-%m-%d')
+            display_trades['pnl'] = display_trades['pnl'].round(2)
+            display_trades['return_pct'] = display_trades['return_pct'].round(2)
             st.dataframe(display_trades)
             
         else:
-            st.info("🤷 Hiç işlem gerçekleşmedi.")
+            st.info("🤷 Hiç işlem gerçekleşmedi. Parametreleri değiştirmeyi deneyin.")
             
     except Exception as e:
         st.error(f"❌ Hata: {str(e)}")
 
 st.markdown("---")
-st.markdown("**Backtest Sistemi v3.0 | 5 İndikatörlü Strateji**")
+st.markdown("**Backtest Sistemi v3.0 | 4 Güvenilir İndikatör**")
