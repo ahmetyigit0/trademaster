@@ -27,19 +27,17 @@ if not check_password():
     st.stop()
 
 # =========================
-# POPÜLER KRİPTO LİSTESİ (YENİ EKLENDİ!)
+# POPÜLER KRİPTO LİSTESİ
 # =========================
 CRYPTO_LIST = [
     "BTC-USD", "ETH-USD", "BNB-USD", "XRP-USD", "ADA-USD",
-    "SOL-USD", "DOGE-USD", "AVAX-USD", "SHIB-USD", "DOT-USD",
-    "LINK-USD", "MATIC-USD", "LTC-USD", "UNI-USD", "ATOM-USD",
-    "XLM-USD", "VET-USD", "FIL-USD", "TRX-USD", "ETC-USD"
+    "SOL-USD", "DOGE-USD", "AVAX-USD", "SHIB-USD", "DOT-USD"
 ]
 
 # =========================
-# BACKTEST MOTORU (DEĞİŞMEDİ)
+# YENİ DİPTEN ALIM STRATEJİSİ
 # =========================
-class SwingBacktest:
+class DipBuyBacktest:
     def __init__(self):
         self.commission = 0.001
     
@@ -50,7 +48,7 @@ class SwingBacktest:
         df['EMA_20'] = df['Close'].ewm(span=20, min_periods=1).mean()
         df['EMA_50'] = df['Close'].ewm(span=50, min_periods=1).mean()
         
-        # RSI
+        # RSI (Düşüş için)
         delta = df['Close'].diff()
         gain = (delta.where(delta > 0, 0)).fillna(0)
         loss = (-delta.where(delta < 0, 0)).fillna(0)
@@ -73,11 +71,16 @@ class SwingBacktest:
                 true_range_values.append(tr)
         
         df['ATR'] = pd.Series(true_range_values, index=df.index).rolling(window=14, min_periods=1).mean()
-        df = df.fillna(method='bfill').fillna(method='ffill')
         
+        # YENİ: DÜŞÜŞ TESPİTİ İÇİN
+        df['Price_Change'] = df['Close'].pct_change()
+        df['Recent_Low'] = df['Close'].rolling(5).min()
+        df['Bounce'] = (df['Close'] > df['Recent_Low'] * 1.02)  # %2 bounce
+        
+        df = df.fillna(method='bfill').fillna(method='ffill')
         return df
     
-    def generate_signals(self, df, rsi_oversold=40, atr_multiplier=2.0):
+    def generate_signals(self, df, rsi_oversold=35, atr_multiplier=1.5, bounce_threshold=0.02):
         signals = []
         
         for i in range(len(df)):
@@ -89,22 +92,35 @@ class SwingBacktest:
                 ema_50_val = float(row['EMA_50'])
                 rsi_val = float(row['RSI'])
                 atr_val = float(row['ATR'])
+                recent_low = float(row['Recent_Low'])
+                bounce = bool(row['Bounce'])
                 
-                trend_ok = ema_20_val > ema_50_val
+                # 🟢 DİPTEN ALIM KOŞULLARI:
+                # 1. RSI DÜŞÜK (Aşırı satım)
+                # 2. Fiyat son 5 günün DİBİNDE
+                # 3. %2 BOUNCE başladı
+                # 4. EMA trend OK (uzun vadeli)
+                
                 rsi_ok = rsi_val < rsi_oversold
-                price_ok = close_val > ema_20_val
+                dip_ok = close_val <= recent_low * 1.01  # Dipte
+                bounce_ok = bounce  # Bounce başladı
+                trend_ok = ema_20_val > ema_50_val  # Uzun vadeli trend up
                 
-                buy_signal = trend_ok and rsi_ok and price_ok
+                buy_signal = rsi_ok and dip_ok and bounce_ok and trend_ok
                 
                 if buy_signal:
+                    # TIGHT STOP LOSS (dip için)
                     stop_loss = close_val - (atr_val * atr_multiplier)
-                    take_profit = close_val + (atr_val * atr_multiplier * 2)
+                    # 1:3 Risk/Reward
+                    take_profit = close_val + (atr_val * atr_multiplier * 3)
                     
                     signals.append({
                         'date': df.index[i],
                         'action': 'buy',
                         'stop_loss': stop_loss,
-                        'take_profit': take_profit
+                        'take_profit': take_profit,
+                        'rsi': rsi_val,
+                        'bounce': bounce
                     })
                 else:
                     signals.append({
@@ -124,7 +140,7 @@ class SwingBacktest:
         
         return signals_df
     
-    def run_backtest(self, data, rsi_oversold=40, atr_multiplier=2.0, risk_per_trade=0.02):
+    def run_backtest(self, data, rsi_oversold=35, atr_multiplier=1.5, risk_per_trade=0.02):
         df = self.calculate_indicators(data)
         signals = self.generate_signals(df, rsi_oversold, atr_multiplier)
         
@@ -143,6 +159,7 @@ class SwingBacktest:
             
             equity_curve.append({'date': date, 'equity': current_equity})
             
+            # DİPTEN ALIM
             if position is None and signal['action'] == 'buy':
                 stop_loss = float(signal['stop_loss'])
                 risk_per_share = current_price - stop_loss
@@ -161,6 +178,7 @@ class SwingBacktest:
                         }
                         capital -= shares * current_price
             
+            # ÇIKIŞ (SL/TP)
             elif position is not None:
                 if current_price <= position['stop_loss']:
                     exit_price = position['stop_loss']
@@ -177,7 +195,8 @@ class SwingBacktest:
                         'exit_price': exit_price,
                         'pnl': pnl,
                         'return_pct': (pnl / entry_value) * 100,
-                        'exit_reason': 'SL'
+                        'exit_reason': 'SL',
+                        'rsi_entry': signals.loc[position['entry_date']]['rsi']
                     })
                     position = None
                 
@@ -196,10 +215,12 @@ class SwingBacktest:
                         'exit_price': exit_price,
                         'pnl': pnl,
                         'return_pct': (pnl / entry_value) * 100,
-                        'exit_reason': 'TP'
+                        'exit_reason': 'TP',
+                        'rsi_entry': signals.loc[position['entry_date']]['rsi']
                     })
                     position = None
         
+        # OPEN pozisyon kapat
         if position is not None:
             last_price = float(df['Close'].iloc[-1])
             exit_value = position['shares'] * last_price
@@ -215,22 +236,17 @@ class SwingBacktest:
                 'exit_price': last_price,
                 'pnl': pnl,
                 'return_pct': (pnl / entry_value) * 100,
-                'exit_reason': 'OPEN'
+                'exit_reason': 'OPEN',
+                'rsi_entry': signals.loc[position['entry_date']]['rsi']
             })
         
-        trades_df = pd.DataFrame(trades) if trades else pd.DataFrame()
-        equity_df = pd.DataFrame(equity_curve)
-        
-        return trades_df, equity_df
+        return pd.DataFrame(trades) if trades else pd.DataFrame(), pd.DataFrame(equity_curve)
     
     def calculate_metrics(self, trades_df, equity_df):
         if trades_df.empty:
             return {
-                'total_return': "0.0%",
-                'total_trades': "0",
-                'win_rate': "0.0%",
-                'avg_win': "$0.00",
-                'avg_loss': "$0.00"
+                'total_return': "0.0%", 'total_trades': "0",
+                'win_rate': "0.0%", 'avg_win': "$0.00", 'avg_loss': "$0.00"
             }
         
         try:
@@ -252,65 +268,52 @@ class SwingBacktest:
                 'avg_win': f"${round(avg_win, 2)}",
                 'avg_loss': f"${round(avg_loss, 2)}"
             }
-            
         except:
             return {
-                'total_return': "0.0%",
-                'total_trades': "0",
-                'win_rate': "0.0%",
-                'avg_win': "$0.00",
-                'avg_loss': "$0.00"
+                'total_return': "0.0%", 'total_trades': "0",
+                'win_rate': "0.0%", 'avg_win': "$0.00", 'avg_loss': "$0.00"
             }
 
 # =========================
-# STREAMLIT UYGULAMASI (KRİPTO SEKMESİ EKLENDİ!)
+# STREAMLIT UYGULAMASI
 # =========================
-st.set_page_config(page_title="Swing Backtest", layout="wide")
-st.title("🚀 Swing Trading Backtest")
+st.set_page_config(page_title="Dip Buy Backtest", layout="wide")
+st.title("🚀 DİPTEN ALIM STRATEJİSİ")
 
-# =========================
-# YENİ: TAB SİSTEMİ - HİSSE / KRİPTO
-# =========================
 tab1, tab2 = st.tabs(["📈 Hisse Senetleri", "₿ Kripto Para"])
 
 with tab1:
-    # Hisse Sidebar
     st.sidebar.header("⚙️ Hisse Ayarları")
     stock_tickers = ["AAPL", "GOOGL", "MSFT", "TSLA"]
     ticker = st.sidebar.selectbox("Hisse Seç", stock_tickers)
 
 with tab2:
-    # Kripto Sidebar
     st.sidebar.header("₿ Kripto Ayarları")
     ticker = st.sidebar.selectbox("Kripto Seç", CRYPTO_LIST)
 
-# Ortak Parametreler
-st.sidebar.header("📊 Parametreler")
+# DİPTEN ALIM PARAMETRELERİ
+st.sidebar.header("🎯 DİP ALIM PARAMETRELERİ")
 start_date = st.sidebar.date_input("Başlangıç", datetime(2023, 1, 1))
 end_date = st.sidebar.date_input("Bitiş", datetime(2023, 12, 31))
-rsi_oversold = st.sidebar.slider("RSI Aşırı Satım", 25, 50, 40)
-atr_multiplier = st.sidebar.slider("ATR Çarpanı", 1.0, 3.0, 2.0)
+rsi_oversold = st.sidebar.slider("RSI Dip Seviyesi", 25, 40, 35)
+atr_multiplier = st.sidebar.slider("Stop Loss ATR", 1.0, 2.5, 1.5)
 risk_per_trade = st.sidebar.slider("Risk %", 1.0, 5.0, 2.0) / 100
 
-# Ana içerik
-if st.button("🎯 Backtest Çalıştır"):
+if st.button("🎯 DİPTEN ALIM BACKTEST"):
     try:
         with st.spinner("Veri yükleniyor..."):
             data = yf.download(ticker, start=start_date, end=end_date, progress=False)
-            
             if data.empty:
                 st.error("❌ Veri bulunamadı")
                 st.stop()
-            
-            st.success(f"✅ {len(data)} günlük veri yüklendi - {ticker}")
+            st.success(f"✅ {len(data)} günlük veri - {ticker}")
         
-        backtester = SwingBacktest()
-        
-        with st.spinner("Backtest çalıştırılıyor..."):
+        backtester = DipBuyBacktest()
+        with st.spinner("Dipten alım hesaplanıyor..."):
             trades, equity = backtester.run_backtest(data, rsi_oversold, atr_multiplier, risk_per_trade)
             metrics = backtester.calculate_metrics(trades, equity)
         
-        st.subheader("📊 Performans Özeti")
+        st.subheader("📊 DİP ALIM SONUÇLARI")
         col1, col2, col3 = st.columns(3)
         
         with col1:
@@ -325,26 +328,34 @@ if st.button("🎯 Backtest Çalıştır"):
             st.metric("Ort. Kayıp", metrics['avg_loss'])
         
         if not trades.empty:
-            st.subheader("📈 Performans Grafikleri")
-            
+            st.subheader(f"📈 {ticker} Portföy Grafiği")
             fig, ax = plt.subplots(figsize=(12, 6))
             ax.plot(equity['date'], equity['equity'], color='green', linewidth=2)
-            ax.set_title(f'Portföy Değeri - {ticker}')
+            ax.set_title(f'Dipten Alım Stratejisi - {ticker}')
             ax.set_ylabel('Equity ($)')
             ax.grid(True, alpha=0.3)
             st.pyplot(fig)
             
-            st.subheader("📋 İşlem Listesi")
+            st.subheader("📋 DİP ALIM İŞLEMLERİ")
             display_trades = trades.copy()
             display_trades['entry_date'] = display_trades['entry_date'].dt.strftime('%Y-%m-%d')
             display_trades['exit_date'] = display_trades['exit_date'].dt.strftime('%Y-%m-%d')
+            display_trades['pnl'] = display_trades['pnl'].round(2)
+            display_trades['return_pct'] = display_trades['return_pct'].round(1)
             st.dataframe(display_trades)
             
         else:
-            st.info("🤷 Hiç işlem gerçekleşmedi.")
+            st.info("🤷 Hiç dip alım sinyali yok")
             
     except Exception as e:
         st.error(f"❌ Hata: {str(e)}")
 
 st.markdown("---")
-st.markdown("**Backtest Sistemi** - **₿ Kripto Desteği Eklendi!**")
+st.markdown("""
+**🎯 DİPTEN ALIM STRATEJİSİ:**
+- **RSI < 35:** Aşırı satım
+- **Dip Tespiti:** Son 5 günün en düşüğü
+- **%2 Bounce:** Yükseliş başladı
+- **1:3 Risk/Reward:** Max kazanç
+- **Komisyon:** %0.1 dahil
+""")
