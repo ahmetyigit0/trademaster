@@ -3,7 +3,6 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
@@ -153,103 +152,60 @@ def calculate_atr(high, low, close, period=14):
     return atr
 
 def create_pro_chart(data):
-    """Profesyonel TradingView benzeri grafik"""
-    fig = go.Figure()
-
-    # Candlestick
-    fig.add_trace(go.Candlestick(
-        x=data.index,
-        open=data['Open'],
-        high=data['High'],
-        low=data['Low'],
-        close=data['Close'],
-        name="Price"
-    ))
-
-    # EMA'lar
-    fig.add_trace(go.Scatter(
-        x=data.index, y=data['EMA_20'],
-        name='EMA 20',
-        line=dict(color='orange', width=1)
-    ))
-    fig.add_trace(go.Scatter(
-        x=data.index, y=data['EMA_50'],
-        name='EMA 50',
-        line=dict(color='red', width=1)
-    ))
-
-    # Bollinger Bantları
-    fig.add_trace(go.Scatter(
-        x=data.index, y=data['BB_Upper'],
-        name='BB Upper',
-        line=dict(color='gray', width=1, dash='dash')
-    ))
-    fig.add_trace(go.Scatter(
-        x=data.index, y=data['BB_Lower'],
-        name='BB Lower',
-        line=dict(color='gray', width=1, dash='dash'),
-        fill='tonexty'
-    ))
-
-    fig.update_layout(
-        title=f'Profesyonel Price Chart',
-        height=400,
-        xaxis_rangeslider_visible=False,
-        template='plotly_white'
-    )
+    """Profesyonel price chart"""
+    fig, ax = plt.subplots(figsize=(12, 6))
+    
+    # Basit line chart - candlestick yerine
+    ax.plot(data.index, data['Close'], color='blue', linewidth=2, label='Price')
+    ax.plot(data.index, data['EMA_20'], color='orange', linewidth=1, label='EMA 20')
+    ax.plot(data.index, data['EMA_50'], color='red', linewidth=1, label='EMA 50')
+    ax.plot(data.index, data['BB_Upper'], color='gray', linestyle='--', linewidth=1, label='BB Upper')
+    ax.plot(data.index, data['BB_Lower'], color='gray', linestyle='--', linewidth=1, label='BB Lower')
+    
+    ax.set_title('Price Action with Indicators', fontsize=14, fontweight='bold')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
     return fig
 
 def create_advanced_rsi_chart(data):
     """Gelişmiş RSI grafiği"""
-    fig = go.Figure()
-
-    fig.add_trace(go.Scatter(
-        x=data.index, y=data['RSI'],
-        name='RSI',
-        line=dict(color='purple', width=2)
-    ))
-
-    fig.add_hline(y=30, line_dash="dash", line_color="green")
-    fig.add_hline(y=70, line_dash="dash", line_color="red")
-    fig.add_hline(y=50, line_dash="dot", line_color="gray")
-
-    fig.update_layout(
-        title='RSI Momentum',
-        height=200,
-        yaxis_range=[0, 100],
-        template='plotly_white'
-    )
+    fig, ax = plt.subplots(figsize=(12, 3))
+    
+    ax.plot(data.index, data['RSI'], color='purple', linewidth=2)
+    ax.axhline(y=30, color='green', linestyle='--', alpha=0.8)
+    ax.axhline(y=70, color='red', linestyle='--', alpha=0.8)
+    ax.axhline(y=50, color='gray', linestyle=':', alpha=0.5)
+    ax.fill_between(data.index, 30, 70, alpha=0.1, color='gray')
+    
+    ax.set_title('RSI Momentum', fontweight='bold')
+    ax.set_ylim(0, 100)
+    ax.grid(True, alpha=0.3)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
     return fig
 
 def create_macd_chart(data):
     """MACD grafiği"""
-    fig = go.Figure()
-
-    fig.add_trace(go.Scatter(
-        x=data.index, y=data['MACD'],
-        name='MACD',
-        line=dict(color='blue', width=2)
-    ))
-    fig.add_trace(go.Scatter(
-        x=data.index, y=data['MACD_Signal'],
-        name='Signal',
-        line=dict(color='red', width=1)
-    ))
-
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 4), gridspec_kw={'height_ratios': [2, 1]})
+    
+    # MACD ve Signal
+    ax1.plot(data.index, data['MACD'], color='blue', linewidth=2, label='MACD')
+    ax1.plot(data.index, data['MACD_Signal'], color='red', linewidth=1, label='Signal')
+    ax1.set_title('MACD', fontweight='bold')
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    
     # Histogram
     colors = ['green' if x >= 0 else 'red' for x in data['MACD_Hist']]
-    fig.add_trace(go.Bar(
-        x=data.index, y=data['MACD_Hist'],
-        name='Histogram',
-        marker_color=colors,
-        opacity=0.5
-    ))
-
-    fig.update_layout(
-        title='MACD',
-        height=200,
-        template='plotly_white'
-    )
+    ax2.bar(data.index, data['MACD_Hist'], color=colors, alpha=0.6)
+    ax2.axhline(y=0, color='black', linewidth=0.5)
+    ax2.set_title('MACD Histogram')
+    ax2.grid(True, alpha=0.3)
+    
+    plt.xticks(rotation=45)
+    plt.tight_layout()
     return fig
 
 # =========================
@@ -352,13 +308,13 @@ try:
     tab1, tab2, tab3 = st.tabs(["Price Action", "RSI Momentum", "MACD Analysis"])
     
     with tab1:
-        st.plotly_chart(create_pro_chart(data.tail(100)), use_container_width=True)
+        st.pyplot(create_pro_chart(data.tail(50)))
     
     with tab2:
-        st.plotly_chart(create_advanced_rsi_chart(data.tail(100)), use_container_width=True)
+        st.pyplot(create_advanced_rsi_chart(data.tail(50)))
     
     with tab3:
-        st.plotly_chart(create_macd_chart(data.tail(100)), use_container_width=True)
+        st.pyplot(create_macd_chart(data.tail(50)))
 
     # Trading stratejisi
     st.markdown("### 💡 Trading Strategy")
@@ -381,24 +337,24 @@ try:
             st.metric("Position Size", f"{position_size:.4f} {ticker_input.split('-')[0]}")
         
         with col2:
-            st.markdown("""
+            tp1_pct = (risk_per_coin/current_price*100)
+            tp2_pct = (risk_per_coin*2/current_price*100)
+            tp3_pct = (risk_per_coin*3/current_price*100)
+            
+            st.markdown(f"""
             **Take Profit Levels:**
-            - TP1 (1:1): +{:.2f}%
-            - TP2 (1:2): +{:.2f}%
-            - TP3 (1:3): +{:.2f}%
-            """.format(
-                (risk_per_coin/current_price*100),
-                (risk_per_coin*2/current_price*100),
-                (risk_per_coin*3/current_price*100)
-            ))
+            - TP1 (1:1): +{tp1_pct:.2f}%
+            - TP2 (1:2): +{tp2_pct:.2f}%
+            - TP3 (1:3): +{tp3_pct:.2f}%
+            """)
 
     elif recommendation == "SELL":
-        st.markdown("""
+        st.markdown(f"""
         **Short Strategy:**
         - Consider short positions or wait for better entry
-        - Key resistance: ${:.2f}
-        - Support level: ${:.2f}
-        """.format(data['High'].tail(20).max(), data['Low'].tail(20).min()))
+        - Key resistance: ${data['High'].tail(20).max():.2f}
+        - Support level: ${data['Low'].tail(20).min():.2f}
+        """)
 
     # Market insights
     st.markdown("### 🔍 Market Insights")
