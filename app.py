@@ -28,25 +28,58 @@ if not check_password():
 # YARDIMCI: güvenli sayı/sayı-format
 # =========================
 def to_scalar(x):
-    try:
-        if hasattr(x, "iloc"):
-            if len(x) > 0:
-                return float(x.iloc[-1])
-            return float("nan")
-        if isinstance(x, (np.ndarray, list, tuple)):
-            return float(x[-1]) if len(x) > 0 else float("nan")
-        return float(x)
-    except Exception:
+    """ÇOK daha dayanıklı skalarlaştırıcı.
+    DataFrame/Series/ndarray/list/tuple/Timestamp/numpy scalar hepsini güvenle ele alır.
+    'arg must be a list...' hatasını tetikleyen pd.to_numeric fallbackını kaldırdım.
+    """
+    # DataFrame -> son satırın son sayısal hücresi
+    if isinstance(x, pd.DataFrame):
+        # yalnızca sayısal sütunları al
+        num = x.select_dtypes(include=[np.number])
+        if not num.empty:
+            try:
+                return float(num.iloc[-1].dropna().iloc[-1])
+            except Exception:
+                pass
+        return float("nan")
+    # Series
+    if isinstance(x, pd.Series):
         try:
-            return float(pd.to_numeric(x, errors="coerce"))
+            return float(x.dropna().iloc[-1])
         except Exception:
             return float("nan")
+    # numpy array / list / tuple
+    if isinstance(x, (np.ndarray, list, tuple)):
+        if len(x) == 0:
+            return float("nan")
+        try:
+            return float(np.asarray(x).ravel()[-1])
+        except Exception:
+            return float("nan")
+    # Timestamp/datetime -> sayı yapmayalım
+    if isinstance(x, (pd.Timestamp, np.datetime64, datetime)):
+        return float("nan")
+    # numpy scalar
+    if hasattr(x, "item"):
+        try:
+            return float(x.item())
+        except Exception:
+            pass
+    # düz float/int
+    try:
+        return float(x)
+    except Exception:
+        return float("nan")
 
 def fmt(x, nd=2, prefix="", suffix=""):
     v = to_scalar(x)
     if pd.isna(v):
         return "-"
-    return f"{prefix}{v:.{nd}f}{suffix}"
+    try:
+        return f"{prefix}{v:.{nd}f}{suffix}"
+    except Exception:
+        # en kötü ihtimalle str'e düş
+        return f"{prefix}{v}{suffix}"
 
 # =========================
 # BACKTEST MOTORU
@@ -66,7 +99,7 @@ class SwingBacktest:
             if c not in d.columns:
                 raise ValueError(f"Girdi verisinde '{c}' kolonu yok.")
             d[c] = self._num(d[c])
-            
+        
         d["EMA_20"] = d["Close"].ewm(span=20, min_periods=1, adjust=False).mean()
         d["EMA_50"] = d["Close"].ewm(span=50, min_periods=1, adjust=False).mean()
         
@@ -101,7 +134,7 @@ class SwingBacktest:
             
             trend_ok = ema20 > ema50
             rsi_ok = rsi_val < float(rsi_oversold)
-            price_ok = close_val > ema20 # Yeni sinyal eklemesi
+            price_ok = close_val > ema20
             
             is_buy = bool(trend_ok and rsi_ok and price_ok)
             if is_buy:
@@ -118,11 +151,10 @@ class SwingBacktest:
                 "stop_loss": sl,
                 "take_profit": tp
             })
-            
+        
         sig = pd.DataFrame(rows)
         if sig.empty:
             return sig
-        # Aynı tarihlerde birden fazla sinyal oluşursa en sonuncusunu al
         sig = sig.set_index("date").groupby(level=0).last()
         return sig
     
@@ -137,32 +169,25 @@ class SwingBacktest:
         
         for date in df.index:
             price = float(df.loc[date, "Close"])
-            
             current_equity = capital + (position["shares"] * price if position is not None else 0.0)
             equity_curve.append({"date": date, "equity": current_equity})
             
             sig = None
             if date in sigs.index:
                 row = sigs.loc[date]
-                
-                # *** HATA DÜZELTMESİ BURADA ***
                 if isinstance(row, pd.DataFrame):
-                    sig = row.iloc[-1] # DataFrame ise son satırı al (Series)
-                elif isinstance(row, pd.Series):
-                    sig = row # Series ise doğrudan kullan
-                
+                    row = row.iloc[-1]
+                sig = row
+            
             if position is None:
                 is_buy = bool(sig["is_buy"]) if sig is not None and "is_buy" in sig else False
-                
                 if is_buy:
                     sl = float(sig["stop_loss"])
                     risk_per_share = price - sl
-                    
-                    if risk_per_share <= 0: continue
-                    
+                    if risk_per_share <= 0:
+                        continue
                     risk_amt = capital * float(risk_per_trade)
                     shares = max(risk_amt / risk_per_share, 0.0)
-                    
                     if shares > 0:
                         cost = shares * price
                         fee = cost * self.commission
@@ -203,7 +228,6 @@ class SwingBacktest:
                     })
                     position = None
         
-        # Kapanış pozisyonu (Dönem sonu)
         if position is not None:
             last_price = float(df["Close"].iloc[-1])
             exit_value = position["shares"] * last_price
@@ -224,7 +248,7 @@ class SwingBacktest:
                 "return_pct": float(pnl / (entry_value + entry_fee) * 100.0) if entry_value > 0 else 0.0,
                 "exit_reason": "OPEN"
             })
-            
+        
         trades_df = pd.DataFrame(trades) if trades else pd.DataFrame()
         equity_df = pd.DataFrame(equity_curve)
         return trades_df, equity_df
@@ -262,7 +286,7 @@ class SwingBacktest:
 # STREAMLIT UYGULAMASI
 # =========================
 st.set_page_config(page_title="Swing Backtest", layout="wide")
-st.title("🚀 Swing Trading Backtest (Series format fix)")
+st.title("🚀 Swing Trading Backtest (arg/list 1-d fix)")
 
 # Sidebar
 st.sidebar.header("⚙️ Ayarlar")
@@ -286,12 +310,12 @@ if st.button("🎯 Backtest Çalıştır", type="primary"):
             data = data[(data.index >= pd.to_datetime(start_date)) & (data.index <= pd.to_datetime(end_date))]
             st.success(f"✅ {len(data)} günlük veri yüklendi")
             st.info(f"📈 Fiyat aralığı: {fmt(data['Close'].min(),2,prefix='$')} - {fmt(data['Close'].max(),2,prefix='$')}")
-            
+        
         backtester = SwingBacktest(commission=0.001)
         with st.spinner("Backtest çalıştırılıyor..."):
             trades, equity = backtester.run_backtest(data, rsi_oversold, atr_multiplier, risk_per_trade)
             metrics = backtester.calculate_metrics(trades, equity)
-            
+        
         st.subheader("📊 Performans Özeti")
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -302,7 +326,7 @@ if st.button("🎯 Backtest Çalıştır", type="primary"):
             st.metric("Ort. Kazanç", metrics['avg_win'])
         with col3:
             st.metric("Ort. Kayıp", metrics['avg_loss'])
-            
+        
         if not trades.empty and not equity.empty:
             st.subheader("📈 Performans Grafiği")
             fig, ax = plt.subplots(figsize=(12, 6))
@@ -325,4 +349,4 @@ if st.button("🎯 Backtest Çalıştır", type="primary"):
         st.error(f"❌ Hata: {str(e)}")
 
 st.markdown("---")
-st.caption("Backtest Sistemi — Series.format uyumlu güvenli biçimlendirme")
+st.caption("Backtest Sistemi — arg must be list/tuple/1-d fix")
