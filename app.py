@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -14,10 +13,11 @@ def check_password():
         st.session_state["password_correct"] = False
     
     def password_entered():
+        # Şifre: "efe"
         st.session_state["password_correct"] = (st.session_state.get("password","") == "efe")
     
     if not st.session_state["password_correct"]:
-        st.text_input("🔐 Şifre", type="password", on_change=password_entered, key="password")
+        st.text_input("🔐 Lütfen Şifreyi Girin", type="password", on_change=password_entered, key="password")
         return False
     return True
 
@@ -25,90 +25,39 @@ if not check_password():
     st.stop()
 
 # =========================
-# YARDIMCI: güvenli sayı/sayı-format
-# =========================
-def to_scalar(x):
-    """ÇOK daha dayanıklı skalarlaştırıcı.
-    DataFrame/Series/ndarray/list/tuple/Timestamp/numpy scalar hepsini güvenle ele alır.
-    'arg must be a list...' hatasını tetikleyen pd.to_numeric fallbackını kaldırdım.
-    """
-    # DataFrame -> son satırın son sayısal hücresi
-    if isinstance(x, pd.DataFrame):
-        # yalnızca sayısal sütunları al
-        num = x.select_dtypes(include=[np.number])
-        if not num.empty:
-            try:
-                return float(num.iloc[-1].dropna().iloc[-1])
-            except Exception:
-                pass
-        return float("nan")
-    # Series
-    if isinstance(x, pd.Series):
-        try:
-            return float(x.dropna().iloc[-1])
-        except Exception:
-            return float("nan")
-    # numpy array / list / tuple
-    if isinstance(x, (np.ndarray, list, tuple)):
-        if len(x) == 0:
-            return float("nan")
-        try:
-            return float(np.asarray(x).ravel()[-1])
-        except Exception:
-            return float("nan")
-    # Timestamp/datetime -> sayı yapmayalım
-    if isinstance(x, (pd.Timestamp, np.datetime64, datetime)):
-        return float("nan")
-    # numpy scalar
-    if hasattr(x, "item"):
-        try:
-            return float(x.item())
-        except Exception:
-            pass
-    # düz float/int
-    try:
-        return float(x)
-    except Exception:
-        return float("nan")
-
-def fmt(x, nd=2, prefix="", suffix=""):
-    v = to_scalar(x)
-    if pd.isna(v):
-        return "-"
-    try:
-        return f"{prefix}{v:.{nd}f}{suffix}"
-    except Exception:
-        # en kötü ihtimalle str'e düş
-        return f"{prefix}{v}{suffix}"
-
-# =========================
 # BACKTEST MOTORU
 # =========================
-class SwingBacktest:
+class CleanSwingBacktest:
     def __init__(self, commission=0.001):
         self.commission = float(commission)
     
     @staticmethod
     def _num(s):
+        # Veriyi sayısal formata dönüştürürken hataları NaN olarak kabul et
         return pd.to_numeric(s, errors="coerce")
     
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         d = df.copy()
-        need = ["Open","High","Low","Close","Volume"]
-        for c in need:
-            if c not in d.columns:
-                raise ValueError(f"Girdi verisinde '{c}' kolonu yok.")
-            d[c] = self._num(d[c])
         
+        # Veri Kontrolü
+        required_cols = ["Open","High","Low","Close"]
+        for col in required_cols:
+            if col not in d.columns:
+                raise ValueError(f"Girdi verisinde '{col}' kolonu eksik.")
+            d[col] = self._num(d[col])
+            
+        # EMA
         d["EMA_20"] = d["Close"].ewm(span=20, min_periods=1, adjust=False).mean()
         d["EMA_50"] = d["Close"].ewm(span=50, min_periods=1, adjust=False).mean()
         
+        # RSI
         delta = d["Close"].diff()
         gain = delta.clip(lower=0).rolling(window=14, min_periods=1).mean()
         loss = (-delta.clip(upper=0)).rolling(window=14, min_periods=1).mean()
         rs = gain / (loss + 1e-12)
         d["RSI"] = 100 - (100 / (1 + rs))
         
+        # ATR
         prev_close = d["Close"].shift(1)
         tr = pd.concat([
             (d["High"] - d["Low"]).abs(),
@@ -117,9 +66,10 @@ class SwingBacktest:
         ], axis=1).max(axis=1)
         d["ATR"] = tr.rolling(window=14, min_periods=1).mean()
         
+        # Temizlik (NaN değerleri doldurma)
         d.replace([np.inf, -np.inf], np.nan, inplace=True)
-        d.fillna(method="bfill", inplace=True)
-        d.fillna(method="ffill", inplace=True)
+        d.fillna(method="bfill", inplace=True) # Geriye dönük doldurma
+        d.fillna(method="ffill", inplace=True) # Baştaki NaN'lar için ileriye doldurma
         return d
     
     def generate_signals(self, df: pd.DataFrame, rsi_oversold=40, atr_multiplier=2.0) -> pd.DataFrame:
@@ -132,11 +82,13 @@ class SwingBacktest:
             rsi_val = float(row["RSI"])
             atr_val = float(row["ATR"])
             
+            # Basit Kesişim ve Trend Sinyali
             trend_ok = ema20 > ema50
             rsi_ok = rsi_val < float(rsi_oversold)
-            price_ok = close_val > ema20
+            price_ok = close_val > ema20 
             
             is_buy = bool(trend_ok and rsi_ok and price_ok)
+            
             if is_buy:
                 sl = close_val - atr_val * float(atr_multiplier)
                 tp = close_val + atr_val * float(atr_multiplier) * 2.0
@@ -147,14 +99,15 @@ class SwingBacktest:
                 "date": df.index[i],
                 "action": "buy" if is_buy else "hold",
                 "is_buy": is_buy,
-                "price": close_val,
                 "stop_loss": sl,
                 "take_profit": tp
             })
-        
+            
         sig = pd.DataFrame(rows)
         if sig.empty:
             return sig
+        
+        # İndeksi tarih yap ve aynı tarihteki son sinyali al (Tekil indeks sağlamak için)
         sig = sig.set_index("date").groupby(level=0).last()
         return sig
     
@@ -167,27 +120,31 @@ class SwingBacktest:
         trades = []
         equity_curve = []
         
+        # df zaten temiz, tek seviyeli bir indekse sahip (Tarih)
         for date in df.index:
             price = float(df.loc[date, "Close"])
+            
             current_equity = capital + (position["shares"] * price if position is not None else 0.0)
             equity_curve.append({"date": date, "equity": current_equity})
             
             sig = None
+            # Sinyal kontrolü: Sinyal DF'inde o tarih var mı?
             if date in sigs.index:
-                row = sigs.loc[date]
-                if isinstance(row, pd.DataFrame):
-                    row = row.iloc[-1]
-                sig = row
+                sig = sigs.loc[date]
             
             if position is None:
+                # Sadece tekil bir satır (Series) döndürdüğü için doğrudan erişilebilir
                 is_buy = bool(sig["is_buy"]) if sig is not None and "is_buy" in sig else False
+                
                 if is_buy:
                     sl = float(sig["stop_loss"])
                     risk_per_share = price - sl
-                    if risk_per_share <= 0:
-                        continue
+                    
+                    if risk_per_share <= 0: continue
+                    
                     risk_amt = capital * float(risk_per_trade)
                     shares = max(risk_amt / risk_per_share, 0.0)
+                    
                     if shares > 0:
                         cost = shares * price
                         fee = cost * self.commission
@@ -200,6 +157,7 @@ class SwingBacktest:
                             "take_profit": float(sig["take_profit"])
                         }
             else:
+                # Pozisyon Çıkışı
                 exit_reason = None
                 exit_price = None
                 if price <= position["stop_loss"]:
@@ -228,6 +186,7 @@ class SwingBacktest:
                     })
                     position = None
         
+        # Kapanış pozisyonu (Dönem sonu)
         if position is not None:
             last_price = float(df["Close"].iloc[-1])
             exit_value = position["shares"] * last_price
@@ -248,7 +207,7 @@ class SwingBacktest:
                 "return_pct": float(pnl / (entry_value + entry_fee) * 100.0) if entry_value > 0 else 0.0,
                 "exit_reason": "OPEN"
             })
-        
+            
         trades_df = pd.DataFrame(trades) if trades else pd.DataFrame()
         equity_df = pd.DataFrame(equity_curve)
         return trades_df, equity_df
@@ -257,11 +216,8 @@ class SwingBacktest:
     def calculate_metrics(trades_df: pd.DataFrame, equity_df: pd.DataFrame):
         if trades_df.empty or equity_df.empty:
             return {
-                "total_return": "0.0%",
-                "total_trades": "0",
-                "win_rate": "0.0%",
-                "avg_win": "$0.00",
-                "avg_loss": "$0.00",
+                "total_return": "0.0%", "total_trades": "0", "win_rate": "0.0%",
+                "avg_win": "$0.00", "avg_loss": "$0.00",
             }
         initial_equity = float(equity_df["equity"].iloc[0])
         final_equity = float(equity_df["equity"].iloc[-1])
@@ -285,8 +241,8 @@ class SwingBacktest:
 # =========================
 # STREAMLIT UYGULAMASI
 # =========================
-st.set_page_config(page_title="Swing Backtest", layout="wide")
-st.title("🚀 Swing Trading Backtest (arg/list 1-d fix)")
+st.set_page_config(page_title="Clean Backtest", layout="wide")
+st.title("🆕 Yeni Uygulama: Temiz Backtest Motoru")
 
 # Sidebar
 st.sidebar.header("⚙️ Ayarlar")
@@ -295,27 +251,32 @@ start_date = st.sidebar.date_input("Başlangıç", datetime(2023, 1, 1))
 end_date = st.sidebar.date_input("Bitiş", datetime(2023, 12, 31))
 
 st.sidebar.header("📊 Parametreler")
-rsi_oversold = st.sidebar.slider("RSI Aşırı Satım", 25, 50, 40)
-atr_multiplier = st.sidebar.slider("ATR Çarpanı", 1.0, 3.0, 2.0)
-risk_per_trade = st.sidebar.slider("Risk %", 1.0, 5.0, 2.0) / 100.0
+rsi_oversold = st.sidebar.slider("RSI Aşırı Satım Eşiği", 25, 50, 40)
+atr_multiplier = st.sidebar.slider("ATR Çarpanı (SL/TP)", 1.0, 3.0, 2.0)
+risk_per_trade = st.sidebar.slider("Risk % (Pozisyon Büyüklüğü)", 1.0, 5.0, 2.0) / 100.0
 
 # Ana içerik
-if st.button("🎯 Backtest Çalıştır", type="primary"):
+if st.button("🎯 Backtest Başlat", type="primary"):
     try:
-        with st.spinner("Veri yükleniyor..."):
+        with st.spinner("Veri çekiliyor ve indikatörler hesaplanıyor..."):
+            # İndikatörler için yeterli geçmiş veriyi çek
             extended_start = start_date - timedelta(days=100)
+            # Tek bir ticker için yf.download() her zaman tek seviyeli indeks döndürür
             data = yf.download(ticker, start=extended_start, end=end_date, progress=False)
+            
             if data.empty:
-                st.error("❌ Veri bulunamadı"); st.stop()
+                st.error("❌ Veri çekilemedi veya tarih aralığı hatalı."); st.stop()
+            
+            # Sadece istenen aralığı filtrele
             data = data[(data.index >= pd.to_datetime(start_date)) & (data.index <= pd.to_datetime(end_date))]
-            st.success(f"✅ {len(data)} günlük veri yüklendi")
+            st.success(f"✅ {len(data)} günlük veri yüklendi.")
             st.info(f"📈 Fiyat aralığı: {fmt(data['Close'].min(),2,prefix='$')} - {fmt(data['Close'].max(),2,prefix='$')}")
-        
-        backtester = SwingBacktest(commission=0.001)
+            
+        backtester = CleanSwingBacktest(commission=0.001)
         with st.spinner("Backtest çalıştırılıyor..."):
             trades, equity = backtester.run_backtest(data, rsi_oversold, atr_multiplier, risk_per_trade)
             metrics = backtester.calculate_metrics(trades, equity)
-        
+            
         st.subheader("📊 Performans Özeti")
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -326,27 +287,28 @@ if st.button("🎯 Backtest Çalıştır", type="primary"):
             st.metric("Ort. Kazanç", metrics['avg_win'])
         with col3:
             st.metric("Ort. Kayıp", metrics['avg_loss'])
-        
+            
         if not trades.empty and not equity.empty:
-            st.subheader("📈 Performans Grafiği")
+            st.subheader("📈 Portföy Değeri")
             fig, ax = plt.subplots(figsize=(12, 6))
-            ax.plot(equity['date'], equity['equity'], linewidth=2)
-            ax.set_title('Portföy Değeri')
+            ax.plot(equity['date'], equity['equity'], linewidth=2, label='Equity')
+            ax.set_title('Portföy Değeri Gelişimi')
             ax.set_ylabel('Equity ($)')
+            ax.legend()
             ax.grid(True, alpha=0.3)
             st.pyplot(fig)
             
-            st.subheader("📋 İşlem Listesi")
+            st.subheader("📋 İşlem Detayları")
             disp = trades.copy()
             for c in ["entry_date","exit_date"]:
                 if c in disp and pd.api.types.is_datetime64_any_dtype(disp[c]):
                     disp[c] = disp[c].dt.strftime("%Y-%m-%d")
             st.dataframe(disp, use_container_width=True)
         else:
-            st.info("🤷 Hiç işlem gerçekleşmedi. RSI eşiğini yükseltin veya tarih aralığını genişletin.")
+            st.warning("⚠️ Hiç işlem gerçekleşmedi. Lütfen parametreleri (özellikle RSI eşiğini) değiştirerek tekrar deneyin.")
             
     except Exception as e:
-        st.error(f"❌ Hata: {str(e)}")
+        st.error(f"❌ Uygulama Çalışma Hatası: {str(e)}")
 
 st.markdown("---")
-st.caption("Backtest Sistemi — arg must be list/tuple/1-d fix")
+st.caption("Yeni ve Güvenli Backtest Sistemi")
