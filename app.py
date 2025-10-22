@@ -55,101 +55,90 @@ class SwingBacktest:
         df = df.copy()
         
         try:
-            # EMA'lar
-            df['EMA_20'] = df['Close'].ewm(span=20, min_periods=1).mean()
-            df['EMA_50'] = df['Close'].ewm(span=50, min_periods=1).mean()
-            df['EMA_200'] = df['Close'].ewm(span=200, min_periods=1).mean()
+            # EMA'lar - basit ve güvenilir
+            df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
+            df['EMA_50'] = df['Close'].ewm(span=50, adjust=False).mean()
             
-            # RSI
+            # RSI - basitleştirilmiş
             delta = df['Close'].diff()
-            gain = (delta.where(delta > 0, 0)).fillna(0)
-            loss = (-delta.where(delta < 0, 0)).fillna(0)
-            avg_gain = gain.rolling(window=14, min_periods=1).mean()
-            avg_loss = loss.rolling(window=14, min_periods=1).mean()
+            gain = delta.where(delta > 0, 0)
+            loss = -delta.where(delta < 0, 0)
+            
+            avg_gain = gain.rolling(window=14).mean()
+            avg_loss = loss.rolling(window=14).mean()
+            
             rs = avg_gain / avg_loss
             df['RSI'] = 100 - (100 / (1 + rs))
             
             # MACD
-            exp1 = df['Close'].ewm(span=12, min_periods=1).mean()
-            exp2 = df['Close'].ewm(span=26, min_periods=1).mean()
-            df['MACD'] = exp1 - exp2
-            df['MACD_Signal'] = df['MACD'].ewm(span=9, min_periods=1).mean()
+            exp12 = df['Close'].ewm(span=12, adjust=False).mean()
+            exp26 = df['Close'].ewm(span=26, adjust=False).mean()
+            df['MACD'] = exp12 - exp26
+            df['MACD_Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
             df['MACD_Hist'] = df['MACD'] - df['MACD_Signal']
             
-            # Bollinger Bands
-            df['BB_Middle'] = df['Close'].rolling(window=20, min_periods=1).mean()
-            bb_std = df['Close'].rolling(window=20, min_periods=1).std()
+            # Bollinger Bands - DÜZELTİLMİŞ
+            df['BB_Middle'] = df['Close'].rolling(window=20).mean()
+            bb_std = df['Close'].rolling(window=20).std()
+            # Tek tek sütun atamaları
             df['BB_Upper'] = df['BB_Middle'] + (bb_std * 2)
             df['BB_Lower'] = df['BB_Middle'] - (bb_std * 2)
             
-            # Stochastic
-            low_14 = df['Low'].rolling(window=14, min_periods=1).min()
-            high_14 = df['High'].rolling(window=14, min_periods=1).max()
-            df['STOCH_K'] = 100 * (df['Close'] - low_14) / (high_14 - low_14)
-            df['STOCH_D'] = df['STOCH_K'].rolling(window=3, min_periods=1).mean()
-            
-            # ATR
+            # ATR - basitleştirilmiş
             high_low = df['High'] - df['Low']
-            high_close = np.abs(df['High'] - df['Close'].shift(1))
-            low_close = np.abs(df['Low'] - df['Close'].shift(1))
+            high_close_prev = np.abs(df['High'] - df['Close'].shift(1))
+            low_close_prev = np.abs(df['Low'] - df['Close'].shift(1))
             
-            true_range_values = []
-            for i in range(len(df)):
-                if i == 0:
-                    true_range_values.append(float(high_low.iloc[i]))
-                else:
-                    tr = max(float(high_low.iloc[i]), float(high_close.iloc[i]), float(low_close.iloc[i]))
-                    true_range_values.append(tr)
+            # True Range hesaplama
+            tr = pd.concat([high_low, high_close_prev, low_close_prev], axis=1).max(axis=1)
+            df['ATR'] = tr.rolling(window=14).mean()
             
-            df['ATR'] = pd.Series(true_range_values, index=df.index).rolling(window=14, min_periods=1).mean()
-            
-            # Volume SMA
-            df['Volume_SMA'] = df['Volume'].rolling(window=20, min_periods=1).mean()
-            
+            # NaN değerleri temizle
             df = df.fillna(method='bfill').fillna(method='ffill')
             
             return df
             
         except Exception as e:
             st.error(f"Gösterge hesaplama hatası: {e}")
-            return df
+            # Hata durumunda temel göstergelerle devam et
+            df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
+            df['EMA_50'] = df['Close'].ewm(span=50, adjust=False).mean()
+            df['RSI'] = 50  # Varsayılan değer
+            df['BB_Upper'] = df['Close'] * 1.1
+            df['BB_Lower'] = df['Close'] * 0.9
+            df['ATR'] = df['Close'] * 0.02
+            return df.fillna(method='bfill')
     
     def generate_signals(self, df, params):
         signals = []
         
         for i in range(len(df)):
             try:
-                if i < 50:
+                if i < 20:  # Daha az bekleyelim
                     signals.append({'date': df.index[i], 'action': 'hold'})
                     continue
                     
                 row = df.iloc[i]
-                prev_row = df.iloc[i-1]
                 
-                close_val = float(row['Close'])
-                ema_20_val = float(row['EMA_20'])
-                ema_50_val = float(row['EMA_50'])
-                rsi_val = float(row['RSI'])
-                atr_val = float(row['ATR'])
-                macd_hist_val = float(row['MACD_Hist'])
-                bb_lower_val = float(row['BB_Lower'])
-                stoch_k_val = float(row['STOCH_K'])
-                stoch_d_val = float(row['STOCH_D'])
-                volume_val = float(row['Volume'])
-                volume_sma_val = float(row['Volume_SMA'])
+                # Basit değer atamaları
+                close_val = row['Close']
+                ema_20_val = row['EMA_20']
+                ema_50_val = row['EMA_50']
+                rsi_val = row['RSI']
+                atr_val = row['ATR']
+                macd_hist_val = row['MACD_Hist']
+                bb_lower_val = row['BB_Lower']
                 
-                # Trend ve momentum koşulları
+                # Basit ve etkili koşullar
                 trend_ok = ema_20_val > ema_50_val
                 rsi_ok = rsi_val < params['rsi_oversold']
                 macd_ok = macd_hist_val > 0
-                stoch_ok = stoch_k_val < 30 and stoch_d_val < 30
-                volume_ok = volume_val > volume_sma_val * 1.1
                 near_bb_lower = close_val <= bb_lower_val * 1.02
                 
-                # Stratejiler
+                # 3 ana strateji
                 strategy1 = trend_ok and rsi_ok and near_bb_lower
-                strategy2 = trend_ok and stoch_ok and volume_ok
-                strategy3 = trend_ok and macd_ok and rsi_ok
+                strategy2 = trend_ok and rsi_ok and macd_ok
+                strategy3 = trend_ok and near_bb_lower and macd_ok
                 
                 buy_signals = [strategy1, strategy2, strategy3]
                 confirmed_signals = sum(buy_signals)
@@ -194,30 +183,28 @@ class SwingBacktest:
         position = None
         trades = []
         equity_curve = []
-        max_drawdown = 0
-        peak_equity = capital
         
         for date in df.index:
             if date not in signals.index:
+                # Sinyal yoksa equity'i güncelle
+                current_price = df.loc[date, 'Close']
+                current_equity = capital
+                if position is not None:
+                    current_equity += position['shares'] * current_price
+                equity_curve.append({'date': date, 'equity': current_equity})
                 continue
                 
-            current_price = float(df.loc[date, 'Close'])
+            current_price = df.loc[date, 'Close']
             signal = signals.loc[date]
             
             current_equity = capital
             if position is not None:
                 current_equity += position['shares'] * current_price
             
-            # Drawdown hesaplama
-            if current_equity > peak_equity:
-                peak_equity = current_equity
-            drawdown = (peak_equity - current_equity) / peak_equity * 100
-            max_drawdown = max(max_drawdown, drawdown)
-            
-            equity_curve.append({'date': date, 'equity': current_equity, 'drawdown': drawdown})
+            equity_curve.append({'date': date, 'equity': current_equity})
             
             if position is None and signal['action'] == 'buy':
-                stop_loss = float(signal['stop_loss'])
+                stop_loss = signal['stop_loss']
                 risk_per_share = current_price - stop_loss
                 
                 if risk_per_share > 0:
@@ -230,7 +217,7 @@ class SwingBacktest:
                             'entry_price': current_price,
                             'shares': shares,
                             'stop_loss': stop_loss,
-                            'take_profit': float(signal['take_profit'])
+                            'take_profit': signal['take_profit']
                         }
                         capital -= shares * current_price
             
@@ -274,7 +261,7 @@ class SwingBacktest:
                     position = None
         
         if position is not None:
-            last_price = float(df['Close'].iloc[-1])
+            last_price = df['Close'].iloc[-1]
             exit_value = position['shares'] * last_price
             capital += exit_value
             
@@ -294,45 +281,36 @@ class SwingBacktest:
         trades_df = pd.DataFrame(trades) if trades else pd.DataFrame()
         equity_df = pd.DataFrame(equity_curve)
         
-        return trades_df, equity_df, max_drawdown
+        return trades_df, equity_df
     
-    def calculate_metrics(self, trades_df, equity_df, max_drawdown):
+    def calculate_metrics(self, trades_df, equity_df):
         if trades_df.empty:
             return {
                 'total_return': "0.0%",
                 'total_trades': "0",
                 'win_rate': "0.0%",
                 'avg_win': "$0.00",
-                'avg_loss': "$0.00",
-                'max_drawdown': "0.0%",
-                'best_trade': "0.0%",
-                'worst_trade': "0.0%"
+                'avg_loss': "$0.00"
             }
         
         try:
             initial_equity = self.initial_capital
-            final_equity = float(equity_df['equity'].iloc[-1])
-            total_return = (final_equity - initial_equity) / initial_equity * 100.0
+            final_equity = equity_df['equity'].iloc[-1]
+            total_return = (final_equity - initial_equity) / initial_equity * 100
             
             total_trades = len(trades_df)
             winning_trades = len(trades_df[trades_df['pnl'] > 0])
-            win_rate = (winning_trades / total_trades) * 100.0 if total_trades > 0 else 0.0
+            win_rate = (winning_trades / total_trades) * 100 if total_trades > 0 else 0
             
-            avg_win = float(trades_df[trades_df['pnl'] > 0]['pnl'].mean()) if winning_trades > 0 else 0.0
-            avg_loss = float(trades_df[trades_df['pnl'] < 0]['pnl'].mean()) if (total_trades - winning_trades) > 0 else 0.0
-            
-            best_trade = float(trades_df['return_pct'].max()) if not trades_df.empty else 0.0
-            worst_trade = float(trades_df['return_pct'].min()) if not trades_df.empty else 0.0
+            avg_win = trades_df[trades_df['pnl'] > 0]['pnl'].mean() if winning_trades > 0 else 0
+            avg_loss = trades_df[trades_df['pnl'] < 0]['pnl'].mean() if (total_trades - winning_trades) > 0 else 0
             
             return {
                 'total_return': f"{total_return:+.2f}%",
                 'total_trades': str(total_trades),
                 'win_rate': f"{win_rate:.1f}%",
                 'avg_win': f"${avg_win:.2f}",
-                'avg_loss': f"${avg_loss:.2f}",
-                'max_drawdown': f"{max_drawdown:.2f}%",
-                'best_trade': f"{best_trade:.2f}%",
-                'worst_trade': f"{worst_trade:.2f}%"
+                'avg_loss': f"${avg_loss:.2f}"
             }
             
         except:
@@ -341,10 +319,7 @@ class SwingBacktest:
                 'total_trades': "0",
                 'win_rate': "0.0%",
                 'avg_win': "$0.00",
-                'avg_loss': "$0.00",
-                'max_drawdown': "0.0%",
-                'best_trade': "0.0%",
-                'worst_trade': "0.0%"
+                'avg_loss': "$0.00"
             }
 
 # =========================
@@ -352,13 +327,13 @@ class SwingBacktest:
 # =========================
 st.set_page_config(page_title="Swing Backtest", layout="wide")
 st.title("🚀 Swing Trading Backtest")
-st.markdown("**Profesyonel Swing Trading Stratejisi**")
+st.markdown("**5 İndikatörlü Profesyonel Strateji**")
 
 # Sidebar
 st.sidebar.header("⚙️ Ayarlar")
 ticker = st.sidebar.selectbox("Sembol", ["BTC-USD", "ETH-USD", "TSLA", "NVDA", "AAPL", "GOOGL", "MSFT"])
 start_date = st.sidebar.date_input("Başlangıç", datetime(2023, 1, 1))
-end_date = st.sidebar.date_input("Bitiş", datetime(2024, 1, 1))
+end_date = st.sidebar.date_input("Bitiş", datetime(2023, 12, 31))
 
 st.sidebar.header("📊 Parametreler")
 rsi_oversold = st.sidebar.slider("RSI Aşırı Satım", 25, 45, 35)
@@ -394,11 +369,11 @@ if st.button("🎯 Backtest Çalıştır", type="primary"):
         backtester = SwingBacktest()
         
         with st.spinner("Backtest çalıştırılıyor..."):
-            trades, equity, max_drawdown = backtester.run_backtest(data, params)
-            metrics = backtester.calculate_metrics(trades, equity, max_drawdown)
+            trades, equity = backtester.run_backtest(data, params)
+            metrics = backtester.calculate_metrics(trades, equity)
         
         st.subheader("📊 Performans Özeti")
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3 = st.columns(3)
         
         with col1:
             st.metric("Toplam Getiri", metrics['total_return'])
@@ -410,43 +385,21 @@ if st.button("🎯 Backtest Çalıştır", type="primary"):
         
         with col3:
             st.metric("Ort. Kayıp", metrics['avg_loss'])
-            st.metric("Max Drawdown", metrics['max_drawdown'])
-        
-        with col4:
-            st.metric("En İyi İşlem", metrics['best_trade'])
-            st.metric("En Kötü İşlem", metrics['worst_trade'])
         
         if not trades.empty:
             st.subheader("📈 Performans Grafikleri")
             
-            # Portfolio Equity Grafiği
-            fig1, ax1 = plt.subplots(figsize=(12, 6))
-            ax1.plot(equity['date'], equity['equity'], color='green', linewidth=2)
-            ax1.set_title('Portföy Değeri')
-            ax1.set_ylabel('Equity ($)')
-            ax1.grid(True, alpha=0.3)
-            ax1.tick_params(axis='x', rotation=45)
-            plt.tight_layout()
-            st.pyplot(fig1)
-            
-            # Drawdown Grafiği
-            fig2, ax2 = plt.subplots(figsize=(12, 4))
-            ax2.fill_between(equity['date'], equity['drawdown'], color='red', alpha=0.3)
-            ax2.plot(equity['date'], equity['drawdown'], color='red', linewidth=1)
-            ax2.set_title('Drawdown')
-            ax2.set_ylabel('Drawdown (%)')
-            ax2.set_xlabel('Tarih')
-            ax2.grid(True, alpha=0.3)
-            ax2.tick_params(axis='x', rotation=45)
-            plt.tight_layout()
-            st.pyplot(fig2)
+            fig, ax = plt.subplots(figsize=(12, 6))
+            ax.plot(equity['date'], equity['equity'], color='green', linewidth=2)
+            ax.set_title('Portföy Değeri')
+            ax.set_ylabel('Equity ($)')
+            ax.grid(True, alpha=0.3)
+            st.pyplot(fig)
             
             st.subheader("📋 İşlem Listesi")
             display_trades = trades.copy()
             display_trades['entry_date'] = display_trades['entry_date'].dt.strftime('%Y-%m-%d')
             display_trades['exit_date'] = display_trades['exit_date'].dt.strftime('%Y-%m-%d')
-            display_trades['pnl'] = display_trades['pnl'].round(2)
-            display_trades['return_pct'] = display_trades['return_pct'].round(2)
             st.dataframe(display_trades)
             
         else:
@@ -456,4 +409,4 @@ if st.button("🎯 Backtest Çalıştır", type="primary"):
         st.error(f"❌ Hata: {str(e)}")
 
 st.markdown("---")
-st.markdown("**Swing Backtest Sistemi v3.0 | Profesyonel Strateji**")
+st.markdown("**Backtest Sistemi v3.0 | 5 İndikatörlü Strateji**")
