@@ -56,18 +56,18 @@ class SwingBacktest:
         df['MACD_Signal'] = df['MACD'].ewm(span=9, min_periods=1).mean()
         df['MACD_Hist'] = df['MACD'] - df['MACD_Signal']
         
-        # Bollinger Bands
-        df['BB_Middle'] = df['Close'].rolling(window=20, min_periods=1).mean()
+        # Bollinger Bands - DÜZELTİLDİ
+        bb_middle = df['Close'].rolling(window=20, min_periods=1).mean()
         bb_std = df['Close'].rolling(window=20, min_periods=1).std()
-        df['BB_Upper'] = df['BB_Middle'] + (bb_std * 2)
-        df['BB_Lower'] = df['BB_Middle'] - (bb_std * 2)
+        df['BB_Upper'] = bb_middle + (bb_std * 2)
+        df['BB_Lower'] = bb_middle - (bb_std * 2)
         
-        # Fibonacci
-        df['Recent_High'] = df['High'].rolling(window=20, min_periods=1).max()
-        df['Recent_Low'] = df['Low'].rolling(window=20, min_periods=1).min()
-        range_high_low = df['Recent_High'] - df['Recent_Low']
-        df['Fib_382'] = df['Recent_High'] - (range_high_low * 0.382)
-        df['Fib_618'] = df['Recent_High'] - (range_high_low * 0.618)
+        # Fibonacci - Basitleştirildi
+        recent_high = df['High'].rolling(window=20, min_periods=1).max()
+        recent_low = df['Low'].rolling(window=20, min_periods=1).min()
+        range_hl = recent_high - recent_low
+        df['Fib_382'] = recent_high - (range_hl * 0.382)
+        df['Fib_618'] = recent_high - (range_hl * 0.618)
         
         # ATR
         high_low = df['High'] - df['Low']
@@ -109,23 +109,23 @@ class SwingBacktest:
                 fib_382_val = float(row['Fib_382'])
                 fib_618_val = float(row['Fib_618'])
                 
-                # Koşullar
+                # Basit ve etkili koşullar
                 trend_ok = ema_20_val > ema_50_val
                 rsi_ok = rsi_val < rsi_oversold
                 macd_ok = macd_hist_val > 0
                 near_bb_lower = close_val <= bb_lower_val * 1.02
                 near_fib_618 = abs(close_val - fib_618_val) / fib_618_val < 0.02
+                near_fib_382 = abs(close_val - fib_382_val) / fib_382_val < 0.02
                 
-                # 4 Strateji
+                # 3 ana strateji
                 strategy1 = trend_ok and rsi_ok and near_bb_lower
                 strategy2 = trend_ok and rsi_ok and near_fib_618
-                strategy3 = trend_ok and macd_ok and near_bb_lower
-                strategy4 = trend_ok and macd_ok and near_fib_618
+                strategy3 = trend_ok and macd_ok and (near_bb_lower or near_fib_382)
                 
-                buy_signals = [strategy1, strategy2, strategy3, strategy4]
+                buy_signals = [strategy1, strategy2, strategy3]
                 confirmed_signals = sum(buy_signals)
                 
-                buy_signal = confirmed_signals >= 2
+                buy_signal = confirmed_signals >= 1  # En az 1 strateji onay vermeli
                 
                 if buy_signal:
                     stop_loss = close_val - (atr_val * atr_multiplier)
@@ -143,7 +143,7 @@ class SwingBacktest:
                         'action': 'hold'
                     })
                     
-            except:
+            except Exception as e:
                 signals.append({
                     'date': df.index[i],
                     'action': 'hold'
@@ -258,7 +258,6 @@ class SwingBacktest:
     
     def calculate_metrics(self, trades_df, equity_df):
         if trades_df.empty:
-            # SADECE STRING DÖNDÜR - HİÇ PANDAS SERIES YOK
             return {
                 'total_return': "0.0%",
                 'total_trades': "0",
@@ -279,7 +278,6 @@ class SwingBacktest:
             avg_win = float(trades_df[trades_df['pnl'] > 0]['pnl'].mean()) if winning_trades > 0 else 0.0
             avg_loss = float(trades_df[trades_df['pnl'] < 0]['pnl'].mean()) if (total_trades - winning_trades) > 0 else 0.0
             
-            # TÜM DEĞERLERİ STRING'E ÇEVİR
             return {
                 'total_return': f"{round(total_return, 2)}%",
                 'total_trades': str(total_trades),
@@ -341,7 +339,6 @@ if st.button("🎯 Backtest Çalıştır", type="primary"):
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            # SADECE STRING DEĞERLER - HİÇ HATA YOK
             st.metric("Toplam Getiri", metrics['total_return'])
             st.metric("Toplam İşlem", metrics['total_trades'])
         
