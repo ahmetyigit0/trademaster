@@ -253,9 +253,8 @@ class SwingBacktest:
             return pd.DataFrame(), pd.DataFrame()
     
     def calculate_metrics(self, trades_df, equity_df):
-        """Performans metrikleri - HATA DÜZELTİLMİŞ"""
+        """Performans metrikleri"""
         if trades_df.empty or equity_df.empty:
-            # Tüm değerleri float olarak döndür
             return {
                 'total_return_%': 0.0,
                 'total_trades': 0,
@@ -274,11 +273,9 @@ class SwingBacktest:
             winning_trades = len(trades_df[trades_df['pnl'] > 0])
             win_rate = float(winning_trades / total_trades * 100) if total_trades > 0 else 0.0
             
-            # Tüm değerleri float'a çevir
             avg_win = float(trades_df[trades_df['pnl'] > 0]['pnl'].mean()) if winning_trades > 0 else 0.0
             avg_loss = float(trades_df[trades_df['pnl'] < 0]['pnl'].mean()) if (total_trades - winning_trades) > 0 else 0.0
             
-            # Drawdown hesapla
             equity_series = equity_df.set_index('date')['equity']
             rolling_max = equity_series.expanding().max()
             drawdown = (equity_series - rolling_max) / rolling_max * 100
@@ -309,7 +306,7 @@ class SwingBacktest:
 # =========================
 st.set_page_config(page_title="Swing Backtest", layout="wide")
 st.title("🚀 Swing Trading Backtest")
-st.markdown("**Format Hatası Düzeltildi**")
+st.markdown("**Syntax Hatası Düzeltildi**")
 
 # Sidebar
 st.sidebar.header("⚙️ Ayarlar")
@@ -320,153 +317,79 @@ end_date = st.sidebar.date_input("Bitiş", datetime(2023, 12, 31))
 st.sidebar.header("📊 Parametreler")
 rsi_oversold = st.sidebar.slider("RSI Aşırı Satım", 25, 50, 40)
 atr_multiplier = st.sidebar.slider("ATR Çarpanı", 1.0, 3.0, 2.0)
-risk_per_trade = st.sidebar.slider("Risk %", 1.0.0, 5., 5.0, 2.0, 2.0) /0) / 100
-
-# Ana iç 100
+risk_per_trade = st.sidebar.slider("Risk %", 1.0, 5.0, 2.0) / 100  # DÜZELTİLDİ
 
 # Ana içerik
-iferik
-if st.button("🎯 Back st.button("🎯 Backtest Çalışttest Çalıştır", type="primaryır", type="primary"):
-   "):
+if st.button("🎯 Backtest Çalıştır", type="primary"):
     try:
-        with try:
-        with st.sp st.spinner("Veriinner("Veri yükleniy yükleniyor..."):
-            extendedor..."):
-            extended_start = start_start = start_date -_date - timedelta timedelta(days=100(days=100)
-            data)
-            data = yf = yf.download.download(ticker, start(ticker, start=ext=extended_start, endended_start, end=end=end_date, progress=False)
-_date, progress=False)
+        with st.spinner("Veri yükleniyor..."):
+            extended_start = start_date - timedelta(days=100)
+            data = yf.download(ticker, start=extended_start, end=end_date, progress=False)
             
-            
-            if data            if data.empty.empty:
-                st.error(":
-                st.error("❌ Veri bulunam❌ Veri bulunamadadı")
-                st.stopı")
+            if data.empty:
+                st.error("❌ Veri bulunamadı")
                 st.stop()
             
-()
+            data = data[data.index >= pd.to_datetime(start_date)]
+            data = data[data.index <= pd.to_datetime(end_date)]
             
-            data = data            data = data[data.index >= pd.to_datetime[data.index >= pd.to_dat(start_date)]
-            dataetime(start_date)]
-            = data[data.index <= data = data[data.index <= pd.to_datetime(end_date pd.to_datetime(end_date)]
-            
-            st.success(f")]
-            
-            st.success(f"✅ {len(data)} g✅ {len(data)} günlük veri yünlük veri yüklendi")
-           üklendi")
-            st.info(f"📈 st.info(f"📈 Fiyat aralığı: ${data['Close Fiyat aralığı: ${data['Close'].min():.'].min():.2f} - ${data['Close'].max():.2f} - ${data['Close'].max():.2f}")
-        
-        backtester = Swing2f}")
+            st.success(f"✅ {len(data)} günlük veri yüklendi")
+            st.info(f"📈 Fiyat aralığı: ${data['Close'].min():.2f} - ${data['Close'].max():.2f}")
         
         backtester = SwingBacktest()
         
-Backtest()
-        
-        with        with st.spinner(" st.spinner("BacktestBacktest çalışt çalıştırıırılıyor..."):
-lıyor..."):
-            trades            trades, equity, equity = backtester.run_backtest(data, rsi_oversold, atr_multiplier, = backtester.run_backtest(data, rsi_oversold, atr_multiplier risk, risk_per_trade_per_trade)
-            metrics = backtester.calculate_)
+        with st.spinner("Backtest çalıştırılıyor..."):
+            trades, equity = backtester.run_backtest(data, rsi_oversold, atr_multiplier, risk_per_trade)
             metrics = backtester.calculate_metrics(trades, equity)
         
-        stmetrics(trades, equity)
+        st.subheader("📊 Performans Özeti")
+        col1, col2, col3 = st.columns(3)
         
-        st.subheader("📊 Perform.subheader("📊 Performans Özeti")
-       ans Özeti")
-        col1, col2, col1, col2, col3 = st.columns( col3 = st.columns(3)
-        
-       3)
-        
-        with with col1:
-            # col1:
-            # Tüm değ Tüm değererleri string formatına çleri string formatına çevir
-            st.metricevir
-            st.metric("("Toplam Getiri", f"{metricsToplam Getiri", f"{metrics['['total_return_%']}%")
-           total_return_%']}%")
-            st st.metric(".metric("Toplam İşlem", f"{metrics['total_trades']}")
-        
-Toplam İşlem", f"{metrics['total_trades']}")
+        with col1:
+            st.metric("Toplam Getiri", f"{metrics['total_return_%']}%")
+            st.metric("Toplam İşlem", f"{metrics['total_trades']}")
         
         with col2:
-                   with col2:
-            st.metric("Win Rate", st.metric("Win Rate", f"{metrics['win_rate f"{metrics['win_rate_%']}%_%']}%")
-            st.metric")
-            st.metric("O("Ortrt. Kazanç", f"${metrics['avg. Kazanç", f"${metrics['avg_win']:._win']:.2f}")
-        
-        with col32f}")
+            st.metric("Win Rate", f"{metrics['win_rate_%']}%")
+            st.metric("Ort. Kazanç", f"${metrics['avg_win']:.2f}")
         
         with col3:
-            st.m:
-            st.metric("Ort. Kayetric("Ortıp", f"${. Kayıp", fmetrics['avg_loss']:."${metrics['avg_loss']:.2f2f}")
-           }")
-            st.metric(" st.metric("Max DrawMax Drawdowndown",", f"{metrics['max_draw f"{metrics['max_drawdown_%']}%")
-        
-       down_%']}%")
+            st.metric("Ort. Kayıp", f"${metrics['avg_loss']:.2f}")
+            st.metric("Max Drawdown", f"{metrics['max_drawdown_%']}%")
         
         if not trades.empty:
-            st.subheader(" if not trades.empty:
-            st.subheader("📈 Performans📈 Performans Grafikleri")
+            st.subheader("📈 Performans Grafikleri")
             
-            fig, Grafikleri")
+            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
             
- (ax1, ax2            fig, (ax1, ax2)) = plt.subplots( = plt.subplots(2,2, 1, fig 1, figsize=(size=(12, 812, 8))
+            ax1.plot(equity['date'], equity['equity'], color='green', linewidth=2)
+            ax1.set_title('Portföy Değeri')
+            ax1.set_ylabel('Equity ($)')
+            ax1.grid(True, alpha=0.3)
             
-))
+            equity_series = equity.set_index('date')['equity']
+            rolling_max = equity_series.expanding().max()
+            drawdown = (equity_series - rolling_max) / rolling_max * 100
             
-            ax1.plot            ax1.plot(equ(equity['date'],ity['date'], equity['equity'], color='green', line equity['equity'], color='green', linewidth=2width=2)
-            ax)
-            ax1.set_title('1Portföy Değeri')
-.set_title('Portföy            ax1.set_ylabel(' Değeri')
-            ax1.set_ylabel('Equity ($)Equity ($)')
-           ')
-            ax1.grid(True ax1.grid(True, alpha=0., alpha=0.3)
+            ax2.fill_between(equity['date'], drawdown.values, 0, alpha=0.3, color='red')
+            ax2.set_title('Drawdown')
+            ax2.set_ylabel('Drawdown %')
+            ax2.grid(True, alpha=0.3)
             
-            equity_3)
-            
-            equity_series = equityseries = equity.set_index('date')['.set_index('date')['equity']
-equity']
-            rolling_max = equity_            rolling_max = equity_seriesseries.expanding().max()
-.expanding().max()
-            draw            drawdown = (down = (equityequity_series -_series - rolling_max rolling_max) / rolling_max) / rolling_max *  * 100
-            
-            ax100
-            
-            ax2.fill2.fill_between(equity_between(equity['['date'], drawdowndate'], drawdown.values,.values, 0 0, alpha=0.3, color, alpha=0.3, color='red')
-            ax2.set='red')
-            ax2_title('Drawdown')
-            ax.set_title('Drawdown')
-           2.set_ylabel('Draw ax2.set_ylabel('Drawdown %')
-down %')
-            ax2.grid(            ax2.grid(True, alpha=0.3)
-True, alpha=0.3)
-            
-            plt.tight_layout            
             plt.tight_layout()
-            st.pyplot(fig()
             st.pyplot(fig)
             
-            st)
-            
-            st.subheader("📋 İ.subheader("📋 İşlem Listesi")
-           şlem Listesi")
-            display_trades = trades.copy display_trades = trades.copy()
-            display()
-            display_trades['_trades['entry_date'] = display_tentry_date'] = display_tradesrades['entry_date'].dt['entry_date'].dt.strftime.strftime('%Y-%m('%Y-%m-%-%d')
-            display_td')
-            display_trades['rades['exit_date'] =exit_date'] = display_trades['exit_date display_trades['exit_date'].dt.strftime('%Y-%m'].dt.strftime('%Y-%m-%d')
-            st-%d')
+            st.subheader("📋 İşlem Listesi")
+            display_trades = trades.copy()
+            display_trades['entry_date'] = display_trades['entry_date'].dt.strftime('%Y-%m-%d')
+            display_trades['exit_date'] = display_trades['exit_date'].dt.strftime('%Y-%m-%d')
             st.dataframe(display_trades)
             
         else:
             st.warning("""
-           .dataframe(display_trades)
-            
-        else:
-            st.warning("""
-            **🤔 Hala iş **🤔 Hala işlemlem yok! Şunları yok! Şunları den deneyin:**eyin:**
-           
-            - RSI değ - RSI değerinierini 45-50 45-50'ye ç'ye çıkarıkarın
-           ın
-            - BTC- - BTC-USD veyaUSD veya TS TSLA gibiLA gibi volatil semboller deneyin
+            **🤔 Hala işlem yok! Şunları deneyin:**
+            - RSI değerini 45-50'ye çıkarın
+            - BTC-USD veya TSLA gibi volatil semboller deneyin
             - Tarih aralığını 2020-2023 yapın
             """)
             
@@ -474,12 +397,4 @@ True, alpha=0.3)
         st.error(f"❌ Hata: {str(e)}")
 
 st.markdown("---")
-st.markdown("** volatil semboller deneyin
-            - Tarih aralığını 2020-2023 yapın
-            """)
-            
-    except Exception as e:
-        st.error(f"❌ Hata: {str(e)}")
-
-st.markdown("---")
-st.markdown("**SSwing Backtest v3wing Backtest v3..0 | Format Hatası0 | Format Hatası Çözüldü Çözüldü**")
+st.markdown("**Swing Backtest v4.0 | Syntax Hatası Çözüldü**")
