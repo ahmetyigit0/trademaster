@@ -215,104 +215,217 @@ class SwingBacktest:
     
     def calculate_metrics(self, trades_df, equity_df):
         if trades_df.empty:
+            # Basit değerler döndür - HİÇ PANDAS SERIES YOK
             return {
-                'total_return': 0.0,
-                'total_trades': 0,
-                'win_rate': 0.0,
-                'avg_win': 0.0,
-                'avg_loss': 0.0
+                'total_return': "0.0%",
+                'total_trades': "0",
+                'win_rate': "0.0%",
+                'avg_win': "$0.00",
+                'avg_loss': "$0.00"
             }
         
-        initial_equity = 10000.0
-        final_equity = float(equity_df['equity'].iloc[-1])
-        total_return = (final_equity - initial_equity) / initial_equity * 100.0
-        
-        total_trades = len(trades_df)
-        winning_trades = len(trades_df[trades_df['pnl'] > 0])
-        win_rate = (winning_trades / total_trades) * 100.0 if total_trades > 0 else 0.0
-        
-        avg_win = float(trades_df[trades_df['pnl'] > 0]['pnl'].mean()) if winning_trades > 0 else 0.0
-        avg_loss = float(trades_df[trades_df['pnl'] < 0]['pnl'].mean()) if (total_trades - winning_trades) > 0 else 0.0
-        
-        return {
-            'total_return': round(total_return, 2),
-            'total_trades': total_trades,
-            'win_rate': round(win_rate, 1),
-            'avg_win': round(avg_win, 2),
-            'avg_loss': round(avg_loss, 2)
-        }
+        try:
+            initial_equity = 10000.0
+            final_equity = = float(equity_df[' float(equity_df['equity'].iloc[-equity'].iloc[-1])
+            total_return =1])
+            total_return = ( (final_equity -final_equity - initial_ initial_equity) /equity) / initial_ initial_equity * 100.equity * 100.0
+            
+            total_trades0
+            
+            total_trades = len(trades_df)
+ = len(trades_df)
+            winning_trades = len            winning_trades = len(t(trades_df[trades_df['rades_df[trades_df['pnpnl'] > l'] > 00])
+            win_rate =])
+            win_rate = ( (winwinning_trades / total_trades) *ning_trades / total_trades) * 100.0 if total_trades > 0 100.0 if total_trades > else  0 else 0.0
+            
+            avg_win0.0
+            
+            avg_win = float(trades = float(trades_df[trades_df_df[trades_df['pn['pnl'] > 0]['pnl'].mean()) if winning_trades >l'] > 0]['pnl'].mean()) if winning_trades > 0 else  0 else 0.0.0
+            avg0
+            avg_loss =_loss = float(trades_df float(trades_df[trades[trades_df['pnl'] < 0]['pnl'].mean()) if (_df['pnl'] < 0]['pnl'].mean()) if (total_trades - winning_tradestotal_trades - winning_trades) > 0 else ) > 0 else 0.0
+            
+            # H0.0
+            
+            # HATAATA Ç ÇÖZÖZÜMÜ: Tüm değÜMÜ: Tüm değerleri stringerleri string olarak döndür
+            olarak döndür
+            return {
+ return {
+                'total_return': f"{round                'total_return': f"{round(total_return, (total_return, 2)}%",
+                'total2)}%",
+                'total_t_trades': str(total_trades': str(total_trades),
+rades),
+                'win_rate                'win_rate': f"{round(win_rate': f"{round(win_rate,, 1)}%",
+                1)}%",
+                'avg_win': f 'avg_win': f"${"${round(avg_round(avg_win,win, 2)}",
+ 2)}",
+                '                'avg_loss': favg_loss': f"${"${round(avg_lossround(avg_loss, , 2)}"
+            }
+2)}"
+            }
+            
+            
+        except:
+        except:
+            return            return {
+                'total {
+                'total_return':_return': "0.0 "0.0%",
+%",
+                'total_t                'total_trades':rades': "0",
+                ' "0",
+                'win_ratewin_rate':': "0.0 "0.0%",
+                'avg_%",
+                'avg_win':win': "$0.00 "$0.00",
+               ",
+                'avg_loss': "$ 'avg_loss': "$00.00"
+            }
+
+#.00"
+            }
 
 # =========================
-# STREAMLIT UYGULAMASI
+# STREAML =========================
+# STREAMLIT UYGIT UYGULAMASI
 # =========================
-st.set_page_config(page_title="Swing Backtest", layout="wide")
+st.set_page_config(page_titleULAMASI
+# =========================
+st.set_page_config(page_title="Swing Backtest",="Swing Backtest", layout=" layout="widewide")
+st.title("🚀 Swing Trading")
 st.title("🚀 Swing Trading Backtest")
 
-# Sidebar
-st.sidebar.header("⚙️ Ayarlar")
-ticker = st.sidebar.selectbox("Sembol", ["AAPL", "GOOGL", "MSFT", "TSLA", "BTC-USD", "ETH-USD"])
-start_date = st.sidebar.date_input("Başlangıç", datetime(2023, 1, 1))
-end_date = st.sidebar.date_input("Bitiş", datetime(2023, 12, 31))
+ Backtest")
 
-st.sidebar.header("📊 Parametreler")
-rsi_oversold = st.sidebar.slider("RSI Aşırı Satım", 25, 50, 40)
-atr_multiplier = st.sidebar.slider("ATR Çarpanı", 1.0, 3.0, 2.0)
-risk_per_trade = st.sidebar.slider("Risk %", 1.0, 5.0, 2.0) / 100
+# Sidebar
+st.sidebar.header("# Sidebar
+st.sidebar.header("⚙️ Ay⚙️ Ayarlararlar")
+ticker =")
+ticker = st.sidebar.selectbox("Sembol", st.sidebar.selectbox("Sembol", ["AAPL", ["AAPL", "GOOG "GOOGL",L", "MSFT", " "MSFT", "TSTSLA", "BTC-USDLA", "BTC-USD", "ETH-USD"])
+", "ETH-USD"])
+start_datestart_date = st.side = st.sidebar.date_input("Başlangıbar.date_input("Başlangıç", datetime(202ç", datetime(2023, 3, 1, 11, 1))
+end))
+end_date =_date = st.s st.sidebar.date_inputidebar.date_input("Bitiş", datetime(202("Bitiş", datetime(2023,3, 12 12, 31))
+
+, 31))
+
+st.sst.sidebar.header("idebar.header("📊📊 Parametreler")
+ Parametreler")
+rsi_rsi_oversold =oversold = st st.sidebar.slider.sidebar.slider("RS("RSI AşırI Aşırı Satımı Satım", 25", 25, , 50,50, 40)
+at 40)
+atr_multr_multiplier = stiplier = st.side.sidebar.sliderbar.slider("ATR Ç("ATR Çarpanarpanı", 1.ı", 1.00, 3.0, 3.0, 2, 2.0)
+risk.0)
+risk_per_t_per_trade = st.srade = st.sidebaridebar.slider(".slider("Risk %", Risk %", 1.0, 5.1.0, 5.0,0, 2.0) / 2.0) / 100
+
+ 100
 
 # Ana içerik
-if st.button("🎯 Backtest Çalıştır"):
+if# Ana içerik
+if st.button st.button("🎯 Backtest Çal("🎯 Backtest Çalıştır"):
     try:
-        with st.spinner("Veri yükleniyor..."):
-            data = yf.download(ticker, start=start_date, end=end_date, progress=False)
+       ıştır"):
+    try:
+        with st with st.spinner("Ver.spinner("Veri yi yükleniyorükleniyor..."):
+..."):
+            data = yf.download(ticker            data = yf.download(ticker, start=, start=start_date, endstart_date, end=end=end_date, progress=False)
             
-            if data.empty:
-                st.error("❌ Veri bulunamadı")
+_date, progress=False)
+            
+                       if if data.empty data.empty:
+                st.error("❌ Veri bulun:
+                st.error("❌ Veriamadı")
                 st.stop()
             
-            st.success(f"✅ {len(data)} günlük veri yüklendi")
+ bulunamadı")
+                st.stop()
+            
+            st.success(f"✅ {len            st.success(f"✅ {len(data)} günlük(data)} günlük veri yü veri yüklendi")
+        
+        backtklendi")
         
         backtester = SwingBacktest()
+ester = SwingBacktest()
         
-        with st.spinner("Backtest çalıştırılıyor..."):
-            trades, equity = backtester.run_backtest(data, rsi_oversold, atr_multiplier, risk_per_trade)
-            metrics = backtester.calculate_metrics(trades, equity)
+        with st.sp        
+        with st.spinner("Backtest çalıştinner("Backtest çalıştırılıyor..."):
+ırılıyor..."):
+            trades, equity = backt            trades, equity = backtester.run_backtest(data, rsi_oversold, atr_multiplier, riskester.run_backtest(data, rsi_oversold, atr_multiplier, risk_per_trade)
+            metrics_per_trade)
+            metrics = back = backtester.calculatetester.calculate_metrics_metrics(trades, equity(trades, equity)
         
-        st.subheader("📊 Performans Özeti")
-        col1, col2, col3 = st.columns(3)
+)
         
-        with col1:
-            # HATA DÜZELTME: Tüm değerleri string olarak gönder
-            st.metric("Toplam Getiri", f"{metrics['total_return']}%")
-            st.metric("Toplam İşlem", str(metrics['total_trades']))
+        st.subheader("        st.subheader("📊 Performans Özeti📊 Performans Özeti")
+")
+        col1, col        col1, col2,2, col3 = st col3 = st.columns(.columns(3)
+        
+        with3)
+        
+        with col col1:
+            # ARTIK SADECE STRING1:
+            # ARTIK SADECE STRING DEĞERLER DEĞERLER
+            st.metric("
+            st.metric("Toplam Getiri", metricsToplam Getiri", metrics['['total_return'])
+            st.mtotal_return'])
+            st.metric("Toplametric("Toplam İ İşlem", metrics['şlem", metrics['total_tradestotal_trades'])
+        
+        with col'])
         
         with col2:
-            st.metric("Win Rate", f"{metrics['win_rate']}%")
-            st.metric("Ort. Kazanç", f"${metrics['avg_win']:.2f}")
+2:
+            st.metric            st.metric("Win Rate",("Win Rate", metrics['win_rate metrics['win_rate'])
+            st'])
+            st.metric(".metric("Ort.Ort. Kazanç Kazanç", metrics['avg", metrics['avg_win_win'])
         
-        with col3:
-            st.metric("Ort. Kayıp", f"${metrics['avg_loss']:.2f}")
+        with'])
         
-        if not trades.empty:
-            st.subheader("📈 Performans Grafikleri")
+        with col3 col3:
+            st.m:
+            st.metric("etric("Ort. KayOrt. Kayıpıp", metrics['avg_loss", metrics['avg_loss'])
+        
+       '])
+        
+        if not trades if not trades.empty.empty:
+            st.subheader(":
+            st.subheader("📈📈 Performans Grafik Performans Grafikleri")
+leri")
             
-            fig, ax = plt.subplots(figsize=(12, 6))
-            ax.plot(equity['date'], equity['equity'], color='green', linewidth=2)
+            fig, ax            
+            fig, ax = = plt.subplots(f plt.subplots(figsizeigsize=(12,=(12, 6 6))
+))
+            ax.plot            ax.plot(equ(equity['date'], equity['equity['date'], equity['equity'], color='green', linewidth=2)
+ity'], color='green', linewidth=2            ax.set_title('Portfö)
             ax.set_title('Portföy Değeri')
-            ax.set_ylabel('Equity ($)')
+           y Değeri')
+            ax.set_ylabel('Equ ax.set_ylabel('Equity ($)')
+            ax.grid(True, alpha=0.ity ($)')
             ax.grid(True, alpha=0.3)
+            st.pyplot(f3)
             st.pyplot(fig)
             
-            st.subheader("📋 İşlem Listesi")
+            st.subig)
+            
+            st.subheader("📋 İşlemheader("📋 İşlem Listesi")
+            display_trades Listesi")
             display_trades = trades.copy()
-            display_trades['entry_date'] = display_trades['entry_date'].dt.strftime('%Y-%m-%d')
-            display_trades['exit_date'] = display_trades['exit_date'].dt.strftime('%Y-%m-%d')
-            st.dataframe(display_trades)
+ = trades.copy()
+            display_trades            display_trades['entry_date'] = display['entry_date'] = display_trades['entry_date'].dt.strftime_trades['entry_date'].dt('%Y-%m-%d')
+            display_trades['exit.strftime('%Y-%m-%d')
+            display_trades['exit_date']_date'] = display = display_trades['exit_date']._trades['exit_date'].dt.strftime('%Y-%m-%ddt.strftime('%Y-%m-%d')
+            st.data')
+            st.dataframe(frame(display_trades)
             
         else:
-            st.info("🤷 Hiç işlem gerçekleşmedi.")
+           display_trades)
             
-    except Exception as e:
-        st.error(f"❌ Hata: {str(e)}")
+        else:
+            st.info st.info("🤷 Hi("🤷 Hiç iç işlem gerçşlem gerçekleşekleşmedi.")
+            
+medi.")
+            
+    except Exception as    except Exception as e:
+        e:
+        st.error(f st.error(f"❌ H"❌ Hata: {str(e)}")
 
-st.markdown("---")
-st.markdown("**Backtest Sistemi**")
+stata: {str(e)}")
+
+st.markdown.markdown("("---")
+st.markdown("**Back---")
+st.markdown("**Backtest Stest Sistemi**")
