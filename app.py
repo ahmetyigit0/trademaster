@@ -66,7 +66,7 @@ class SwingBacktest:
             if c not in d.columns:
                 raise ValueError(f"Girdi verisinde '{c}' kolonu yok.")
             d[c] = self._num(d[c])
-        
+            
         d["EMA_20"] = d["Close"].ewm(span=20, min_periods=1, adjust=False).mean()
         d["EMA_50"] = d["Close"].ewm(span=50, min_periods=1, adjust=False).mean()
         
@@ -101,7 +101,7 @@ class SwingBacktest:
             
             trend_ok = ema20 > ema50
             rsi_ok = rsi_val < float(rsi_oversold)
-            price_ok = close_val > ema20
+            price_ok = close_val > ema20 # Yeni sinyal eklemesi
             
             is_buy = bool(trend_ok and rsi_ok and price_ok)
             if is_buy:
@@ -118,10 +118,11 @@ class SwingBacktest:
                 "stop_loss": sl,
                 "take_profit": tp
             })
-        
+            
         sig = pd.DataFrame(rows)
         if sig.empty:
             return sig
+        # Aynı tarihlerde birden fazla sinyal oluşursa en sonuncusunu al
         sig = sig.set_index("date").groupby(level=0).last()
         return sig
     
@@ -136,25 +137,32 @@ class SwingBacktest:
         
         for date in df.index:
             price = float(df.loc[date, "Close"])
+            
             current_equity = capital + (position["shares"] * price if position is not None else 0.0)
             equity_curve.append({"date": date, "equity": current_equity})
             
             sig = None
             if date in sigs.index:
                 row = sigs.loc[date]
+                
+                # *** HATA DÜZELTMESİ BURADA ***
                 if isinstance(row, pd.DataFrame):
-                    row = row.iloc[-1]
-                sig = row
-            
+                    sig = row.iloc[-1] # DataFrame ise son satırı al (Series)
+                elif isinstance(row, pd.Series):
+                    sig = row # Series ise doğrudan kullan
+                
             if position is None:
                 is_buy = bool(sig["is_buy"]) if sig is not None and "is_buy" in sig else False
+                
                 if is_buy:
                     sl = float(sig["stop_loss"])
                     risk_per_share = price - sl
-                    if risk_per_share <= 0:
-                        continue
+                    
+                    if risk_per_share <= 0: continue
+                    
                     risk_amt = capital * float(risk_per_trade)
                     shares = max(risk_amt / risk_per_share, 0.0)
+                    
                     if shares > 0:
                         cost = shares * price
                         fee = cost * self.commission
@@ -195,6 +203,7 @@ class SwingBacktest:
                     })
                     position = None
         
+        # Kapanış pozisyonu (Dönem sonu)
         if position is not None:
             last_price = float(df["Close"].iloc[-1])
             exit_value = position["shares"] * last_price
@@ -215,7 +224,7 @@ class SwingBacktest:
                 "return_pct": float(pnl / (entry_value + entry_fee) * 100.0) if entry_value > 0 else 0.0,
                 "exit_reason": "OPEN"
             })
-        
+            
         trades_df = pd.DataFrame(trades) if trades else pd.DataFrame()
         equity_df = pd.DataFrame(equity_curve)
         return trades_df, equity_df
@@ -277,12 +286,12 @@ if st.button("🎯 Backtest Çalıştır", type="primary"):
             data = data[(data.index >= pd.to_datetime(start_date)) & (data.index <= pd.to_datetime(end_date))]
             st.success(f"✅ {len(data)} günlük veri yüklendi")
             st.info(f"📈 Fiyat aralığı: {fmt(data['Close'].min(),2,prefix='$')} - {fmt(data['Close'].max(),2,prefix='$')}")
-        
+            
         backtester = SwingBacktest(commission=0.001)
         with st.spinner("Backtest çalıştırılıyor..."):
             trades, equity = backtester.run_backtest(data, rsi_oversold, atr_multiplier, risk_per_trade)
             metrics = backtester.calculate_metrics(trades, equity)
-        
+            
         st.subheader("📊 Performans Özeti")
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -293,7 +302,7 @@ if st.button("🎯 Backtest Çalıştır", type="primary"):
             st.metric("Ort. Kazanç", metrics['avg_win'])
         with col3:
             st.metric("Ort. Kayıp", metrics['avg_loss'])
-        
+            
         if not trades.empty and not equity.empty:
             st.subheader("📈 Performans Grafiği")
             fig, ax = plt.subplots(figsize=(12, 6))
