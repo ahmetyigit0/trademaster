@@ -67,6 +67,37 @@ class AdvancedSwingBacktest:
         rs = gain / loss
         df['RSI'] = 100 - (100 / (1 + rs))
         
-        # Bollinger Bands
+        # Bollinger Bands - HATA DÜZELTİLDİ!
         period = 20
-        df['BB_MA'] = df['Close'].
+        df['BB_MA'] = df['Close'].rolling(window=period).mean()
+        df['BB_STD'] = df['Close'].rolling(window=period).std()
+        df['BB_Upper'] = df['BB_MA'] + (df['BB_STD'] * 2)
+        df['BB_Lower'] = df['BB_MA'] - (df['BB_STD'] * 2)
+        
+        # MACD
+        ema_12 = df['Close'].ewm(span=12, adjust=False).mean()
+        ema_26 = df['Close'].ewm(span=26, adjust=False).mean()
+        df['MACD'] = ema_12 - ema_26
+        df['Signal_Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
+        
+        # Fibonacci
+        window_fib = 50
+        high_50 = df['High'].rolling(window=window_fib).max()
+        low_50 = df['Low'].rolling(window=window_fib).min()
+        df['Fib_382'] = low_50 + (high_50 - low_50) * 0.382
+        
+        # Volume
+        df['Volume_SMA'] = df['Volume'].rolling(window=20).mean()
+        df['Volume_Ratio'] = df['Volume'] / df['Volume_SMA']
+        
+        # NaN Doldurma
+        df = df.fillna(method='bfill').fillna(method='ffill')
+        return df
+    
+    def generate_signals(self, df, params):
+        df_copy = df.copy()
+        
+        # Koşullar
+        trend_up = df_copy['EMA_20'] > df_copy['EMA_50']
+        rsi_oversold = df_copy['RSI'] < params['rsi_oversold']
+        bb_support = df_copy['Close'] <= df_copy['BB_Lower'] * 1.02
