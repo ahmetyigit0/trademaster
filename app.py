@@ -8,7 +8,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # =========================
-# ŞİFRE KORUMASI
+# ŞİFRE KORUMASI (Aynı kalıyor)
 # =========================
 def check_password():
     if "password_correct" not in st.session_state:
@@ -27,7 +27,7 @@ def check_password():
                 st.stop()
     
     if not st.session_state["password_correct"]:
-        st.markdown("### 🔐 Swing Backtest Sistemine Giriş")
+        st.markdown("### 🔐 Yeni Kombine Stratejiye Giriş")
         col1, col2 = st.columns([1, 2])
         with col1:
             st.text_input(
@@ -44,7 +44,7 @@ if not check_password():
     st.stop()
 
 # =========================
-# BACKTEST MOTORU - SADELEŞTİRİLMİŞ
+# BACKTEST MOTORU - KOMBINASYON STRATEJİSİ
 # =========================
 class SwingBacktest:
     def __init__(self):
@@ -55,24 +55,43 @@ class SwingBacktest:
         df = df.copy()
         
         try:
-            # SADECE 3 TEMEL GÖSTERGE - HEPsi GÜVENLİ
+            # 1. EMA'lar (Hızlı/Yavaş Trend)
+            df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
+            df['EMA_50'] = df['Close'].ewm(span=50, adjust=False).mean()
             
-            # 1. EMA'lar - Çok güvenilir
-            df['EMA_20'] = df['Close'].ewm(span=20).mean()
-            df['EMA_50'] = df['Close'].ewm(span=50).mean()
-            
-            # 2. RSI - Basit ve etkili
+            # 2. RSI (Momentum)
             delta = df['Close'].diff()
             gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
             loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
             rs = gain / loss
             df['RSI'] = 100 - (100 / (1 + rs))
             
-            # 3. Basit Price Channels (En basit hali)
-            df['Channel_High'] = df['High'].rolling(window=20).max()
-            df['Channel_Low'] = df['Low'].rolling(window=20).min()
+            # 3. Bollinger Bantları (Volatilite ve Kanal)
+            period = 20
+            df['BB_MA'] = df['Close'].rolling(window=period).mean()
+            df['BB_STD'] = df['Close'].rolling(window=period).std()
+            df['BB_Upper'] = df['BB_MA'] + (df['BB_STD'] * 2)
+            df['BB_Lower'] = df['BB_MA'] - (df['BB_STD'] * 2)
             
-            # NaN değerleri temizle
+            # 4. MACD (Daha derin momentum)
+            ema_12 = df['Close'].ewm(span=12, adjust=False).mean()
+            ema_26 = df['Close'].ewm(span=26, adjust=False).mean()
+            df['MACD'] = ema_12 - ema_26
+            df['Signal_Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
+            
+            # 5. Basitleştirilmiş Fibonacci (Son 50 günün %38.2 ve %61.8'i)
+            window_fib = 50
+            high_50 = df['High'].rolling(window=window_fib).max()
+            low_50 = df['Low'].rolling(window=window_fib).min()
+            
+            # Basit Fibonacci Geri Çekilme Seviyeleri (Destek olarak)
+            fib_382 = low_50 + (high_50 - low_50) * 0.382
+            fib_618 = low_50 + (high_50 - low_50) * 0.618
+            
+            df['Fib_Support_382'] = fib_382
+            df['Fib_Support_618'] = fib_618
+            
+            # NaN değerleri temizle (Tüm göstergeler için gerekli olan ilk 50 barı doldurur)
             df = df.fillna(method='bfill').fillna(method='ffill')
             
             return df
@@ -83,72 +102,82 @@ class SwingBacktest:
             df['EMA_20'] = df['Close']
             df['EMA_50'] = df['Close']
             df['RSI'] = 50
-            df['Channel_High'] = df['Close'] * 1.1
-            df['Channel_Low'] = df['Close'] * 0.9
+            df['BB_Lower'] = df['Close'] * 0.95
+            df['MACD'] = 0
             return df
     
     def generate_signals(self, df, params):
         signals = []
         
         for i in range(len(df)):
-            try:
-                if i < 20:
-                    signals.append({'date': df.index[i], 'action': 'hold'})
-                    continue
+            if i < 50: # Fibonacci ve BB için 50 bar bekler
+                signals.append({'date': df.index[i], 'action': 'hold'})
+                continue
                     
-                row = df.iloc[i]
+            row = df.iloc[i]
+            
+            close = row['Close']
+            ema_20 = row['EMA_20']
+            ema_50 = row['EMA_50']
+            rsi = row['RSI']
+            bb_lower = row['BB_Lower']
+            macd = row['MACD']
+            signal_line = row['Signal_Line']
+            fib_support = row['Fib_Support_382'] # %38.2 seviyesini destek olarak alalım
+            
+            # YÜKSEK SİNYAL KOMBİNASYONU:
+            
+            # 1. Trend Onayı (EMA: Uzun vadeli trend yukarıda mı?)
+            trend_up = ema_20 > ema_50
+            
+            # 2. Momentum Onayı (RSI aşırı satımda değil ama geri çekiliyor: 30-45 aralığı)
+            momentum_buy = rsi < params['rsi_oversold']
+            
+            # 3. Volatilite/Kanal Desteği (BB'nin alt bandına veya altına dokunuyor)
+            support_touch = close < bb_lower 
+            
+            # 4. Makro Destek (Fibonacci seviyesine yakın)
+            fib_support_hit = close <= fib_support * 1.01 # %1 toleransla
+            
+            # 5. MACD Sinyali (MACD çizgisi, Sinyal çizgisini aşağıdan yukarı kesti mi?)
+            # *Günün bir önceki barı kontrol etmeliyiz*
+            prev_row = df.iloc[i-1]
+            macd_cross_up = (macd > signal_line) and (prev_row['MACD'] <= prev_row['Signal_Line'])
+
+            
+            # ALIM KOŞULU: Trend yukarı + RSI geri çekilmede + Fiyat destekte (BB veya Fib) + MACD Kesişimi
+            buy_signal = (
+                trend_up and 
+                momentum_buy and 
+                (support_touch or fib_support_hit) and 
+                macd_cross_up
+            )
+            
+            if buy_signal:
+                # Risk yönetimi
+                risk_pct = 0.02  # %2 risk
+                stop_loss = close * (1 - risk_pct)
+                take_profit = close * (1 + (risk_pct * params['reward_ratio']))
                 
-                # Basit değer atamaları
-                close = row['Close']
-                ema_20 = row['EMA_20']
-                ema_50 = row['EMA_50']
-                rsi = row['RSI']
-                channel_low = row['Channel_Low']
-                
-                # BASİT ve ETKİLİ SİNYAL KOŞULLARI
-                
-                # 1. Trend koşulu
-                trend_up = ema_20 > ema_50
-                
-                # 2. Momentum koşulu
-                rsi_oversold = rsi < params['rsi_oversold']
-                
-                # 3. Destek seviyesi
-                near_support = close <= channel_low * 1.02
-                
-                # ÇOK BASİT STRATEJİ: Trend + Oversold + Destek
-                buy_signal = trend_up and rsi_oversold and near_support
-                
-                if buy_signal:
-                    # Basit risk yönetimi (ATR yerine yüzde bazlı)
-                    risk_pct = 0.02  # %2 risk
-                    stop_loss = close * (1 - risk_pct)
-                    take_profit = close * (1 + (risk_pct * params['reward_ratio']))
-                    
-                    signals.append({
-                        'date': df.index[i],
-                        'action': 'buy',
-                        'stop_loss': stop_loss,
-                        'take_profit': take_profit
-                    })
-                else:
-                    signals.append({
-                        'date': df.index[i],
-                        'action': 'hold'
-                    })
-                    
-            except Exception as e:
+                signals.append({
+                    'date': df.index[i],
+                    'action': 'buy',
+                    'stop_loss': stop_loss,
+                    'take_profit': take_profit
+                })
+            else:
                 signals.append({
                     'date': df.index[i],
                     'action': 'hold'
                 })
+                    
         
         signals_df = pd.DataFrame(signals)
         if not signals_df.empty:
             signals_df = signals_df.set_index('date')
         
         buy_count = len([s for s in signals if s.get('action') == 'buy'])
-        st.info(f"🎯 {buy_count} alış sinyali bulundu")
+        st.info(f"🎯 {buy_count} karmaşık alış sinyali bulundu")
         return signals_df
     
     def run_backtest(self, data, params):
@@ -198,27 +227,20 @@ class SwingBacktest:
                         capital -= shares * current_price
             
             elif position is not None:
+                # Çıkış Kontrolü (Her gün SL/TP kontrol edilir)
+                exited = False
                 if current_price <= position['stop_loss']:
                     exit_price = position['stop_loss']
-                    exit_value = position['shares'] * exit_price
-                    capital += exit_value
-                    
-                    entry_value = position['shares'] * position['entry_price']
-                    pnl = exit_value - entry_value
-                    
-                    trades.append({
-                        'entry_date': position['entry_date'],
-                        'exit_date': date,
-                        'entry_price': position['entry_price'],
-                        'exit_price': exit_price,
-                        'pnl': pnl,
-                        'return_pct': (pnl / entry_value) * 100,
-                        'exit_reason': 'SL'
-                    })
-                    position = None
+                    exit_reason = 'SL'
+                    exited = True
                 
                 elif current_price >= position['take_profit']:
                     exit_price = position['take_profit']
+                    exit_reason = 'TP'
+                    exited = True
+
+                # Eğer çıkış olduysa
+                if exited:
                     exit_value = position['shares'] * exit_price
                     capital += exit_value
                     
@@ -232,7 +254,7 @@ class SwingBacktest:
                         'exit_price': exit_price,
                         'pnl': pnl,
                         'return_pct': (pnl / entry_value) * 100,
-                        'exit_reason': 'TP'
+                        'exit_reason': exit_reason
                     })
                     position = None
         
@@ -275,10 +297,8 @@ class SwingBacktest:
             initial_equity = self.initial_capital
             final_equity = equity_df['equity'].iloc[-1]
             
-            # --- HATA BURADA DÜZELTİLDİ ---
-            # Toplam Getiri (yüzde olarak) hesaplanıyor
+            # DÜZELTİLMİŞ TOPLAM GETİRİ HESABI
             total_return = (final_equity - initial_equity) / initial_equity * 100 
-            # --- DÜZELTİLDİ ---
             
             total_trades = len(trades_df)
             winning_trades = len(trades_df[trades_df['pnl'] > 0])
@@ -295,7 +315,7 @@ class SwingBacktest:
                 'total_trades': str(total_trades),
                 'win_rate': f"{win_rate:.1f}%",
                 'avg_win': f"${avg_win:.2f}",
-                'avg_loss': f"${avg_loss:.2f}",
+                'avg_loss': f"${abs(avg_loss):.2f}", # Kayıp pozitif gösterilir
                 'best_trade': f"{best_trade:.2f}%",
                 'worst_trade': f"{worst_trade:.2f}%"
             }
@@ -315,9 +335,9 @@ class SwingBacktest:
 # =========================
 # STREAMLIT UYGULAMASI
 # =========================
-st.set_page_config(page_title="Swing Backtest", layout="wide")
-st.title("🚀 Swing Trading Backtest")
-st.markdown("**3 İndikatörlü Basit & Etkili Strateji - EMA, RSI, Price Channels**")
+st.set_page_config(page_title="Kombine Swing Backtest", layout="wide")
+st.title("🧠 Kombine Swing Trading Backtest")
+st.markdown("**5 Göstergeli Agresif Kombinasyon Stratejisi: EMA, RSI, BB, MACD, Fibonacci**")
 
 # Sidebar
 st.sidebar.header("⚙️ Ayarlar")
@@ -326,9 +346,9 @@ start_date = st.sidebar.date_input("Başlangıç", datetime(2023, 1, 1))
 end_date = st.sidebar.date_input("Bitiş", datetime(2024, 1, 1))
 
 st.sidebar.header("📊 Parametreler")
-rsi_oversold = st.sidebar.slider("RSI Aşırı Satım", 25, 45, 35)
-reward_ratio = st.sidebar.slider("Risk/Ödül Oranı", 1.5, 3.0, 2.0)
-risk_per_trade = st.sidebar.slider("Risk %", 1.0, 5.0, 2.0) / 100
+rsi_oversold = st.sidebar.slider("RSI Aşırı Satım (Buy Eşiği)", 25, 45, 30)
+reward_ratio = st.sidebar.slider("Risk/Ödül Oranı (TP Multiplier)", 1.5, 4.0, 2.5)
+risk_per_trade = st.sidebar.slider("Risk % (Pozisyon Büyüklüğü)", 1.0, 5.0, 1.5) / 100
 
 params = {
     'rsi_oversold': rsi_oversold,
@@ -337,10 +357,11 @@ params = {
 }
 
 # Ana içerik
-if st.button("🎯 Backtest Çalıştır", type="primary"):
+if st.button("🎯 Kombine Backtest Çalıştır", type="primary"):
     try:
         with st.spinner("Veri yükleniyor..."):
-            extended_start = start_date - timedelta(days=100)
+            # Ekstra veri çekimi (Fibonacci için uzun bir geçmiş gerekebilir)
+            extended_start = start_date - timedelta(days=150) 
             data = yf.download(ticker, start=extended_start, end=end_date, progress=False)
             
             if data.empty:
@@ -359,7 +380,7 @@ if st.button("🎯 Backtest Çalıştır", type="primary"):
             trades, equity = backtester.run_backtest(data, params)
             metrics = backtester.calculate_metrics(trades, equity)
         
-        st.subheader("📊 Performans Özeti")
+        st.subheader("📊 Performans Özeti (Kombine Strateji)")
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
@@ -377,12 +398,12 @@ if st.button("🎯 Backtest Çalıştır", type="primary"):
         with col4:
             st.metric("En Kötü İşlem", metrics['worst_trade'])
         
-        if not trades.empty and 'equity' in equity.columns: # equity kontrolü eklendi
+        if not trades.empty and 'equity' in equity.columns: 
             st.subheader("📈 Performans Grafikleri")
             
             # Equity Grafiği
             fig, ax = plt.subplots(figsize=(12, 6))
-            ax.plot(equity['date'], equity['equity'], color='green', linewidth=2)
+            ax.plot(equity['date'], equity['equity'], color='purple', linewidth=2) # Renk mor yapıldı
             ax.set_title(f'{ticker} Portföy Değeri')
             ax.set_ylabel('Equity ($)')
             ax.grid(True, alpha=0.3)
@@ -391,10 +412,8 @@ if st.button("🎯 Backtest Çalıştır", type="primary"):
             st.subheader("📋 İşlem Listesi")
             display_trades = trades.copy()
             
-            # Tarihleri okunabilir formata dönüştür
             if not display_trades.empty:
                 for col in ['entry_date', 'exit_date']:
-                    # DatetimeIndex'ten string'e dönüştürme kontrolü
                     if not display_trades[col].empty and isinstance(display_trades[col].iloc[0], (datetime, pd.Timestamp)):
                         display_trades[col] = display_trades[col].dt.strftime('%Y-%m-%d')
                     
@@ -407,10 +426,10 @@ if st.button("🎯 Backtest Çalıştır", type="primary"):
              st.info("🤷 İşlemler gerçekleşti ancak grafik verisi (equity) bulunamadı.")
 
         else:
-            st.info("🤷 Hiç işlem gerçekleşmedi. Parametreleri veya tarih aralığını değiştirmeyi deneyin.")
+            st.info("🤷 Hiç işlem gerçekleşmedi. Daha agresif parametreler (daha düşük RSI, daha yüksek Risk %) deneyin.")
             
     except Exception as e:
         st.error(f"❌ Hata: {str(e)}")
 
 st.markdown("---")
-st.markdown("**Backtest Sistemi v3.0 | 3 Güvenilir İndikatör**")
+st.markdown("**Backtest Sistemi v4.0 - 5'li Kombinasyon Stratejisi**")
