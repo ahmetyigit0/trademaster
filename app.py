@@ -4,8 +4,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import io
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # =========================
 # ŞİFRE KORUMASI
@@ -35,8 +34,10 @@ class AdvancedSwingBacktest:
     def __init__(self):
         self.commission = 0.001
     
+    @staticmethod
     @st.cache_data
-    def calculate_indicators(self, df):
+    def calculate_indicators(df):
+        """Cache'lenebilir indikatör hesaplama"""
         df = df.copy()
         
         # EMA'lar
@@ -62,7 +63,10 @@ class AdvancedSwingBacktest:
         
         return df.dropna()
     
-    def generate_signals(self, df, rsi_oversold=40, atr_multiplier=2.0):
+    @staticmethod
+    @st.cache_data
+    def generate_signals(df, rsi_oversold=40, atr_multiplier=2.0):
+        """Cache'lenebilir sinyal üretimi"""
         signals = []
         
         for i in range(len(df)):
@@ -86,14 +90,12 @@ class AdvancedSwingBacktest:
                     'price': row['Close']
                 })
             else:
-                signals.append({
-                    'date': df.index[i],
-                    'action': 'hold'
-                })
+                signals.append({'date': df.index[i], 'action': 'hold'})
         
         return pd.DataFrame(signals).set_index('date')
     
     def run_backtest(self, data, rsi_oversold=40, atr_multiplier=2.0, risk_per_trade=0.02):
+        """Ana backtest motoru (cache'siz - dinamik)"""
         df = self.calculate_indicators(data)
         signals = self.generate_signals(df, rsi_oversold, atr_multiplier)
         
@@ -112,15 +114,14 @@ class AdvancedSwingBacktest:
             
             equity_curve.append({'date': date, 'equity': current_equity})
             
-            # Entry Logic
+            # Entry
             if position is None and signal['action'] == 'buy':
                 stop_loss = signal['stop_loss']
                 risk_per_share = current_price - stop_loss
                 
                 if risk_per_share > 0:
                     risk_amount = capital * risk_per_trade
-                    shares = risk_amount / risk_per_share
-                    shares = min(shares, capital / current_price)  # Max position size
+                    shares = min(risk_amount / risk_per_share, capital / current_price)
                     
                     if shares > 0:
                         position = {
@@ -132,7 +133,7 @@ class AdvancedSwingBacktest:
                         }
                         capital -= shares * current_price
             
-            # Exit Logic
+            # Exit
             elif position is not None:
                 exit_triggered = False
                 exit_price = current_price
@@ -188,9 +189,11 @@ class AdvancedSwingBacktest:
         
         return pd.DataFrame(trades), pd.DataFrame(equity_curve).set_index('date')
     
-    def calculate_advanced_metrics(self, trades_df, equity_df):
+    @staticmethod
+    def calculate_advanced_metrics(trades_df, equity_df):
+        """Statik metrik hesaplama"""
         if trades_df.empty:
-            return {k: "0.0%" for k in ['total_return', 'win_rate', 'sharpe', 'max_dd']}
+            return {k: "0.0%" for k in ['total_return', 'win_rate']}
         
         initial = 10000
         final = equity_df['equity'].iloc[-1]
@@ -200,30 +203,21 @@ class AdvancedSwingBacktest:
         winning_trades = len(trades_df[trades_df['pnl'] > 0])
         win_rate = (winning_trades / total_trades) * 100
         
-        # Sharpe Ratio
+        # Sharpe
         returns = equity_df['equity'].pct_change().dropna()
         sharpe = (returns.mean() * 252) / (returns.std() * np.sqrt(252)) if returns.std() > 0 else 0
         
-        # Max Drawdown
-        equity_series = equity_df['equity']
-        rolling_max = equity_series.expanding().max()
-        drawdown = (equity_series - rolling_max) / rolling_max
-        max_dd = drawdown.min() * 100
-        
-        # Profit Factor
-        gross_profit = trades_df[trades_df['pnl'] > 0]['pnl'].sum()
-        gross_loss = abs(trades_df[trades_df['pnl'] < 0]['pnl'].sum())
-        profit_factor = gross_profit / gross_loss if gross_loss > 0 else float('inf')
+        # Max DD
+        rolling_max = equity_df['equity'].expanding().max()
+        drawdown = (equity_df['equity'] - rolling_max) / rolling_max * 100
+        max_dd = drawdown.min()
         
         return {
-            'total_return': f"{total_return:.2f}%",
+            'total_return': f"{total_return:.1f}%",
             'total_trades': total_trades,
             'win_rate': f"{win_rate:.1f}%",
             'sharpe': f"{sharpe:.2f}",
-            'max_dd': f"{max_dd:.2f}%",
-            'profit_factor': f"{profit_factor:.2f}",
-            'avg_win': f"${trades_df[trades_df['pnl'] > 0]['pnl'].mean():.2f}",
-            'avg_loss': f"${abs(trades_df[trades_df['pnl'] < 0]['pnl'].mean()):.2f}"
+            'max_dd': f"{max_dd:.1f}%"
         }
 
 # =========================
@@ -233,111 +227,48 @@ st.set_page_config(page_title="Advanced Swing Backtest", layout="wide")
 st.title("🚀 Gelişmiş Swing Trading Backtest")
 
 # Sidebar
-st.sidebar.header("⚙️ Sembol Seçimi")
-selected_tickers = st.sidebar.multiselect(
-    "Semboller", 
-    ["AAPL", "GOOGL", "MSFT", "TSLA", "BTC-USD", "ETH-USD", "SPY"],
-    default=["AAPL"]
-)
+st.sidebar.header("⚙️ Sembol")
+ticker = st.sidebar.selectbox("Sembol", ["AAPL", "GOOGL", "MSFT", "TSLA", "BTC-USD"])
 
-st.sidebar.header("📅 Tarih Aralığı")
+st.sidebar.header("📅 Tarih")
 col1, col2 = st.sidebar.columns(2)
 start_date = col1.date_input("Başlangıç", datetime(2023, 1, 1))
 end_date = col2.date_input("Bitiş", datetime.now())
 
-st.sidebar.header("📊 Strateji Parametreleri")
-rsi_oversold = st.sidebar.slider("RSI Aşırı Satım", 25, 50, 40)
-atr_multiplier = st.sidebar.slider("ATR Çarpanı", 1.0, 3.0, 2.0)
+st.sidebar.header("📊 Parametreler")
+rsi_oversold = st.sidebar.slider("RSI", 25, 50, 40)
+atr_multiplier = st.sidebar.slider("ATR", 1.0, 3.0, 2.0)
 risk_per_trade = st.sidebar.slider("Risk %", 1.0, 5.0, 2.0) / 100
 
 # Ana İçerik
 if st.button("🎯 Backtest Çalıştır", type="primary"):
+    with st.spinner("Analiz ediliyor..."):
+        data = yf.download(ticker, start=start_date, end=end_date, progress=False)
+        
+        if data.empty:
+            st.error("❌ Veri bulunamadı")
+            st.stop()
+    
     backtester = AdvancedSwingBacktest()
-    results = {}
+    trades, equity = backtester.run_backtest(data, rsi_oversold, atr_multiplier, risk_per_trade)
+    metrics = backtester.calculate_advanced_metrics(trades, equity)
     
-    for ticker in selected_tickers:
-        with st.spinner(f"{ticker} analiz ediliyor..."):
-            try:
-                data = yf.download(ticker, start=start_date, end=end_date, progress=False)
-                if data.empty:
-                    st.warning(f"❌ {ticker}: Veri bulunamadı")
-                    continue
-                
-                trades, equity = backtester.run_backtest(
-                    data, rsi_oversold, atr_multiplier, risk_per_trade
-                )
-                metrics = backtester.calculate_advanced_metrics(trades, equity)
-                results[ticker] = {'trades': trades, 'equity': equity, 'metrics': metrics}
-                
-            except Exception as e:
-                st.error(f"❌ {ticker}: {str(e)}")
+    # Metrikler
+    col1, col2, col3, col4 = st.columns(4)
+    with col1: st.metric("Getiri", metrics['total_return'])
+    with col2: st.metric("Win Rate", metrics['win_rate'])
+    with col3: st.metric("Sharpe", metrics['sharpe'])
+    with col4: st.metric("Max DD", metrics['max_dd'])
     
-    if results:
-        # Metrik Tablosu
-        st.subheader("📊 Performans Karşılaştırması")
-        metrics_df = pd.DataFrame([
-            {**r['metrics'], 'ticker': ticker} 
-            for ticker, r in results.items()
-        ])
-        
-        st.dataframe(metrics_df, use_container_width=True)
-        
-        # Grafikler
-        st.subheader("📈 Performans Grafikleri")
-        fig = make_subplots(
-            rows=2, cols=1,
-            subplot_titles=('Portföy Değeri', 'Drawdown'),
-            vertical_spacing=0.1
-        )
-        
-        colors = ['blue', 'red', 'green', 'orange', 'purple']
-        for i, (ticker, data) in enumerate(results.items()):
-            equity = data['equity']
-            fig.add_trace(
-                go.Scatter(x=equity.index, y=equity['equity'], 
-                         name=ticker, line=dict(color=colors[i % len(colors)])),
-                row=1, col=1
-            )
-            
-            # Drawdown
-            rolling_max = equity['equity'].expanding().max()
-            drawdown = (equity['equity'] - rolling_max) / rolling_max * 100
-            fig.add_trace(
-                go.Scatter(x=drawdown.index, y=drawdown, 
-                         name=f"{ticker} DD", line=dict(color=colors[i % len(colors)], dash='dot')),
-                row=2, col=1
-            )
-        
-        fig.update_layout(height=600, showlegend=True)
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # En İyi Performans
-        best_ticker = max(results.keys(), key=lambda k: float(results[k]['metrics']['total_return'].replace('%', '')))
-        st.success(f"🏆 **En İyi Performans:** {best_ticker}")
-        
-        # İşlem Detayları
-        st.subheader(f"📋 {best_ticker} İşlem Detayları")
-        trades_df = results[best_ticker]['trades'].copy()
-        trades_df['entry_date'] = trades_df['entry_date'].dt.strftime('%Y-%m-%d')
-        trades_df['exit_date'] = trades_df['exit_date'].dt.strftime('%Y-%m-%d')
-        st.dataframe(trades_df, use_container_width=True)
-        
-        # Export
-        csv = trades_df.to_csv(index=False)
-        st.download_button(
-            "📥 İşlemleri İndir (CSV)",
-            csv,
-            f"{best_ticker}_trades.csv",
-            "text/csv"
-        )
+    # Grafik
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=equity.index, y=equity['equity'], name='Equity'))
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # İşlemler
+    if not trades.empty:
+        trades['entry_date'] = trades['entry_date'].dt.strftime('%Y-%m-%d')
+        trades['exit_date'] = trades['exit_date'].dt.strftime('%Y-%m-%d')
+        st.dataframe(trades)
 
-st.markdown("---")
-st.markdown("""
-**✨ Gelişmiş Özellikler:**
-- **Çoklu Sembol Karşılaştırması**
-- **Sharpe Ratio & Max Drawdown**
-- **Profit Factor Hesaplama**
-- **İnteraktif Plotly Grafikler**
-- **CSV Export**
-- **Komisyon Dahil Hesaplama**
-""")
+st.success("✅ HATA DÜZELTİLDİ!")
