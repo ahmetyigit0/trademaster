@@ -220,4 +220,172 @@ class SwingBacktest:
         # Kapanış pozisyonu (Son gün)
         if position is not None:
             last_price = float(df_combined['Close'].iloc[-1])
-            exit
+            exit_value = position['shares'] * last_price
+            capital += exit_value
+            
+            entry_value = position['shares'] * position['entry_price']
+            pnl = exit_value - entry_value
+            
+            trades.append({
+                'entry_date': position['entry_date'],
+                'exit_date': df_combined.index[-1],
+                'entry_price': position['entry_price'],
+                'exit_price': last_price,
+                'pnl': pnl,
+                'return_pct': (pnl / entry_value) * 100,
+                'exit_reason': 'OPEN'
+            })
+        
+        trades_df = pd.DataFrame(trades) if trades else pd.DataFrame()
+        equity_df = pd.DataFrame(equity_curve)
+        
+        return trades_df, equity_df
+    
+    def calculate_metrics(self, trades_df, equity_df):
+        # Metrik hesaplama (Aynı)
+        if trades_df.empty:
+            return {
+                'total_return': "0.0%",
+                'total_trades': "0",
+                'win_rate': "0.0%",
+                'avg_win': "$0.00",
+                'avg_loss': "$0.00",
+                'best_trade': "0.0%",
+                'worst_trade': "0.0%"
+            }
+        
+        try:
+            initial_equity = self.initial_capital
+            final_equity = equity_df['equity'].iloc[-1]
+            
+            total_return = (final_equity - initial_equity) / initial_equity * 100 
+            
+            total_trades = len(trades_df)
+            winning_trades = len(trades_df[trades_df['pnl'] > 0])
+            win_rate = (winning_trades / total_trades) * 100 if total_trades > 0 else 0
+            
+            avg_win = trades_df[trades_df['pnl'] > 0]['pnl'].mean() if winning_trades > 0 else 0
+            avg_loss = trades_df[trades_df['pnl'] < 0]['pnl'].mean() if (total_trades - winning_trades) > 0 else 0
+            
+            best_trade = trades_df['return_pct'].max() if not trades_df.empty else 0
+            worst_trade = trades_df['return_pct'].min() if not trades_df.empty else 0
+            
+            return {
+                'total_return': f"{total_return:+.2f}%",
+                'total_trades': str(total_trades),
+                'win_rate': f"{win_rate:.1f}%",
+                'avg_win': f"${avg_win:.2f}",
+                'avg_loss': f"${abs(avg_loss):.2f}", 
+                'best_trade': f"{best_trade:.2f}%",
+                'worst_trade': f"{worst_trade:.2f}%"
+            }
+            
+        except Exception as e:
+            return {
+                'total_return': "HATA",
+                'total_trades': "HATA",
+                'win_rate': "HATA",
+                'avg_win': "HATA",
+                'avg_loss': "HATA",
+                'best_trade': "HATA",
+                'worst_trade': "HATA"
+            }
+
+# =========================
+# STREAMLIT UYGULAMASI
+# =========================
+st.set_page_config(page_title="Kombine Swing Backtest", layout="wide")
+st.title("🧠 Kombine Swing Trading Backtest")
+st.markdown("**5 Göstergeli Agresif Kombinasyon Stratejisi: EMA, RSI, BB, MACD, Fibonacci**")
+
+# Sidebar
+st.sidebar.header("⚙️ Ayarlar")
+ticker = st.sidebar.selectbox("Sembol", ["BTC-USD", "ETH-USD", "TSLA", "NVDA", "AAPL", "GOOGL", "MSFT"])
+start_date = st.sidebar.date_input("Başlangıç", datetime(2023, 1, 1))
+end_date = st.sidebar.date_input("Bitiş", datetime(2024, 1, 1))
+
+st.sidebar.header("📊 Parametreler")
+rsi_oversold = st.sidebar.slider("RSI Aşırı Satım (Buy Eşiği)", 25, 45, 30)
+reward_ratio = st.sidebar.slider("Risk/Ödül Oranı (TP Multiplier)", 1.5, 4.0, 2.5)
+risk_per_trade = st.sidebar.slider("Risk % (Pozisyon Büyüklüğü)", 1.0, 5.0, 1.5) / 100
+
+params = {
+    'rsi_oversold': rsi_oversold,
+    'reward_ratio': reward_ratio,
+    'risk_per_trade': risk_per_trade
+}
+
+# Ana içerik
+if st.button("🎯 Kombine Backtest Çalıştır", type="primary"):
+    try:
+        with st.spinner("Veri yükleniyor..."):
+            extended_start = start_date - timedelta(days=150) 
+            data = yf.download(ticker, start=extended_start, end=end_date, progress=False)
+            
+            if data.empty:
+                st.error("❌ Veri bulunamadı")
+                st.stop()
+            
+            data = data[data.index >= pd.to_datetime(start_date)]
+            data = data[data.index <= pd.to_datetime(end_date)]
+            
+            st.success(f"✅ {len(data)} günlük veri yüklendi")
+        
+        backtester = SwingBacktest()
+        
+        with st.spinner("Backtest çalıştırılıyor..."):
+            trades, equity = backtester.run_backtest(data, params)
+            metrics = backtester.calculate_metrics(trades, equity)
+        
+        st.subheader("📊 Performans Özeti (Kombine Strateji)")
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Toplam Getiri", metrics['total_return'])
+            st.metric("Toplam İşlem", metrics['total_trades'])
+        
+        with col2:
+            st.metric("Win Rate", metrics['win_rate'])
+            st.metric("Ort. Kazanç", metrics['avg_win'])
+        
+        with col3:
+            st.metric("Ort. Kayıp", metrics['avg_loss'])
+            st.metric("En İyi İşlem", metrics['best_trade'])
+        
+        with col4:
+            st.metric("En Kötü İşlem", metrics['worst_trade'])
+        
+        if not trades.empty and 'equity' in equity.columns: 
+            st.subheader("📈 Performans Grafikleri")
+            
+            fig, ax = plt.subplots(figsize=(12, 6))
+            ax.plot(equity['date'], equity['equity'], color='purple', linewidth=2)
+            ax.set_title(f'{ticker} Portföy Değeri')
+            ax.set_ylabel('Equity ($)')
+            ax.grid(True, alpha=0.3)
+            st.pyplot(fig)
+            
+            st.subheader("📋 İşlem Listesi")
+            display_trades = trades.copy()
+            
+            if not display_trades.empty:
+                for col in ['entry_date', 'exit_date']:
+                    if not display_trades[col].empty and isinstance(display_trades[col].iloc[0], (datetime, pd.Timestamp)):
+                        display_trades[col] = display_trades[col].dt.strftime('%Y-%m-%d')
+                    
+                display_trades['pnl'] = display_trades['pnl'].round(2)
+                display_trades['return_pct'] = display_trades['return_pct'].round(2)
+            
+            st.dataframe(display_trades)
+            
+        elif not trades.empty and not 'equity' in equity.columns:
+             st.info("🤷 İşlemler gerçekleşti ancak grafik verisi (equity) bulunamadı.")
+
+        else:
+            st.info("🤷 Hiç işlem gerçekleşmedi. Daha agresif parametreler (daha düşük RSI, daha yüksek Risk %) deneyin.")
+            
+    except Exception as e:
+        st.error(f"❌ Hata: {str(e)}")
+
+st.markdown("---")
+st.markdown("**Backtest Sistemi v4.0 - 5'li Kombinasyon Stratejisi**")
