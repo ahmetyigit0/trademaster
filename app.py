@@ -3,404 +3,203 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 
-# =========================
-# ŞİFRE KORUMASI
-# =========================
-def check_password():
-    if "password_correct" not in st.session_state:
-        st.session_state["password_correct"] = False
-    
-    def password_entered():
-        if st.session_state["password"] == "efe":
-            st.session_state["password_correct"] = True
-        else:
-            st.session_state["password_correct"] = False
-    
-    if not st.session_state["password_correct"]:
-        st.text_input("🔐 Şifre", type="password", on_change=password_entered, key="password")
-        return False
-    return True
-
-if not check_password():
-    st.stop()
-
-# =========================
-# BACKTEST MOTORU
-# =========================
-class SwingBacktest:
-    def __init__(self):
-        self.commission = 0.001
-    
-    def calculate_indicators(self, df):
-        df = df.copy()
-        
-        # EMA'lar
-        df['EMA_20'] = df['Close'].ewm(span=20, min_periods=1, adjust=False).mean()
-        df['EMA_50'] = df['Close'].ewm(span=50, min_periods=1, adjust=False).mean()
-        
-        # RSI
-        delta = df['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).fillna(0)
-        loss = (-delta.where(delta < 0, 0)).fillna(0)
-        avg_gain = gain.ewm(span=14, adjust=False).mean()
-        avg_loss = loss.ewm(span=14, adjust=False).mean()
-        rs = avg_gain / avg_loss
-        df['RSI'] = 100 - (100 / (1 + rs))
-
-        # MACD ve SİNYAL HESAPLAMASI
-        ema_12 = df['Close'].ewm(span=12, adjust=False).mean()
-        ema_26 = df['Close'].ewm(span=26, adjust=False).mean()
-        df['MACD'] = ema_12 - ema_26
-        df['Signal_Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
-        df['MACD_Cross_Up'] = (df['MACD'] > df['Signal_Line']) & (df['MACD'].shift(1) <= df['Signal_Line'].shift(1))
-        
-        # ATR
-        high_low = df['High'] - df['Low']
-        high_close = np.abs(df['High'] - df['Close'].shift(1))
-        low_close = np.abs(df['Low'] - df['Close'].shift(1))
-        
-        true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-        df['ATR'] = true_range.ewm(span=14, adjust=False).mean() 
-        
-        df = df.fillna(method='bfill').fillna(method='ffill')
-        
-        return df
-    
-    def generate_signals(self, df, rsi_oversold=40, atr_multiplier=2.0):
-        signals = []
-        
-        for i in range(len(df)):
-            try:
-                row = df.iloc[i]
-                
-                close_val = float(row['Close'])
-                ema_20_val = float(row['EMA_20'])
-                ema_50_val = float(row['EMA_50'])
-                rsi_val = float(row['RSI'])
-                atr_val = float(row['ATR'])
-                
-                # Sinyal 1 (Trend Takibi): Trend UP + Aşırı Satım
-                trend_ok = ema_20_val > ema_50_val
-                rsi_ok = rsi_val < rsi_oversold 
-                
-                # Sinyal 2 (Momentum Geri Dönüş): Orta Aşırı Satım + MACD Cross
-                rsi_medium_ok = rsi_val < rsi_oversold * 1.25 
-                macd_cross_ok = row['MACD_Cross_Up']
-                
-                # Nihai Sinyal: (Trend Takibi) VEYA (Momentum Geri Dönüşü)
-                buy_signal = (trend_ok and rsi_ok) or \
-                             (rsi_medium_ok and macd_cross_ok)
-                
-                if buy_signal:
-                    stop_loss = close_val - (atr_val * atr_multiplier)
-                    take_profit = close_val + (atr_val * atr_multiplier * 2) 
-                    
-                    signals.append({
-                        'date': df.index[i],
-                        'action': 'buy',
-                        'stop_loss': stop_loss,
-                        'take_profit': take_profit
-                    })
-                else:
-                    signals.append({
-                        'date': df.index[i],
-                        'action': 'hold'
-                    })
-                    
-            except:
-                signals.append({
-                    'date': df.index[i],
-                    'action': 'hold'
-                })
-        
-        signals_df = pd.DataFrame(signals)
-        if not signals_df.empty:
-            signals_df = signals_df.set_index('date')
-        
-        signals_df = signals_df.fillna({'stop_loss': np.nan, 'take_profit': np.nan})
-        
-        return signals_df
-    
-    def run_backtest(self, data, rsi_oversold=40, atr_multiplier=2.0, risk_per_trade=0.02):
-        df = self.calculate_indicators(data)
-        signals = self.generate_signals(df, rsi_oversold, atr_multiplier)
-        
-        # HATA ÇÖZÜMÜ: Basit index birleştirme yöntemi
-        df_combined = df.copy()
-        
-        # Sinyal sütunlarını ana dataframe'e ekle
-        df_combined['action'] = 'hold'
-        df_combined['stop_loss'] = np.nan
-        df_combined['take_profit'] = np.nan
-        
-        # Sadece buy sinyali olan tarihleri güncelle
-        buy_signals = signals[signals['action'] == 'buy']
-        if not buy_signals.empty:
-            for date in buy_signals.index:
-                if date in df_combined.index:
-                    df_combined.loc[date, 'action'] = 'buy'
-                    df_combined.loc[date, 'stop_loss'] = buy_signals.loc[date, 'stop_loss']
-                    df_combined.loc[date, 'take_profit'] = buy_signals.loc[date, 'take_profit']
-
-        capital = 10000.0
-        position = None
-        trades = []
-        equity_curve = []
-        
-        for date in df_combined.index:
-            current_price = float(df_combined.loc[date, 'Close'])
-            signal_action = df_combined.loc[date, 'action']
-            
-            current_equity = capital
-            if position is not None:
-                current_equity += float(position['shares']) * current_price
-            
-            equity_curve.append({'date': date, 'equity': current_equity})
-            
-            # ALIM
-            if position is None and signal_action == 'buy':
-                sl_val = df_combined.loc[date, 'stop_loss']
-                tp_val = df_combined.loc[date, 'take_profit']
-                
-                if pd.notna(sl_val) and pd.notna(tp_val):
-                    stop_loss = float(sl_val)
-                    take_profit = float(tp_val)
-                    
-                    risk_per_share = current_price - stop_loss
-                    
-                    if risk_per_share > 0:
-                        risk_amount = capital * risk_per_trade
-                        shares = risk_amount / risk_per_share
-                        
-                        if shares > 0:
-                            position = {
-                                'entry_date': date,
-                                'entry_price': current_price,
-                                'shares': shares,
-                                'stop_loss': stop_loss,
-                                'take_profit': take_profit
-                            }
-                            capital -= shares * current_price * (1 + self.commission) 
-            
-            # ÇIKIŞ
-            elif position is not None:
-                exit_price = None
-                exit_reason = None
-
-                if current_price <= position['stop_loss']:
-                    exit_price = position['stop_loss']
-                    exit_reason = 'SL'
-                
-                elif current_price >= position['take_profit']:
-                    exit_price = position['take_profit']
-                    exit_reason = 'TP'
-
-                if exit_price is not None:
-                    exit_value = position['shares'] * exit_price
-                    capital += exit_value * (1 - self.commission) 
-                    
-                    entry_value = position['shares'] * position['entry_price']
-                    pnl = (exit_value - entry_value) - (entry_value * self.commission + exit_value * self.commission)
-                    
-                    trades.append({
-                        'entry_date': position['entry_date'],
-                        'exit_date': date,
-                        'entry_price': position['entry_price'],
-                        'exit_price': exit_price,
-                        'pnl': pnl,
-                        'return_pct': (pnl / entry_value) * 100 if entry_value > 0 else 0,
-                        'exit_reason': exit_reason
-                    })
-                    position = None
-        
-        # Kapanış pozisyonu (Dönem sonu)
-        if position is not None:
-            last_price = float(df_combined['Close'].iloc[-1])
-            exit_value = position['shares'] * last_price
-            capital += exit_value * (1 - self.commission)
-            
-            entry_value = position['shares'] * position['entry_price']
-            pnl = (exit_value - entry_value) - (entry_value * self.commission + exit_value * self.commission)
-            
-            trades.append({
-                'entry_date': position['entry_date'],
-                'exit_date': df_combined.index[-1],
-                'entry_price': position['entry_price'],
-                'exit_price': last_price,
-                'pnl': pnl,
-                'return_pct': (pnl / entry_value) * 100 if entry_value > 0 else 0,
-                'exit_reason': 'OPEN'
-            })
-        
-        trades_df = pd.DataFrame(trades) if trades else pd.DataFrame()
-        equity_df = pd.DataFrame(equity_curve)
-        
-        return trades_df, equity_df
-    
-    def calculate_metrics(self, trades_df, equity_df):
-        if trades_df.empty or equity_df.empty:
-            return {
-                'total_return': "0.0%", 
-                'total_trades': "0", 
-                'win_rate': "0.0%",
-                'avg_win': "$0.00", 
-                'avg_loss': "$0.00",
-                'profit_factor': "0.00",
-                'max_drawdown': "0.0%"
-            }
-        
-        try:
-            initial_equity = 10000.0
-            final_equity = float(equity_df['equity'].iloc[-1])
-            total_return = (final_equity - initial_equity) / initial_equity * 100.0
-            
-            total_trades = len(trades_df)
-            winning_trades = len(trades_df[trades_df['pnl'] > 0])
-            win_rate = (winning_trades / total_trades) * 100.0 if total_trades > 0 else 0.0
-            
-            avg_win = float(trades_df[trades_df['pnl'] > 0]['pnl'].mean()) if winning_trades > 0 else 0.0
-            avg_loss = float(trades_df[trades_df['pnl'] < 0]['pnl'].mean()) if (total_trades - winning_trades) > 0 else 0.0
-            
-            # Profit Factor
-            gross_profit = trades_df[trades_df['pnl'] > 0]['pnl'].sum() if winning_trades > 0 else 0
-            gross_loss = abs(trades_df[trades_df['pnl'] < 0]['pnl'].sum()) if (total_trades - winning_trades) > 0 else 0
-            profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0
-            
-            # Max Drawdown
-            equity_series = equity_df['equity']
-            peak = equity_series.expanding().max()
-            drawdown = (equity_series - peak) / peak * 100
-            max_drawdown = drawdown.min()
-            
-            return {
-                'total_return': f"{round(total_return, 2)}%",
-                'total_trades': str(total_trades),
-                'win_rate': f"{round(win_rate, 1)}%",
-                'avg_win': f"${round(avg_win, 2)}",
-                'avg_loss': f"${abs(round(avg_loss, 2))}",
-                'profit_factor': f"{round(profit_factor, 2)}",
-                'max_drawdown': f"{round(max_drawdown, 1)}%"
-            }
-            
-        except Exception as e:
-            st.error(f"Metrik hesaplama hatası: {e}")
-            return {
-                'total_return': "HATA", 
-                'total_trades': "HATA", 
-                'win_rate': "HATA",
-                'avg_win': "HATA", 
-                'avg_loss': "HATA",
-                'profit_factor': "HATA",
-                'max_drawdown': "HATA"
-            }
-
-# =========================
-# STREAMLIT UYGULAMASI
-# =========================
-st.set_page_config(page_title="Swing Backtest", layout="wide")
-st.title("🚀 Swing Trading Backtest (MultiIndex Hatası Çözüldü)")
+# Streamlit arayüzü
+st.set_page_config(page_title="Kripto Destek & Direnç Analizi", layout="wide")
+st.title("Kripto Destek ve Direnç Seviyeleri Analizi")
 
 # Sidebar
-st.sidebar.header("⚙️ Ayarlar")
-ticker = st.sidebar.selectbox("Sembol", ["AAPL", "GOOGL", "MSFT", "TSLA", "BTC-USD", "ETH-USD", "NVDA", "AMZN"])
-start_date = st.sidebar.date_input("Başlangıç", datetime(2023, 1, 1))
-end_date = st.sidebar.date_input("Bitiş", datetime(2023, 12, 31))
+st.sidebar.header("Kripto Sembolü Girin")
+crypto_symbol = st.sidebar.text_input("Kripto Sembolü (Örn: BTC-USD, ETH-USD, ADA-USD):", "BTC-USD")
 
-st.sidebar.header("📊 Parametreler")
-rsi_oversold = st.sidebar.slider("RSI Aşırı Satım", 25, 50, 45) 
-atr_multiplier = st.sidebar.slider("ATR Çarpanı (SL için)", 1.0, 3.0, 2.0)
-risk_per_trade = st.sidebar.slider("Risk % (Poz. Büyüklüğü)", 1.0, 5.0, 2.0) / 100
+# Analiz parametreleri
+lookback_period = st.sidebar.slider("Mum Sayısı (Max 100)", 50, 100, 100)
+pinbar_sensitivity = st.sidebar.slider("İğne (Pinbar) Hassasiyeti", 0.1, 0.5, 0.3)
 
-# Ana içerik
-if st.button("🎯 Backtest Çalıştır", type="primary"):
+def calculate_support_resistance(df, lookback=100, pinbar_sensitivity=0.3):
+    """
+    Destek ve direnç seviyelerini hesaplar
+    """
+    # Son lookback_period kadar mumu al
+    df = df.tail(lookback).copy()
+    
+    support_levels = []
+    resistance_levels = []
+    
+    # Yüksek ve düşük seviyelerdeki potansiyel direnç/destek noktaları
+    for i in range(2, len(df)-2):
+        # Direnç seviyeleri (tepe noktaları)
+        if (df['High'].iloc[i] > df['High'].iloc[i-1] and 
+            df['High'].iloc[i] > df['High'].iloc[i-2] and 
+            df['High'].iloc[i] > df['High'].iloc[i+1] and 
+            df['High'].iloc[i] > df['High'].iloc[i+2]):
+            resistance_levels.append(df['High'].iloc[i])
+        
+        # Destek seviyeleri (dip noktaları)
+        if (df['Low'].iloc[i] < df['Low'].iloc[i-1] and 
+            df['Low'].iloc[i] < df['Low'].iloc[i-2] and 
+            df['Low'].iloc[i] < df['Low'].iloc[i+1] and 
+            df['Low'].iloc[i] < df['Low'].iloc[i+2]):
+            support_levels.append(df['Low'].iloc[i])
+    
+    # İğne (Pinbar) formasyonu tespiti
+    pinbar_support = []
+    pinbar_resistance = []
+    
+    for i in range(1, len(df)):
+        body_size = abs(df['Close'].iloc[i] - df['Open'].iloc[i])
+        total_range = df['High'].iloc[i] - df['Low'].iloc[i]
+        
+        if total_range > 0:
+            # Bullish pinbar (destek sinyali)
+            upper_shadow = df['High'].iloc[i] - max(df['Open'].iloc[i], df['Close'].iloc[i])
+            lower_shadow = min(df['Open'].iloc[i], df['Close'].iloc[i]) - df['Low'].iloc[i]
+            
+            if lower_shadow > total_range * pinbar_sensitivity and upper_shadow < lower_shadow * 0.5:
+                pinbar_support.append(df['Low'].iloc[i])
+            
+            # Bearish pinbar (direnç sinyali)
+            if upper_shadow > total_range * pinbar_sensitivity and lower_shadow < upper_shadow * 0.5:
+                pinbar_resistance.append(df['High'].iloc[i])
+    
+    return support_levels, resistance_levels, pinbar_support, pinbar_resistance
+
+def filter_close_levels(levels, threshold_percent=1.0):
+    """
+    Birbirine çok yakın seviyeleri filtreler
+    """
+    if not levels:
+        return []
+    
+    levels.sort()
+    filtered = [levels[0]]
+    
+    for level in levels[1:]:
+        if abs(level - filtered[-1]) / filtered[-1] * 100 > threshold_percent:
+            filtered.append(level)
+    
+    return filtered
+
+def main():
     try:
-        with st.spinner("Veri yükleniyor..."):
-            # İndikatörler için biraz daha fazla veri çekmek gerekir
-            extended_start_date = start_date - timedelta(days=150)
-            data = yf.download(ticker, start=extended_start_date, end=end_date, progress=False)
-            
-            if data.empty:
-                st.error("❌ Veri bulunamadı")
-                st.stop()
-            
-            # Sadece istenen aralıkta çalıştır
-            data_test = data[data.index >= pd.to_datetime(start_date)]
-            st.success(f"✅ {len(data_test)} günlük veri ile test ediliyor.")
+        # Veri çekme
+        st.write(f"**{crypto_symbol}** için 4 saatlik veriler çekiliyor...")
         
-        backtester = SwingBacktest()
+        # 4 saatlik verileri çek (100 mum + buffer)
+        data = yf.download(crypto_symbol, period="60d", interval="4h")
         
-        with st.spinner("Backtest çalıştırılıyor..."):
-            trades, equity = backtester.run_backtest(data_test, rsi_oversold, atr_multiplier, risk_per_trade)
-            metrics = backtester.calculate_metrics(trades, equity)
+        if data.empty:
+            st.error("Veri çekilemedi. Lütfen sembolü kontrol edin.")
+            return
         
-        st.subheader("📊 Performans Özeti")
-        col1, col2, col3, col4 = st.columns(4)
+        # Hesaplamalar
+        support, resistance, pinbar_support, pinbar_resistance = calculate_support_resistance(
+            data, lookback_period, pinbar_sensitivity
+        )
+        
+        # Seviyeleri filtrele
+        key_support = filter_close_levels(support)[-5:]  # Son 5 önemli destek
+        key_resistance = filter_close_levels(resistance)[-5:]  # Son 5 önemli direnç
+        
+        # Mevcut fiyat
+        current_price = data['Close'].iloc[-1]
+        
+        # Sonuçları göster
+        col1, col2 = st.columns(2)
         
         with col1:
-            st.metric("Toplam Getiri", metrics['total_return'])
-            st.metric("Toplam İşlem", metrics['total_trades'])
+            st.subheader("📈 Destek Seviyeleri")
+            if key_support:
+                for i, level in enumerate(reversed(key_support)):
+                    distance_pct = ((current_price - level) / current_price) * 100
+                    if level < current_price:
+                        st.write(f"🟢 **Destek {i+1}:** ${level:.2f} (%{distance_pct:.2f} altında)")
+                    else:
+                        st.write(f"🔴 **Destek {i+1}:** ${level:.2f} (%{abs(distance_pct):.2f} üstünde)")
+            else:
+                st.write("Destek seviyesi bulunamadı")
+            
+            st.subheader("📊 İğne (Pinbar) Destekleri")
+            if pinbar_support:
+                for level in pinbar_support[-3:]:
+                    st.write(f"📍 ${level:.2f}")
+            else:
+                st.write("İğne destek seviyesi bulunamadı")
         
         with col2:
-            st.metric("Win Rate", metrics['win_rate'])
-            st.metric("Ort. Kazanç", metrics['avg_win'])
+            st.subheader("📉 Direnç Seviyeleri")
+            if key_resistance:
+                for i, level in enumerate(key_resistance):
+                    distance_pct = ((level - current_price) / current_price) * 100
+                    if level > current_price:
+                        st.write(f"🔴 **Direnç {i+1}:** ${level:.2f} (%{distance_pct:.2f} üstünde)")
+                    else:
+                        st.write(f"🟢 **Direnç {i+1}:** ${level:.2f} (%{abs(distance_pct):.2f} altında)")
+            else:
+                st.write("Direnç seviyesi bulunamadı")
+            
+            st.subheader("📊 İğne (Pinbar) Dirençleri")
+            if pinbar_resistance:
+                for level in pinbar_resistance[-3:]:
+                    st.write(f"📍 ${level:.2f}")
+            else:
+                st.write("İğne direnç seviyesi bulunamadı")
         
-        with col3:
-            st.metric("Ort. Kayıp", metrics['avg_loss'])
-            st.metric("Profit Factor", metrics['profit_factor'])
+        # Grafik
+        st.subheader("🎯 Fiyat Grafiği ve Seviyeler")
         
-        with col4:
-            st.metric("Max Drawdown", metrics['max_drawdown'])
+        fig = go.Figure()
         
-        if not trades.empty:
-            st.subheader("📈 Performans Grafikleri")
-            
-            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
-            
-            # Equity Curve
-            ax1.plot(equity['date'], equity['equity'], color='green', linewidth=2)
-            ax1.set_title('Portföy Değeri')
-            ax1.set_ylabel('Equity ($)')
-            ax1.grid(True, alpha=0.3)
-            
-            # Drawdown
-            equity_series = equity['equity']
-            peak = equity_series.expanding().max()
-            drawdown = (equity_series - peak) / peak * 100
-            ax2.fill_between(equity['date'], drawdown, 0, color='red', alpha=0.3)
-            ax2.set_title('Drawdown (%)')
-            ax2.set_ylabel('Drawdown %')
-            ax2.set_xlabel('Tarih')
-            ax2.grid(True, alpha=0.3)
-            
-            plt.tight_layout()
-            st.pyplot(fig)
-            
-            st.subheader("📋 İşlem Listesi")
-            display_trades = trades.copy()
-            display_trades['entry_date'] = display_trades['entry_date'].dt.strftime('%Y-%m-%d')
-            display_trades['exit_date'] = display_trades['exit_date'].dt.strftime('%Y-%m-%d')
-            
-            # Format numbers
-            for col in ['entry_price', 'exit_price', 'pnl']:
-                display_trades[col] = display_trades[col].round(2)
-            display_trades['return_pct'] = display_trades['return_pct'].round(2)
-            
-            st.dataframe(display_trades, use_container_width=True)
-            
-        else:
-            st.info("🤷 Hiç işlem gerçekleşmedi. Daha esnek ayarlar veya farklı bir sembol deneyin.")
+        # Mum grafiği
+        fig.add_trace(go.Candlestick(
+            x=data.index,
+            open=data['Open'],
+            high=data['High'],
+            low=data['Low'],
+            close=data['Close'],
+            name='Price'
+        ))
+        
+        # Destek seviyeleri
+        for level in key_support:
+            fig.add_hline(y=level, line_dash="dash", line_color="green", 
+                         annotation_text=f"Destek: ${level:.2f}")
+        
+        # Direnç seviyeleri
+        for level in key_resistance:
+            fig.add_hline(y=level, line_dash="dash", line_color="red", 
+                         annotation_text=f"Direnç: ${level:.2f}")
+        
+        # İğne seviyeleri
+        for level in pinbar_support[-3:]:
+            fig.add_hline(y=level, line_dash="dot", line_color="lightgreen", 
+                         annotation_text=f"Pinbar D: ${level:.2f}")
+        
+        for level in pinbar_resistance[-3:]:
+            fig.add_hline(y=level, line_dash="dot", line_color="lightcoral", 
+                         annotation_text=f"Pinbar R: ${level:.2f}")
+        
+        # Mevcut fiyat çizgisi
+        fig.add_hline(y=current_price, line_color="blue", 
+                     annotation_text=f"Mevcut: ${current_price:.2f}")
+        
+        fig.update_layout(
+            title=f"{crypto_symbol} 4 Saatlik Grafik - Destek & Direnç Seviyeleri",
+            xaxis_title="Tarih",
+            yaxis_title="Fiyat (USD)",
+            height=600
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Veri önizleme
+        with st.expander("Son 10 Mum Verisi"):
+            st.dataframe(data.tail(10))
             
     except Exception as e:
-        st.error(f"❌ Hata: {str(e)}")
-        st.info("""
-        **Sorun Giderme İpuçları:**
-        - Farklı bir tarih aralığı deneyin
-        - RSI eşiğini düşürün (30-35)
-        - Risk yüzdesini artırın
-        - Farklı bir sembol deneyin
-        """)
+        st.error(f"Hata oluştu: {str(e)}")
+        st.info("Lütfen sembol formatını kontrol edin (Örn: BTC-USD)")
 
-st.markdown("---")
-st.markdown("**Backtest Sistemi v6.0 - MultiIndex Hatası Çözüldü**")
+if __name__ == "__main__":
+    main()
