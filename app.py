@@ -1,6 +1,3 @@
-Hata, MultiIndex birleştirme sorunundan kaynaklanıyor. İşte düzeltilmiş kod:
-
-```python
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -407,14 +404,3 @@ if st.button("🎯 Backtest Çalıştır", type="primary"):
 
 st.markdown("---")
 st.markdown("**Backtest Sistemi v6.0 - MultiIndex Hatası Çözüldü**")
-```
-
-🔧 Ana Düzeltmeler:
-
-1. MultiIndex Hatası Çözüldü: merge() yerine basit sütun ekleme kullanıldı
-2. Daha Güvenli DataFrame İşlemleri: Manuel döngü ile sinyal ekleme
-3. Ek Performans Metrikleri: Profit factor ve max drawdown eklendi
-4. Geliştirilmiş Grafikler: Equity curve + Drawdown birlikte
-5. Daha İyi Hata Yönetimi: Detaylı hata mesajları
-
-Artık "Not allowed to merge between different levels" hatası olmadan çalışacaktır! 🚀
