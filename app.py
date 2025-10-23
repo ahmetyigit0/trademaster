@@ -117,31 +117,52 @@ def identify_candlestick_patterns(data):
     return patterns
 
 def calculate_trend_lines(data):
-    """Trend çizgilerini hesapla"""
-    # Float'a çevir - HATA DÜZELTME
-    closes = data['Close'].astype(float).values
-    dates = np.arange(len(closes))
-    
-    if len(dates) > 1:
-        # Lineer regresyon ile trend
-        z = np.polyfit(dates, closes, 1)
-        trend_line = np.poly1d(z)(dates)
-        trend_slope = float(z[0])  # float'a çevir
+    """Basit ve güvenli trend çizgilerini hesapla"""
+    try:
+        # Son 20 mumun kapanış fiyatlarını al
+        closes = data['Close'].tail(20).astype(float).values
         
-        # Trend yönünü belirle
-        if trend_slope > 0:
-            trend_direction = "📈 YÜKSELİŞ TRENDİ"
-            trend_strength = "GÜÇLÜ" if trend_slope > np.std(closes) * 0.1 else "ZAYIF"
-        elif trend_slope < 0:
-            trend_direction = "📉 DÜŞÜŞ TRENDİ"
-            trend_strength = "GÜÇLÜ" if abs(trend_slope) > np.std(closes) * 0.1 else "ZAYIF"
+        if len(closes) < 2:
+            return None, "YETERSİZ VERİ", 0
+        
+        # Basit lineer regresyon
+        x = np.arange(len(closes))
+        slope = np.polyfit(x, closes, 1)[0]
+        
+        # Trend yönü
+        if slope > 0:
+            trend_dir = "📈 YÜKSELİŞ"
+            strength = "GÜÇLÜ" if slope > np.std(closes) * 0.05 else "ZAYIF"
+        elif slope < 0:
+            trend_dir = "📉 DÜŞÜŞ"
+            strength = "GÜÇLÜ" if abs(slope) > np.std(closes) * 0.05 else "ZAYIF"
         else:
-            trend_direction = "➡️ YATAY TREND"
-            trend_strength = "NÖTR"
+            trend_dir = "➡️ YATAY"
+            strength = "NÖTR"
         
-        return trend_line, f"{trend_direction} ({trend_strength})", trend_slope
-    
-    return None, "BELİRSİZ", 0
+        # Trend çizgisi oluştur
+        trend_line = np.poly1d([slope, closes[0]])(x)
+        
+        return trend_line, f"{trend_dir} TRENDİ ({strength})", slope
+        
+    except Exception as e:
+        # En basit yöntem - son iki mum karşılaştırması
+        try:
+            if len(data) >= 2:
+                current = float(data['Close'].iloc[-1])
+                previous = float(data['Close'].iloc[-2])
+                simple_trend = current - previous
+                
+                if simple_trend > 0:
+                    return None, "📈 KISA YÜKSELİŞ", simple_trend
+                elif simple_trend < 0:
+                    return None, "📉 KISA DÜŞÜŞ", simple_trend
+                else:
+                    return None, "➡️ YATAY", 0
+        except:
+            pass
+        
+        return None, "TREND HESAPLANAMADI", 0
 
 def generate_trading_signals(data):
     """Alım-satım sinyalleri üret"""
@@ -351,10 +372,12 @@ def main():
             fig1.add_trace(go.Scatter(x=data.index, y=data['MA_20'], name='MA 20', line=dict(color='orange', width=2)))
             fig1.add_trace(go.Scatter(x=data.index, y=data['MA_50'], name='MA 50', line=dict(color='red', width=2)))
             
-            # Trend çizgisi
+            # Trend çizgisi (sadece son 20 mum için)
             if trend_line is not None:
-                fig1.add_trace(go.Scatter(x=data.index, y=trend_line, name='Trend Çizgisi', 
-                                        line=dict(color='blue', dash='dash', width=3)))
+                recent_data = data.tail(20)
+                if len(trend_line) == len(recent_data):
+                    fig1.add_trace(go.Scatter(x=recent_data.index, y=trend_line, name='Trend Çizgisi', 
+                                            line=dict(color='blue', dash='dash', width=3)))
             
             # Destek seviyeleri
             for level in key_support[-3:]:
