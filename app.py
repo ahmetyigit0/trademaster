@@ -312,6 +312,23 @@ def generate_analysis_report(data, patterns, signals, trend_direction):
     
     return report
 
+def format_dataframe(df):
+    """DataFrame'i formatla - HATA DÜZELTME"""
+    formatted_df = df.copy()
+    
+    # Sütunları tek tek formatla
+    for col in ['Open', 'High', 'Low', 'Close']:
+        if col in formatted_df.columns:
+            formatted_df[col] = formatted_df[col].apply(lambda x: f"${x:.2f}" if not pd.isna(x) else "N/A")
+    
+    # Volume'ü binlik formatla
+    if 'Volume' in formatted_df.columns:
+        formatted_df['Volume'] = formatted_df['Volume'].apply(
+            lambda x: f"{x:,.0f}" if not pd.isna(x) else "N/A"
+        )
+    
+    return formatted_df
+
 def main():
     try:
         # Veri çekme
@@ -453,12 +470,12 @@ def main():
                 st.metric("Direnç Seviyeleri", len(key_resistance))
                 st.metric("Trend Eğim", f"{trend_slope:.6f}")
         
-        # Son 10 mum verisi
+        # Son 10 mum verisi - HATA DÜZELTİLDİ
         with st.expander("📜 Son Mum Verileri"):
             display_data = data.tail(10)[['Open', 'High', 'Low', 'Close', 'Volume']].round(2)
-            st.dataframe(display_data.style.format({
-                'Open': '${:.2f}', 'High': '${:.2f}', 'Low': '${:.2f}', 'Close': '${:.2f}'
-            }))
+            # Formatlı dataframe kullan
+            formatted_data = format_dataframe(display_data)
+            st.dataframe(formatted_data)
             
     except Exception as e:
         st.error(f"❌ Hata oluştu: {str(e)}")
