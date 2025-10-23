@@ -27,6 +27,7 @@ def find_support_resistance_levels(data, window=5):
     if data is None or len(data) == 0:
         return [], []
     
+    # Series'i numpy array'e çevir - HATA BURADA OLUYORDU
     highs = data['High'].values
     lows = data['Low'].values
     
@@ -78,14 +79,18 @@ def filter_and_group_levels(levels, current_price, tolerance_percent=2.0):
     current_group = [relevant_levels[0]]
     
     for level in relevant_levels[1:]:
-        if abs(level - np.mean(current_group)) / np.mean(current_group) * 100 <= tolerance_percent:
+        # HATA: Burada da Series karşılaştırması olabilir
+        avg_current = float(np.mean(current_group))  # float'a çevir
+        percent_diff = abs(level - avg_current) / avg_current * 100
+        
+        if percent_diff <= tolerance_percent:
             current_group.append(level)
         else:
-            grouped_levels.append(np.mean(current_group))
+            grouped_levels.append(float(np.mean(current_group)))  # float'a çevir
             current_group = [level]
     
     if current_group:
-        grouped_levels.append(np.mean(current_group))
+        grouped_levels.append(float(np.mean(current_group)))  # float'a çevir
     
     return grouped_levels
 
@@ -95,18 +100,23 @@ def calculate_pivot_points(data):
         return {}
     
     last_candle = data.iloc[-1]
-    P = (last_candle['High'] + last_candle['Low'] + last_candle['Close']) / 3
-    R1 = 2 * P - last_candle['Low']
-    S1 = 2 * P - last_candle['High']
-    R2 = P + (last_candle['High'] - last_candle['Low'])
-    S2 = P - (last_candle['High'] - last_candle['Low'])
+    # HATA: Burada Series olabilir, float'a çevir
+    high_val = float(last_candle['High'])
+    low_val = float(last_candle['Low'])
+    close_val = float(last_candle['Close'])
+    
+    P = (high_val + low_val + close_val) / 3
+    R1 = 2 * P - low_val
+    S1 = 2 * P - high_val
+    R2 = P + (high_val - low_val)
+    S2 = P - (high_val - low_val)
     
     return {
-        'Pivot': P,
-        'Resistance 1': R1,
-        'Resistance 2': R2,
-        'Support 1': S1,
-        'Support 2': S2
+        'Pivot': float(P),
+        'Resistance 1': float(R1),
+        'Resistance 2': float(R2),
+        'Support 1': float(S1),
+        'Support 2': float(S2)
     }
 
 def main():
@@ -122,8 +132,8 @@ def main():
         
         st.success(f"✅ {len(data)} adet 4 saatlik mum verisi çekildi")
         
-        # Mevcut fiyat
-        current_price = data['Close'].iloc[-1]
+        # Mevcut fiyat - float'a çevir
+        current_price = float(data['Close'].iloc[-1])
         
         # Seviyeleri hesapla
         support_levels, resistance_levels = find_support_resistance_levels(data)
@@ -179,7 +189,7 @@ def main():
         with col5:
             st.metric("Direnç Seviyeleri", len(key_resistance))
         with col6:
-            price_change = ((current_price - data['Close'].iloc[-2]) / data['Close'].iloc[-2]) * 100
+            price_change = ((current_price - float(data['Close'].iloc[-2])) / float(data['Close'].iloc[-2])) * 100
             st.metric("Son Değişim", f"%{price_change:.2f}")
         
         # Grafik
@@ -233,38 +243,9 @@ def main():
         
         st.plotly_chart(fig, use_container_width=True)
         
-        # Detaylı analiz
-        with st.expander("🔍 Detaylı Analiz Verileri"):
-            col7, col8 = st.columns(2)
-            
-            with col7:
-                st.write("**Tüm Tespit Edilen Destekler:**")
-                if support_levels:
-                    support_df = pd.DataFrame(sorted(set(support_levels))[-10:], columns=['Destek Seviyeleri'])
-                    st.dataframe(support_df.style.format({"Destek Seviyeleri": "${:.2f}"}))
-                else:
-                    st.write("Bulunamadı")
-            
-            with col8:
-                st.write("**Tüm Tespit Edilen Dirençler:**")
-                if resistance_levels:
-                    resistance_df = pd.DataFrame(sorted(set(resistance_levels))[-10:], columns=['Direnç Seviyeleri'])
-                    st.dataframe(resistance_df.style.format({"Direnç Seviyeleri": "${:.2f}"}))
-                else:
-                    st.write("Bulunamadı")
-            
-            st.write("**Son 10 Mum Verisi:**")
-            st.dataframe(data.tail(10)[['Open', 'High', 'Low', 'Close', 'Volume']].round(2))
-            
     except Exception as e:
         st.error(f"❌ Hata oluştu: {str(e)}")
-        st.info("""
-        **🔧 Olası Çözümler:**
-        - Sembol formatını kontrol edin (BTC-USD, ETH-USD vb.)
-        - İnternet bağlantınızı kontrol edin
-        - Farklı bir kripto sembolü deneyin
-        - Daha kısa bir analiz periyodu seçin
-        """)
+        st.info("Lütfen sembolü kontrol edin ve internet bağlantınızı doğrulayın.")
 
 if __name__ == "__main__":
     main()
