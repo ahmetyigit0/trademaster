@@ -454,18 +454,20 @@ def main():
                 st.metric("Trend Eğim", f"{trend_slope:.6f}")
         
         # Son 10 mum verisi - TEK DÜZELTİLEN KISIM
-        with st.expander("📜 Son Mum Verileri"):
-            display_data = data.tail(10)[['Open', 'High', 'Low', 'Close', 'Volume']].round(2)
-            
-            # DÜZELTİLMİŞ KOD - style.format YERİNE apply kullan
-            display_data['Open'] = display_data['Open'].apply(lambda x: f"${x:.2f}")
-            display_data['High'] = display_data['High'].apply(lambda x: f"${x:.2f}")
-            display_data['Low'] = display_data['Low'].apply(lambda x: f"${x:.2f}")
-            display_data['Close'] = display_data['Close'].apply(lambda x: f"${x:.2f}")
-            display_data['Volume'] = display_data['Volume'].apply(lambda x: f"{x:,.0f}")
-            
-            st.dataframe(display_data)
-            
+        # Son 10 mum verisi - KESİN ÇÖZÜM
+with st.expander("📜 Son Mum Verileri"):
+    display_data = data.tail(10)[['Open', 'High', 'Low', 'Close', 'Volume']].round(2)
+    
+    # KESİN ÇÖZÜM - DataFrame'i yeniden oluştur
+    formatted_data = pd.DataFrame({
+        'Open': [f"${x:.2f}" for x in display_data['Open']],
+        'High': [f"${x:.2f}" for x in display_data['High']],
+        'Low': [f"${x:.2f}" for x in display_data['Low']],
+        'Close': [f"${x:.2f}" for x in display_data['Close']],
+        'Volume': [f"{x:,.0f}" for x in display_data['Volume']]
+    }, index=display_data.index)
+    
+    st.dataframe(formatted_data)
     except Exception as e:
         st.error(f"❌ Hata oluştu: {str(e)}")
         st.info("Lütfen sembolü kontrol edin ve internet bağlantınızı doğrulayın.")
