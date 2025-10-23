@@ -453,19 +453,18 @@ def main():
                 st.metric("Direnç Seviyeleri", len(key_resistance))
                 st.metric("Trend Eğim", f"{trend_slope:.6f}")
         
-        # Son 10 mum verisi - HATA DÜZELTİLDİ
+        # Son 10 mum verisi - TEK DÜZELTİLEN KISIM
         with st.expander("📜 Son Mum Verileri"):
             display_data = data.tail(10)[['Open', 'High', 'Low', 'Close', 'Volume']].round(2)
             
-            # DÜZELTİLMİŞ KOD:
-            formatted_data = display_data.copy()
-            formatted_data['Open'] = formatted_data['Open'].apply(lambda x: f"${x:.2f}")
-            formatted_data['High'] = formatted_data['High'].apply(lambda x: f"${x:.2f}")
-            formatted_data['Low'] = formatted_data['Low'].apply(lambda x: f"${x:.2f}")
-            formatted_data['Close'] = formatted_data['Close'].apply(lambda x: f"${x:.2f}")
-            formatted_data['Volume'] = formatted_data['Volume'].apply(lambda x: f"{x:,.0f}")
+            # DÜZELTİLMİŞ KOD - style.format YERİNE apply kullan
+            display_data['Open'] = display_data['Open'].apply(lambda x: f"${x:.2f}")
+            display_data['High'] = display_data['High'].apply(lambda x: f"${x:.2f}")
+            display_data['Low'] = display_data['Low'].apply(lambda x: f"${x:.2f}")
+            display_data['Close'] = display_data['Close'].apply(lambda x: f"${x:.2f}")
+            display_data['Volume'] = display_data['Volume'].apply(lambda x: f"{x:,.0f}")
             
-            st.dataframe(formatted_data)
+            st.dataframe(display_data)
             
     except Exception as e:
         st.error(f"❌ Hata oluştu: {str(e)}")
