@@ -194,45 +194,47 @@ def generate_trading_signals(data):
     
     return signals
 
-def calculate_support_resistance(data):
-    """Destek ve direnç seviyelerini hesapla - DÜZELTİLMİŞ"""
-    # Series'i numpy array'e çevir ve float'a dönüştür
-    highs = data['High'].astype(float).values
-    lows = data['Low'].astype(float).values
-    
-    support_levels = []
-    resistance_levels = []
-    
-    # Basit pivot point hesaplama - DÜZELTİLMİŞ
-    for i in range(2, len(data)-2):
-        current_high = float(highs[i])
-        current_low = float(lows[i])
+def calculate_support_resistance_simple(data):
+    """Basit destek ve direnç seviyelerini hesapla"""
+    try:
+        # Son 50 mum üzerinden basit pivot noktaları bul
+        recent_data = data.tail(50)
         
-        # Direnç - yerel maksimum
-        is_resistance = True
-        for j in range(1, 3):  # 2 önceki ve 2 sonraki mum
-            prev_high = float(highs[i-j])
-            next_high = float(highs[i+j])
-            if current_high <= prev_high or current_high <= next_high:
-                is_resistance = False
-                break
+        # Yüksek ve düşük değerleri al
+        highs = recent_data['High'].values
+        lows = recent_data['Low'].values
         
-        if is_resistance:
-            resistance_levels.append(current_high)
+        support_levels = []
+        resistance_levels = []
         
-        # Destek - yerel minimum
-        is_support = True
-        for j in range(1, 3):  # 2 önceki ve 2 sonraki mum
-            prev_low = float(lows[i-j])
-            next_low = float(lows[i+j])
-            if current_low >= prev_low or current_low >= next_low:
-                is_support = False
-                break
+        # Basit yöntem: Yerel maksimum ve minimumları bul
+        for i in range(2, len(highs)-2):
+            current_high = float(highs[i])
+            current_low = float(lows[i])
+            
+            # Direnç kontrolü (yerel maksimum)
+            if (current_high > float(highs[i-1]) and 
+                current_high > float(highs[i-2]) and 
+                current_high > float(highs[i+1]) and 
+                current_high > float(highs[i+2])):
+                resistance_levels.append(current_high)
+            
+            # Destek kontrolü (yerel minimum)
+            if (current_low < float(lows[i-1]) and 
+                current_low < float(lows[i-2]) and 
+                current_low < float(lows[i+1]) and 
+                current_low < float(lows[i+2])):
+                support_levels.append(current_low)
         
-        if is_support:
-            support_levels.append(current_low)
-    
-    return support_levels, resistance_levels
+        # Benzersiz değerler ve sıralama
+        support_levels = sorted(list(set(support_levels)))
+        resistance_levels = sorted(list(set(resistance_levels)))
+        
+        return support_levels, resistance_levels
+        
+    except Exception as e:
+        # Hata durumunda boş listeler döndür
+        return [], []
 
 def main():
     try:
@@ -253,19 +255,15 @@ def main():
         # Trading sinyalleri üret
         signals = generate_trading_signals(data)
         
-        # Destek/direnç seviyeleri
-        support_levels, resistance_levels = calculate_support_resistance(data)
+        # Basit destek/direnç seviyeleri
+        support_levels, resistance_levels = calculate_support_resistance_simple(data)
         
-        # Mevcut fiyat ve analiz
+        # Mevcut fiyat
         current_price = float(data['Close'].iloc[-1])
-        key_support = [level for level in support_levels if abs(level - current_price) / current_price * 100 <= 10]
-        key_resistance = [level for level in resistance_levels if abs(level - current_price) / current_price * 100 <= 10]
         
-        # Benzersiz seviyeler
-        key_support = list(set(key_support))
-        key_resistance = list(set(key_resistance))
-        key_support.sort()
-        key_resistance.sort()
+        # Mevcut fiyata yakın seviyeleri filtrele
+        key_support = [level for level in support_levels if abs(level - current_price) / current_price * 100 <= 15]
+        key_resistance = [level for level in resistance_levels if abs(level - current_price) / current_price * 100 <= 15]
         
         # Ana panel
         col1, col2 = st.columns([2, 1])
@@ -294,7 +292,7 @@ def main():
             fig.add_trace(go.Scatter(x=data.index, y=data['BB_Upper'], name='BB Upper', line=dict(color='gray', width=1, dash='dash')))
             fig.add_trace(go.Scatter(x=data.index, y=data['BB_Lower'], name='BB Lower', line=dict(color='gray', width=1, dash='dash')))
             
-            # Destek/direnç çizgileri
+            # Destek/direnç çizgileri (sadece yakın olanlar)
             for level in key_support[-3:]:
                 fig.add_hline(y=level, line_dash="dash", line_color="green", line_width=2, opacity=0.7)
             
@@ -342,12 +340,18 @@ def main():
             
             st.subheader("💎 SEVİYELER")
             st.write("**Destek:**")
-            for level in sorted(key_support)[-3:]:
-                st.write(f"🟢 ${level:.2f}")
+            if key_support:
+                for level in sorted(key_support)[-3:]:
+                    st.write(f"🟢 ${level:.2f}")
+            else:
+                st.write("Destek seviyesi bulunamadı")
             
             st.write("**Direnç:**")
-            for level in sorted(key_resistance)[-3:]:
-                st.write(f"🔴 ${level:.2f}")
+            if key_resistance:
+                for level in sorted(key_resistance)[-3:]:
+                    st.write(f"🔴 ${level:.2f}")
+            else:
+                st.write("Direnç seviyesi bulunamadı")
         
         # Alt grafikler
         st.subheader("📊 TEKNİK GÖSTERGELER")
