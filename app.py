@@ -386,14 +386,14 @@ def generate_trading_signals(data, support_zones, resistance_zones, ema_period=5
         st.error(f"Sinyal üretim hatası: {e}")
         return [], []
 
-# Fotoğraf formatında mum grafiği oluşturma (MUM + DESTEK/DİRENÇ)
-def create_complete_chart(data, support_zones, resistance_zones, crypto_symbol):
-    """Tam mum grafiği oluştur - mumlar + destek/direnç çizgileri"""
+# Basit ve net mum grafiği oluşturma
+def create_simple_candlestick_chart(data, support_zones, resistance_zones, crypto_symbol):
+    """Basit ve net mum grafiği oluştur"""
     
     # Grafik oluştur
     fig = go.Figure()
     
-    # MUM ÇUBUKLARI - ÖNCE mumları ekle
+    # MUM ÇUBUKLARI - ÖNEMLİ: Önce mumları ekliyoruz
     fig.add_trace(go.Candlestick(
         x=data.index,
         open=data['Open'],
@@ -401,55 +401,53 @@ def create_complete_chart(data, support_zones, resistance_zones, crypto_symbol):
         low=data['Low'],
         close=data['Close'],
         name='Price',
-        increasing_line_color='#00C805',  # Canlı yeşil
-        decreasing_line_color='#FF0000',   # Canlı kırmızı
-        increasing_fillcolor='#00C805',
-        decreasing_fillcolor='#FF0000',
-        line=dict(width=1.2),
-        whiskerwidth=0.7
+        increasing_line_color='green',
+        decreasing_line_color='red',
+        increasing_fillcolor='green',
+        decreasing_fillcolor='red',
+        line=dict(width=1),
+        whiskerwidth=0.8
     ))
     
-    # DESTEK çizgileri - KALIN yeşil çizgiler
+    # DESTEK çizgileri
     for i, zone in enumerate(support_zones):
         level_name = f"S{i+1}"
         fig.add_hline(
             y=zone['price'],
             line_dash="solid",
-            line_color="#00FF00",  # Parlak yeşil
-            line_width=3,  # Kalın çizgi
+            line_color="lime",
+            line_width=3,
             opacity=0.8,
             annotation_text=level_name,
             annotation_position="left",
-            annotation_font_size=16,
-            annotation_font_color="#00FF00",
-            annotation_font_weight="bold"
+            annotation_font_size=14,
+            annotation_font_color="lime"
         )
     
-    # DİRENÇ çizgileri - KALIN kırmızı çizgiler
+    # DİRENÇ çizgileri
     for i, zone in enumerate(resistance_zones):
         level_name = f"R{i+1}"
         fig.add_hline(
             y=zone['price'],
             line_dash="solid",
-            line_color="#FF0000",  # Parlak kırmızı
-            line_width=3,  # Kalın çizgi
+            line_color="red",
+            line_width=3,
             opacity=0.8,
             annotation_text=level_name,
             annotation_position="right",
-            annotation_font_size=16,
-            annotation_font_color="#FF0000",
-            annotation_font_weight="bold"
+            annotation_font_size=14,
+            annotation_font_color="red"
         )
     
     # Mevcut fiyat çizgisi
     current_price = float(data['Close'].iloc[-1])
     fig.add_hline(
         y=current_price,
-        line_dash="dash",
+        line_dash="dot",
         line_color="yellow",
         line_width=2,
         opacity=0.7,
-        annotation_text=f"Şimdi: {format_price(current_price)}",
+        annotation_text=f"Mevcut: {format_price(current_price)}",
         annotation_position="left",
         annotation_font_size=12,
         annotation_font_color="yellow"
@@ -457,38 +455,24 @@ def create_complete_chart(data, support_zones, resistance_zones, crypto_symbol):
     
     # Grafik ayarları
     fig.update_layout(
-        width=1200,
-        height=700,
-        title={
-            'text': f"{crypto_symbol} - Son 3 Günlük 4 Saatlik Mum Grafiği",
-            'x': 0.5,
-            'xanchor': 'center',
-            'font': {'size': 24, 'color': 'white', 'family': 'Arial Black'}
-        },
+        width=1000,
+        height=600,
+        title=f"{crypto_symbol} - Son 3 Günlük 4 Saatlik Mum Grafiği",
         xaxis_title="Tarih",
         yaxis_title="Fiyat (USD)",
         showlegend=False,
         xaxis_rangeslider_visible=False,
-        plot_bgcolor='#0E1117',
-        paper_bgcolor='#0E1117',
-        font=dict(color='white', size=12, family='Arial'),
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        font=dict(color='black', size=12),
         xaxis=dict(
-            gridcolor='#444',
-            tickfont=dict(size=11),
-            title_font=dict(size=14)
+            gridcolor='lightgray',
+            tickfont=dict(size=10)
         ),
         yaxis=dict(
-            gridcolor='#444',
-            tickfont=dict(size=11),
-            title_font=dict(size=14)
-        ),
-        margin=dict(l=80, r=80, t=100, b=80)
-    )
-    
-    # X ekseni ayarları
-    fig.update_xaxes(
-        tickformat='%m/%d %H:%M',
-        tickangle=45
+            gridcolor='lightgray',
+            tickfont=dict(size=10)
+        )
     )
     
     return fig
@@ -529,30 +513,17 @@ def main():
     with col1:
         st.subheader(f"📈 {crypto_symbol} - Son 3 Günlük 4 Saatlik Mum Grafiği")
         
-        # TAM GRAFİK oluştur - MUM + DESTEK/DİRENÇ
-        chart_fig = create_complete_chart(data_3days, support_zones, resistance_zones, crypto_symbol)
+        # BASİT mum grafiği oluştur
+        chart_fig = create_simple_candlestick_chart(data_3days, support_zones, resistance_zones, crypto_symbol)
         
-        # Grafiği göster
-        st.plotly_chart(chart_fig, use_container_width=False, config={
-            'displayModeBar': False,
-            'staticPlot': True,
-            'responsive': False
-        })
+        # Grafiği göster - ETKİLEŞİMLİ olarak
+        st.plotly_chart(chart_fig, use_container_width=True)
         
-        # Grafik açıklaması
-        st.markdown("""
-        <div style='background-color: #1e1e1e; padding: 15px; border-radius: 10px; border-left: 4px solid #00C805; margin-top: 20px;'>
-        <h4 style='color: white; margin: 0;'>📊 GRAFİKTE NELER VAR:</h4>
-        <ul style='color: white; margin: 10px 0 0 0;'>
-            <li><strong style='color: #00C805'>🟢 Yeşil Mumlar:</strong> Yükseliş - Kapanış > Açılış</li>
-            <li><strong style='color: #FF0000'>🔴 Kırmızı Mumlar:</strong> Düşüş - Kapanış < Açılış</li>
-            <li><strong style='color: #00FF00'>🟢 S1, S2, S3:</strong> Destek Seviyeleri</li>
-            <li><strong style='color: #FF0000'>🔴 R1, R2, R3:</strong> Direnç Seviyeleri</li>
-            <li><strong style='color: yellow'>🟡 Sarı Çizgi:</strong> Mevcut Fiyat</li>
-            <li><strong>📈 İğneler (Wicks):</strong> Fiyatın en yüksek/en düşük seviyeleri</li>
-        </ul>
-        </div>
-        """, unsafe_allow_html=True)
+        # Grafik kontrolü
+        if len(data_3days) > 0:
+            st.info(f"✅ Grafik başarıyla oluşturuldu: {len(data_3days)} mum gösteriliyor")
+        else:
+            st.error("❌ Grafik oluşturulamadı - veri yok")
     
     with col2:
         st.subheader("🎯 TRADING SİNYALLERİ")
