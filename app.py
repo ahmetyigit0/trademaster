@@ -468,59 +468,32 @@ def main():
                     """)
         else:
             st.info("""
-            ** **🎭 NET S🎭 NET SİNYAL YOK**
-İNYAL YOK**
-            -            - Piyasa gö Piyasa gözlezlemi önerilmi önerilir
-ir
-            - Koş            - Koşullarullar uygun de uygun değilğil
-            - BEKLE stratejisi
-            - BEKLE stratejisi uyg uygula
-            ""ula
+            **🎭 NET SİNYAL YOK**
+            - Piyasa gözlemi önerilir
+            - Koşullar uygun değil
+            - BEKLE stratejisi uygula
             """)
         
-        st.subheader")
+        st.subheader("📊 MEVCUT DURUM")
+        st.metric("Fiyat", f"${current_price:.2f}")
+        st.metric(f"EMA {ema_period}", f"${ema_value:.2f}")
+        st.metric("RSI", f"{rsi_value:.1f}")
         
-        st.subheader("📊 MEVCUT("📊 MEVCUT DURUM")
-        st.metric DURUM")
-        st.m("Fiyat", f"${current_priceetric("Fiyat", f"${current_price:.2f}")
-        st:.2f}")
-        st.metric(f"EMA {.metric(f"EMA {ema_period}", fema_period}", f""${ema_value:.${ema_value:.2f}")
-        st.metric("2f}")
-        st.metric("RSI", f"{rRSI", f"{rsi_value:.1f}")
-si_value:.1f}")
-        
-        trend = "Y        
-        trend = "YÜKSELİÜKSELİŞ" if current_price >Ş" if current_price > ema_value else "D ema_value else "DÜŞÜŞ"
-       ÜŞÜŞ"
-        st st.metric("TR.metric("TRENDEND", trend)
-", trend)
+        trend = "YÜKSELİŞ" if current_price > ema_value else "DÜŞÜŞ"
+        st.metric("TREND", trend)
     
     # Detaylı analiz
-    
-    # Detaylı analiz    st.subheader("🔍
-    st.subheader("🔍 DETAYLI DETAYLI ANAL ANALİZ RAPORİZ RAPORU")
-U")
-    with st.exp    with st.expander("Analiz Detayander("Analiz Detayları", expanded=True):
-       ları", expanded=True):
-        for detail in analysis for detail in analysis_details:
-            if_details:
-            if "✅ "✅" in detail:
-" in detail:
-                st                st.success(detail)
-            elif "❌" in detail or.success(detail)
-            elif "❌" in detail or "⚠️" in "⚠️" in detail:
- detail:
-                st.error(d                st.error(detail)
-etail)
-            elif "🎯" in detail or "            elif "🎯" in detail or "🎪" in🎪" in detail:
+    st.subheader("🔍 DETAYLI ANALİZ RAPORU")
+    with st.expander("Analiz Detayları", expanded=True):
+        for detail in analysis_details:
+            if "✅" in detail:
+                st.success(detail)
+            elif "❌" in detail or "⚠️" in detail:
+                st.error(detail)
+            elif "🎯" in detail or "🎪" in detail:
                 st.warning(detail)
             else:
                 st.info(detail)
 
-if __name detail:
-                st.warning(detail)
-            else:
-                st.info(detail)
-
-if __name__ == "____ == "__mainmain__":
+if __name__ == "__main__":
     main()
