@@ -3,7 +3,6 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from scipy import stats
 
 st.set_page_config(page_title="Profesyonel Kripto Analiz", layout="wide")
 
@@ -186,371 +185,195 @@ def generate_trading_signals_with_levels(data, support_levels, resistance_levels
         if nearest_support:
             distance_to_support = ((current_price - nearest_support) / current_price) * 100
             if distance_to_support <= 2:  # %2'den yakınsa
-                signals.append(f"🎯 DESTEK YAKIN: ${nearest_support:.2f} (%{distance_to_support:.1f} uzak)")
+                signals.append(f"DESTEK YAKIN: ${nearest_support:.2f} (%{distance_to_support:.1f} uzak)")
                 if prev_price > current_price:  # Düşüş trendinde
-                    signals.append("🔄 DESTEK TESTİ - POTANSİYEL ALIM")
+                    signals.append("DESTEK TESTI - POTANSIYEL ALIM")
         
         if nearest_resistance:
             distance_to_resistance = ((nearest_resistance - current_price) / current_price) * 100
             if distance_to_resistance <= 2:  # %2'den yakınsa
-                signals.append(f"🎯 DİRENÇ YAKIN: ${nearest_resistance:.2f} (%{distance_to_resistance:.1f} uzak)")
+                signals.append(f"DIRENÇ YAKIN: ${nearest_resistance:.2f} (%{distance_to_resistance:.1f} uzak)")
                 if prev_price < current_price:  # Yükseliş trendinde
-                    signals.append("🔄 DİRENÇ TESTİ - POTANSİYEL SATIM")
+                    signals.append("DIRENÇ TESTI - POTANSIYEL SATIM")
         
         # Kırılma sinyalleri
-        if nearest_support and current_price < nearest_support and prev_price >= nearest_s_price >= nearest_support:
-upport:
-            signals.append("            signals.append("❌ DEST❌ DESTEK KEK KIRILDI -IRILDI - SAT SATIM SİNYIM SİNYALİALİ")
+        if nearest_support and current_price < nearest_support and prev_price >= nearest_support:
+            signals.append("DESTEK KIRILDI - SATIM SİNYALİ")
         
-        if")
-        
-        if nearest_res nearest_resistance and current_priceistance and current_price > nearest_res > nearest_resistance and previstance and prev_price <= nearest_res_price <= nearest_resistance:
-           istance:
-            signals.append(" signals.append("✅ DİR✅ DİRENÇENÇ KIRILDI KIRILDI - AL - ALIM SİNYIM SİNYALİALİ")
-        
-        return")
+        if nearest_resistance and current_price > nearest_resistance and prev_price <= nearest_resistance:
+            signals.append("DIRENÇ KIRILDI - ALIM SİNYALİ")
         
         return signals
         
- signals
-        
-    except Exception as e    except Exception as e:
-        return [:
-        return [f"Sinyf"Sinyal hatası: {al hatası: {str(e)}"]
-
-defstr(e)}"]
+    except Exception as e:
+        return [f"Sinyal hatası: {str(e)}"]
 
 def main():
     try:
-        interval = main():
-    try:
         interval = interval_map[analysis_type]
- interval_map[analysis_type]
-        st.write(f"**        st.write(f"**{{crypto_symbol}** içincrypto_symbol}** için { {analysis_type} veriler çanalysis_type} veriler çekiliyor...")
+        st.write(f"**{crypto_symbol}** için {analysis_type} veriler çekiliyor...")
         
-ekiliyor...")
+        data = get_crypto_data(crypto_symbol, lookback_days, interval)
         
-        data = get_crypto        data = get_crypto_data(crypto_symbol, look_data(crypto_symbol, lookback_days, interval)
-back_days, interval)
-        
-        
-        if data is None        if data is None or data or data.empty:
-            st.empty:
-            st.error("Veri çek.error("Veri çekilemediilemedi.")
+        if data is None or data.empty:
+            st.error("Veri çekilemedi.")
             return
         
-        st.")
-            return
+        st.success(f"✅ {len(data)} adet mum verisi çekildi")
         
-        st.success(f"✅ {len.success(f"✅ {len(data)} adet mum ver(data)} adet mum verisi çekildi")
-isi çekildi")
-        
-        # Destek/d        
-        # Destek/direnç seviyelerini bulirenç seviyelerini bul
-        support_levels,
-        support_levels, resistance_levels resistance_levels = = find_support_resistance_levels find_support_resistance_levels(
-(
-            data, sensitivity, min_t            data, sensitivity, min_touchouch_points, wick_analysis_points, wick_analysis
-       
+        # Destek/direnç seviyelerini bul
+        support_levels, resistance_levels = find_support_resistance_levels(
+            data, sensitivity, min_touch_points, wick_analysis
         )
         
-        # Pivot point hesapla )
-        
         # Pivot point hesapla
-        pivot, pivot
-        pivot, pivot_supports, pivot_resist_supports, pivot_resistances = calculate_pivot_points(dataances = calculate_pivot_points(data)
+        pivot, pivot_supports, pivot_resistances = calculate_pivot_points(data)
         
-        # Mev)
-        
-        # Mevcutcut fiyat
-        current_price = float(data['Close'].iloc[-1 fiyat
+        # Mevcut fiyat
         current_price = float(data['Close'].iloc[-1])
         
-        # Trading sinyall])
-        
         # Trading sinyalleri üret
-        signalseri üret
-        signals = generate_trading_signals = generate_trading_signals_with_levels(data, support_with_levels(data, support_levels_levels, resistance_levels, resistance_levels)
-        
-)
+        signals = generate_trading_signals_with_levels(data, support_levels, resistance_levels)
         
         # Ana panel
-        # Ana panel
-               col1, col col1, col2 = st.columns([2, 2 = st.columns([2, 1])
+        col1, col2 = st.columns([2, 1])
         
-        with col1])
-        
-        with col11:
-            st.subheader:
-            st.subheader("("📈 Destek/D📈 Destek/Direnç Grafik Analiziirenç Grafik Analizi")
-            
-            fig = go")
+        with col1:
+            st.subheader("📈 Destek/Direnç Grafik Analizi")
             
             fig = go.Figure()
             
-            #.Figure()
-            
-            # Çizgi grafiği Çizgi grafiği (kapanış fiy (kapanış fiyatları)
-            fig.add_traceatları)
+            # Çizgi grafiği (kapanış fiyatları)
             fig.add_trace(go.Scatter(
                 x=data.index,
-                y(go.Scatter(
-                x=data.index,
-                y=data['=data['Close'],
-                name='Kapanış FiyatıClose'],
+                y=data['Close'],
                 name='Kapanış Fiyatı',
-                line=dict(color',
-                line=dict(color='blue', width='blue', width=2=2),
-                mode='),
+                line=dict(color='blue', width=2),
                 mode='lines'
-lines'
             ))
             
-                       ))
+            # Mevcut fiyat çizgisi
+            fig.add_hline(y=current_price, line_dash="solid", line_color="black", line_width=2, 
+                         annotation_text=f"Mevcut Fiyat: ${current_price:.2f}")
             
-            # Me # Mevcut fiyvcut fiyat çizgat çizgisi
-isi
-            fig.add_            fig.add_hline(yhline(y=current_price,=current_price, line_dash line_dash="solid",="solid", line_color="black line_color="black", line_width", line_width=2,=2, 
-                         annotation_text 
-                         annotation_text=f=f"Mevcut F"Mevcut Fiyatiyat: ${current_price: ${current_price:.2:.2f}")
+            # Destek seviyeleri
+            for i, level in enumerate(support_levels):
+                fig.add_hline(y=level, line_dash="dash", line_color="green", line_width=2,
+                             annotation_text=f"Destek {i+1}: ${level:.2f}")
             
-           f}")
+            # Direnç seviyeleri
+            for i, level in enumerate(resistance_levels):
+                fig.add_hline(y=level, line_dash="dash", line_color="red", line_width=2,
+                             annotation_text=f"Direnç {i+1}: ${level:.2f}")
             
-            # Destek # Destek seviy seviyeleri
-            for i, level in enumerateeleri
-            for i,(support level in enumerate(support_levels):
-               _level fig.add_hline(y=level, line_dash="s):
-                fig.add_hline(y=level, linedash", line_color="green_dash="dash", line_color="green", line_width", line_width=2,
-=2,
-                             annotation_text                             annotation_text=f"Destek=f"Destek {i+1 {i+1}: ${}: ${level:.2flevel:.2f}")
-            
-}")
-            
-            # Diren            # Direnç seç seviyviyelereleri
-            for i, leveli
-            for i, level in enumerate(res in enumerate(resistance_levels):
-                fig.add_hline(y=istance_levels):
-                fig.add_hlinelevel, line_dash="dash", line_color="(y=levelred", line_width=2, line_dash="dash", line_color="red", line_width=2,
-                             annotation_text=f"D,
-                             annotation_text=f"Direnirenç {i+1ç {i+1}: ${level:.2f}: ${level:.2f}")
-            
-}")
-            
-            # Pivot            # Pivot point
- point
+            # Pivot point
             if pivot:
-                           if pivot:
-                fig fig.add_hline(y=p.add_hline(y=pivotivot, line_dash="dot, line_dash="dot", line_color="orange",", line_color="orange", line_width line_width=2,
-                             annotation=2,
-                             annotation_text_text=f"Pivot=f"Pivot:: ${pivot:.2f ${pivot:.2f}")
-            
-            fig.update_layout}")
+                fig.add_hline(y=pivot, line_dash="dot", line_color="orange", line_width=2,
+                             annotation_text=f"Pivot: ${pivot:.2f}")
             
             fig.update_layout(
                 height=600,
-(
-                height=600,
-                title                title=f"{=f"{crypto_symbol} - Destekcrypto_symbol} - Destek/Diren/Direnç Analizi",
-               ç Analizi",
-                xaxis xaxis_title="Tarih_title="Tarih",
-                yaxis_title="",
+                title=f"{crypto_symbol} - Destek/Direnç Analizi",
+                xaxis_title="Tarih",
                 yaxis_title="Fiyat (USD)",
-                showFiyat (USD)",
                 showlegend=True
             )
             
-legend=True
-            )
-            
-            st            st.plotly_chart.plotly_chart(fig, use_container_width(fig, use_container_width=True=True)
+            st.plotly_chart(fig, use_container_width=True)
         
         with col2:
-            st.subheader)
-        
-        with col2:
-            st.subheader("("🎯 TRADING🎯 TRADING Sİ SİNYALLERİ")
-NYALLERİ")
-            
+            st.subheader("🎯 TRADING SİNYALLERİ")
             
             if signals:
-                           if signals:
-                for for signal in signals:
-                    if signal in signals:
-                    if " "ALIM" in signalALIM" in signal or or "KIRILDI "KIRILDI" in" in signal and "D signal and "DİRİRENENÇ" in signal:
-                        st.success(f"✅ {Ç" in signal:
+                for signal in signals:
+                    if "ALIM" in signal or "KIRILDI" in signal and "DIRENÇ" in signal:
                         st.success(f"✅ {signal}")
-                   signal}")
-                    elif "SATIM" in signal or "KIRILDI elif "SATIM" in signal or "KIRILDI" in signal" in signal and "DEST and "DESTEK" in signal:
-                        st.errorEK" in signal:
-                        st(f"❌ {signal.error(f"❌ {signal}")
-                    elif "TEST"}")
-                    elif "TEST" in signal in signal or "YAKIN" in signal:
- or "YAKIN" in signal:
-                                               st.warning(f"⚠ st.warning(f"⚠️️ {signal}")
+                    elif "SATIM" in signal or "KIRILDI" in signal and "DESTEK" in signal:
+                        st.error(f"❌ {signal}")
+                    elif "TEST" in signal or "YAKIN" in signal:
+                        st.warning(f"⚠️ {signal}")
                     else:
- {signal}")
-                    else:
-                        st.info(f"                        st.info(f"📊 {signal}")
-            else📊 {signal}")
+                        st.info(f"📊 {signal}")
             else:
-               :
-                st.info(" st.info("📊 Net trading📊 Net trading sinyali sinyali yok")
- yok")
+                st.info("📊 Net trading sinyali yok")
             
-            st.sub            
-            st.subheader("header("📊 FİYAT ANAL📊 FİYAT ANALİZİ")
-            stİZİ")
-            st.metric("Mevcut.metric("Mevcut F Fiyat", f"${iyat", f"${currentcurrent_price:.2f}")
+            st.subheader("📊 FİYAT ANALİZİ")
+            st.metric("Mevcut Fiyat", f"${current_price:.2f}")
             
-_price:.2f}")
-            
-            if support_levels            if support_levels:
-                nearest_support =:
+            if support_levels:
                 nearest_support = max(support_levels)
- max(support_levels)
-                               distance_support = distance_support = ((current ((current_price - nearest_support)_price - nearest_support) / current_price) * / current_price) *  100
-                st.metric100
-                st.metric("En Yakın Destek("En Yakın Destek", f"${nearest_support:.2f}", f"%", f"${nearest_support:.2f}", f"%{distance{distance_support:.1_support:.1f}")
-f}")
+                distance_support = ((current_price - nearest_support) / current_price) * 100
+                st.metric("En Yakın Destek", f"${nearest_support:.2f}", f"%{distance_support:.1f}")
             else:
-                           else:
-                st.metric(" st.metric("En YakEn Yakın Destek",ın Destek", "Bul "Bulununamadı")
+                st.metric("En Yakın Destek", "Bulunamadı")
             
             if resistance_levels:
-               amadı")
+                nearest_resistance = min(resistance_levels)
+                distance_resistance = ((nearest_resistance - current_price) / current_price) * 100
+                st.metric("En Yakın Direnç", f"${nearest_resistance:.2f}", f"%{distance_resistance:.1f}")
+            else:
+                st.metric("En Yakın Direnç", "Bulunamadı")
             
+            st.subheader("💎 DESTEK SEVİYELERİ")
+            if support_levels:
+                for i, level in enumerate(sorted(support_levels, reverse=True)):
+                    distance = ((current_price - level) / current_price) * 100
+                    st.write(f"🟢 D{i+1}: ${level:.2f} (%{distance:.1f} aşağıda)")
+            else:
+                st.write("Destek seviyesi bulunamadı")
+            
+            st.subheader("🚀 DİRENÇ SEVİYELERİ")
             if resistance_levels:
-                nearest_resistance nearest_resistance = min(res = min(resistance_levels)
-istance_levels)
-                distance_res                distance_resistance = ((neistance = ((nearest_resarest_resistance - current_priceistance - current_price) /) / current_price) * current_price) * 100 100
-                st.m
-                st.metric("etric("En Yakın DEn Yakın Dirençirenç", f"${", f"${nearest_resnearest_resistance:.2istance:.2f}", f"%{distance_resistancef}", f"%{distance_resistance:.1:.1f}")
-            elsef}")
+                for i, level in enumerate(sorted(resistance_levels)):
+                    distance = ((level - current_price) / current_price) * 100
+                    st.write(f"🔴 R{i+1}: ${level:.2f} (%{distance:.1f} yukarıda)")
             else:
-               :
-                st.metric(" st.metric("En YakEn Yakın Direnın Direnç",ç", "Bul "Bulununamadı")
+                st.write("Direnç seviyesi bulunamadı")
             
-            st.subamadı")
-            
-            st.subheader("💎header("💎 DEST DESTEK SEVİYELERİEK SEVİYELERİ")
-           ")
-            if support_levels if support_levels:
-               :
-                for i, level for i, level in enumerate in enumerate(sorted(support_levels(sorted(support_levels, reverse, reverse=True)):
-                    distance=True)):
-                    distance = (( = ((current_pricecurrent_price - level) / current_price) * - level) / current_price) * 100 100
-                    st.write(f"
-                    st.write(f"🟢 D{i+1🟢 D{i+1}: ${level:.2f}}: ${level:.2f} (%{ (%{distance:.1fdistance:.1f} aşağıda)")
-            else:
-               } aşağıda)")
-            else:
-                st.write st.write("Destek se("Destek seviyesviyesi bulunami bulunamadı")
-adı")
-            
-            st            
-            st.subheader(".subheader("🚀 Dİ🚀 DİRENRENÇ SEVİÇ SEVİYELYELERİ")
-           ERİ")
-            if resistance if resistance_levels:
-               _levels:
-                for i for i, level in enumerate(sorted(resistance_levels)):
-                    distance, level in enumerate(sorted(resistance_levels)):
-                    distance = ((level - = ((level - current_price current_price) / current_price) *) / current_price) * 100
-                    100
-                    st.write(f" st.write(f"🔴 R{i🔴 R{i+1+1}: ${level:.2f} (%{distance:.1f} yukarıda)")
-            else:
-                st}: ${level:.2f} (%{distance:.1f} yukarıda)")
-            else:
-                st.write("D.write("Direnç seirenç seviyesiviyesi bulunam bulunamadı")
-            
-adı")
-            
-            #            # Pivot Point bil Pivot Point bilgisigisi
-            if pivot
+            # Pivot Point bilgisi
             if pivot:
-                st:
-                st.subheader(".subheader("⚖️⚖️ PIVOT POINT")
-                st.write(f"**Pivot:** PIVOT POINT")
-                st.write(f"**Pivot:** ${p ${pivot:.2fivot:.2f}")
-               }")
-                st.write(f" st.write(f"**S1:** ${p**S1:** ${pivotivot_supports[0]:_supports[0]:.2.2f}")
-                stf}")
-                st.write(f.write(f"**R1"**R1:**:** ${pivot_resist ${pivot_resistancesances[0]:.2[0]:.2f}")
-f}")
+                st.subheader("⚖️ PIVOT POINT")
+                st.write(f"**Pivot:** ${pivot:.2f}")
+                st.write(f"**S1:** ${pivot_supports[0]:.2f}")
+                st.write(f"**R1:** ${pivot_resistances[0]:.2f}")
         
-        #        
-        # Det Detaylıaylı analiz analiz
-       
-        st.subheader("📋 DETAYLI ANALİZ st.subheader("📋 DETAYLI ANALİZ RAPOR RAPORU")
+        # Detaylı analiz
+        st.subheader("📋 DETAYLI ANALİZ RAPORU")
         
-       U")
+        col3, col4 = st.columns(2)
         
-        col3 col3, col4 =, col4 = st.columns st.columns(2)
-        
-(2)
-        
-        with        with col3:
-            st col3:
-            st.write.write("**📈 Tek("**📈 Teknik Özet:**")
-           nik Özet:**")
-            st st.write(f"- Anal.write(f"- Analiz ediz edilen mum sayısilen mum sayısı:ı: {len(data)} {len(data)}")
-           ")
-            st.write(f"- Tespit edilen dest st.write(f"- Tespit edilen destek seviyesi: {ek seviyesi: {lenlen(support_levels(support_levels)}")
-)}")
-            st.write(f"-            st.write(f"- T Tespit edilen direnespit edilen direnç seç seviyesi:viyesi: {len {len(resistance_levels)}(resistance_levels)}")
-")
-            st.write(f"- İ            st.write(f"- İğne analizi: {'Ağne analizi: {'Açık'çık' if w if wick_analysis elseick_analysis else 'Kapalı'}")
-            'Kapalı'}")
-            st st.write(f"- Hass.write(f"- Hassasiyetasiyet seviyesi: { seviyesi: {sensitivity}/10")
+        with col3:
+            st.write("**📈 Teknik Özet:**")
+            st.write(f"- Analiz edilen mum sayısı: {len(data)}")
+            st.write(f"- Tespit edilen destek seviyesi: {len(support_levels)}")
+            st.write(f"- Tespit edilen direnç seviyesi: {len(resistance_levels)}")
+            st.write(f"- İğne analizi: {'Açık' if wick_analysis else 'Kapalı'}")
+            st.write(f"- Hassasiyet seviyesi: {sensitivity}/10")
             
-sensitivity}/10")
-            
-               with col4:
-            with col4:
-            st.write st.write("**🎯("**🎯 Trading Önerileri:**")
+        with col4:
+            st.write("**🎯 Trading Önerileri:**")
             if not signals:
-                st Trading Önerileri:**")
-            if not signals:
-                st.write("- Net.write("- Net sinyal yok - Piy sinyal yok - Piyasa gözlemi öasa gözlemi önerilir")
-            elifnerilir")
-            elif any any("ALIM"("ALIM" in signal for signal in signals):
-                in signal for signal in signals):
-                st.write("- 🟢 st.write("- 🟢 ALIM yönünde ALIM yönünde sinyaller mev sinyaller mecut")
-            elif any("SATIM" in signal forvcut")
+                st.write("- Net sinyal yok - Piyasa gözlemi önerilir")
+            elif any("ALIM" in signal for signal in signals):
+                st.write("- 🟢 ALIM yönünde sinyaller mevcut")
             elif any("SATIM" in signal for signal in signals):
-                st.write signal in signals):
-                st.write("- 🔴 SATIM y("- 🔴 SATIM yönünde sinyaller mevcut")
-            elseönünde sinyaller mevcut")
+                st.write("- 🔴 SATIM yönünde sinyaller mevcut")
             else:
-                st.write("- 🟡 NÖTR - Bekle ve gör")
-        
-       :
                 st.write("- 🟡 NÖTR - Bekle ve gör")
         
         # Son 10 mumun detayları
-        with st.expander("📜 SON 10 M # Son 10 mumun detayları
         with st.expander("📜 SON 10 MUM DETAYI"):
-            display_data = data.tail(10)[['Open', 'High', 'Low', 'Close', 'UM DETAYI"):
             display_data = data.tail(10)[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
             
             # Formatlama
-Volume']].copy()
-            
-            # Formatlama
-            for col in ['Open            for col in ['Open', 'High', 'Low', 'Close']:
-                display_data', 'High', 'Low', 'Close']:
-                display_data[col] = display_data[col].map(lambda x: f[col] = display_data[col].map(lambda x"${x:.2f}" if not pd.isna(x) else ": f"${x:.2f}" if not pd.isna(x) else "N/A")
-            display_data['Volume'] = display_data['Volume'].map(lambda x: f"{x:,.0f}" if notN/A")
-            display_data['Volume'] = display_data['Volume'].map(lambda x: f"{x:,.0f pd.isna(x) else "N/A")
-            
-            st.dataframe(display_data)
-            
-    except Exception as e}" if not pd.isna(x) else "N/A")
+            for col in ['Open', 'High', 'Low', 'Close']:
+                display_data[col] = display_data[col].map(lambda x: f"${x:.2f}" if not pd.isna(x) else "N/A")
+            display_data['Volume'] = display_data['Volume'].map(lambda x: f"{x:,.0f}" if not pd.isna(x) else "N/A")
             
             st.dataframe(display_data)
             
     except Exception as e:
-        st.error:
-        st.error(f"❌ Hata olu(f"❌ Hata oluştu: {str(e)}")
+        st.error(f"❌ Hata oluştu: {str(e)}")
 
 if __name__ == "__main__":
     main()
