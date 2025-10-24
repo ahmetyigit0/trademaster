@@ -837,4 +837,4 @@ def main():
             
         else:
             st.markdown("### ⚪ BEKLE")
-            st.info("Koşullar uygun de
+            st.info("Koşullar uygun de")
