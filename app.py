@@ -3,7 +3,6 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
 
 st.set_page_config(page_title="Profesyonel Kripto Analiz", layout="wide")
 st.title("🎯 Profesyonel Kripto Trading Analizi")
@@ -78,9 +77,11 @@ def calculate_advanced_indicators(data):
     
     df['ATR'] = calculate_atr(df)
     
-    # 6. Volume analizi
+    # 6. Volume analizi - DÜZELTME: Tek tek hesapla
     df['Volume_MA'] = df['Volume'].rolling(window=20).mean()
-    df['Volume_Ratio'] = df['Volume'] / df['Volume_MA']
+    # Volume_Ratio'yu ayrı satırda hesapla
+    volume_ratio = df['Volume'] / df['Volume_MA']
+    df['Volume_Ratio'] = volume_ratio
     
     return df
 
@@ -103,7 +104,7 @@ def generate_trading_signals(data):
     macd = float(df['MACD'].iloc[-1])
     macd_signal = float(df['MACD_Signal'].iloc[-1])
     atr = float(df['ATR'].iloc[-1])
-    volume_ratio = float(df['Volume_Ratio'].iloc[-1])
+    volume_ratio = float(df['Volume_Ratio'].iloc[-1]) if not pd.isna(df['Volume_Ratio'].iloc[-1]) else 1.0
     
     # 1. TREND ANALİZİ - EMA
     trend_strength = 0
@@ -121,10 +122,13 @@ def generate_trading_signals(data):
         trend_strength = -1
     
     # Golden Cross / Death Cross
-    if df['EMA_20'].iloc[-2] <= df['EMA_50'].iloc[-2] and ema_20 > ema_50:
-        signals.append("⭐ GOLDEN CROSS - EMA20, EMA50'yı yukarı kesti - ALIM")
-    elif df['EMA_20'].iloc[-2] >= df['EMA_50'].iloc[-2] and ema_20 < ema_50:
-        signals.append("💀 DEATH CROSS - EMA20, EMA50'yı aşağı kesti - SATIM")
+    if len(df) >= 2:
+        prev_ema_20 = float(df['EMA_20'].iloc[-2])
+        prev_ema_50 = float(df['EMA_50'].iloc[-2])
+        if prev_ema_20 <= prev_ema_50 and ema_20 > ema_50:
+            signals.append("⭐ GOLDEN CROSS - EMA20, EMA50'yı yukarı kesti - ALIM")
+        elif prev_ema_20 >= prev_ema_50 and ema_20 < ema_50:
+            signals.append("💀 DEATH CROSS - EMA20, EMA50'yı aşağı kesti - SATIM")
     
     # 2. RSI SİNYALLERİ
     if rsi < 30:
@@ -142,7 +146,7 @@ def generate_trading_signals(data):
             signals.append("🔴 RSI + Trend - Düşüş destekli")
     
     # 3. BOLLINGER BANT SİNYALLERİ
-    bb_position = (current_price - bb_lower) / (bb_upper - bb_lower) * 100
+    bb_position = (current_price - bb_lower) / (bb_upper - bb_lower) * 100 if (bb_upper - bb_lower) > 0 else 50
     
     if current_price <= bb_lower and rsi < 35:
         signals.append("📉 BOLLINGER ALT BANT + RSI - GÜÇLÜ ALIM SİNYALİ")
@@ -150,19 +154,22 @@ def generate_trading_signals(data):
         signals.append("📈 BOLLINGER ÜST BANT + RSI - GÜÇLÜ SATIM SİNYALİ")
     
     # Bollinger Squeeze tespiti
-    bb_width = (bb_upper - bb_lower) / df['BB_Middle'].iloc[-1] * 100
+    bb_width = (bb_upper - bb_lower) / df['BB_Middle'].iloc[-1] * 100 if not pd.isna(df['BB_Middle'].iloc[-1]) else 10
     if bb_width < 5:  # Dar bant
         signals.append("⚡ BOLLINGER SQUEEZE - Büyük hareket yakın!")
     
     # 4. MACD SİNYALLERİ
-    if macd > macd_signal and df['MACD'].iloc[-2] <= df['MACD_Signal'].iloc[-2]:
-        signals.append("✅ MACD ALTI KESİŞ - ALIM sinyali")
-        if trend_strength > 0:
-            signals.append("💪 MACD + Trend - ALIM güçlü")
-    elif macd < macd_signal and df['MACD'].iloc[-2] >= df['MACD_Signal'].iloc[-2]:
-        signals.append("❌ MACD ÜSTÜ KESİŞ - SATIM sinyali")
-        if trend_strength < 0:
-            signals.append("💪 MACD + Trend - SATIM güçlü")
+    if len(df) >= 2:
+        prev_macd = float(df['MACD'].iloc[-2])
+        prev_macd_signal = float(df['MACD_Signal'].iloc[-2])
+        if macd > macd_signal and prev_macd <= prev_macd_signal:
+            signals.append("✅ MACD ALTI KESİŞ - ALIM sinyali")
+            if trend_strength > 0:
+                signals.append("💪 MACD + Trend - ALIM güçlü")
+        elif macd < macd_signal and prev_macd >= prev_macd_signal:
+            signals.append("❌ MACD ÜSTÜ KESİŞ - SATIM sinyali")
+            if trend_strength < 0:
+                signals.append("💪 MACD + Trend - SATIM güçlü")
     
     # 5. VOLUME ANALİZİ
     if volume_ratio > 1.5:
@@ -293,10 +300,10 @@ def main():
             st.subheader("📊 GÖSTERGELER")
             current = data.iloc[-1]
             st.metric("Fiyat", f"${current_price:.2f}")
-            st.metric("RSI", f"{current['RSI']:.1f}")
-            st.metric("MACD", f"{current['MACD']:.4f}")
-            st.metric("ATR", f"{current['ATR']:.2f}")
-            st.metric("Volume Ratio", f"{current['Volume_Ratio']:.1f}x")
+            st.metric("RSI", f"{current['RSI']:.1f}" if not pd.isna(current['RSI']) else "N/A")
+            st.metric("MACD", f"{current['MACD']:.4f}" if not pd.isna(current['MACD']) else "N/A")
+            st.metric("ATR", f"{current['ATR']:.2f}" if not pd.isna(current['ATR']) else "N/A")
+            st.metric("Volume Ratio", f"{current['Volume_Ratio']:.1f}x" if not pd.isna(current['Volume_Ratio']) else "N/A")
             
             st.subheader("💎 SEVİYELER")
             st.write("**Destek:**")
@@ -336,9 +343,9 @@ def main():
             
             # Formatlama
             for col in ['Open', 'High', 'Low', 'Close', 'EMA_20', 'EMA_50']:
-                display_data[col] = display_data[col].map(lambda x: f"${x:.2f}")
-            display_data['Volume'] = display_data['Volume'].map(lambda x: f"{x:,.0f}")
-            display_data['RSI'] = display_data['RSI'].map(lambda x: f"{x:.1f}")
+                display_data[col] = display_data[col].map(lambda x: f"${x:.2f}" if not pd.isna(x) else "N/A")
+            display_data['Volume'] = display_data['Volume'].map(lambda x: f"{x:,.0f}" if not pd.isna(x) else "N/A")
+            display_data['RSI'] = display_data['RSI'].map(lambda x: f"{x:.1f}" if not pd.isna(x) else "N/A")
             
             st.dataframe(display_data)
             
