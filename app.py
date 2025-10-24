@@ -5,12 +5,61 @@ import numpy as np
 import plotly.graph_objects as go
 
 st.set_page_config(page_title="Profesyonel Kripto Analiz", layout="wide")
+
+# Şifre koruması
+def check_password():
+    """Şifre kontrolü yapar"""
+    def password_entered():
+        """Şifre girildiğinde kontrol eder"""
+        if st.session_state["password"] == "efe":
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # Şifreyi temizle
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        # İlk giriş, şifre giriş alanını göster
+        st.text_input(
+            "Şifre", 
+            type="password", 
+            on_change=password_entered, 
+            key="password"
+        )
+        st.write("🔒 Bu uygulama şifre ile korunmaktadır")
+        return False
+    elif not st.session_state["password_correct"]:
+        # Şifre yanlış, tekrar dene
+        st.text_input(
+            "Şifre", 
+            type="password", 
+            on_change=password_entered, 
+            key="password"
+        )
+        st.error("❌ Şifre yanlış! Lütfen tekrar deneyin.")
+        return False
+    else:
+        # Şifre doğru
+        return True
+
+# Şifre kontrolü
+if not check_password():
+    st.stop()  # Şifre doğru değilse uygulamayı durdur
+
+# Şifre doğruysa ana uygulamayı göster
 st.title("🎯 Profesyonel Kripto Trading Analizi")
 
 # Sidebar
-crypto_symbol = st.sidebar.text_input("Kripto Sembolü:", "BTC-USD")
-lookback_days = st.sidebar.slider("Gün Sayısı", 30, 365, 90)
-analysis_type = st.sidebar.selectbox("Analiz Türü", ["4 Saatlik", "1 Günlük", "1 Saatlik"])
+with st.sidebar:
+    st.success("🔓 Giriş Başarılı!")
+    crypto_symbol = st.text_input("Kripto Sembolü:", "BTC-USD")
+    lookback_days = st.slider("Gün Sayısı", 30, 365, 90)
+    analysis_type = st.selectbox("Analiz Türü", ["4 Saatlik", "1 Günlük", "1 Saatlik"])
+    
+    # Çıkış butonu
+    if st.button("🔒 Çıkış Yap"):
+        for key in st.session_state.keys():
+            del st.session_state[key]
+        st.rerun()
 
 interval_map = {"4 Saatlik": "4h", "1 Günlük": "1d", "1 Saatlik": "1h"}
 
