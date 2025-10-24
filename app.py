@@ -8,9 +8,7 @@ from plotly.subplots import make_subplots # Alt grafikler için eklendi
 st.set_page_config(page_title="Kripto Teknik Analiz", layout="wide")
 st.title("🎯 Kripto Teknik Analiz")
 
-# --- GÖSTERGE AYARLARI ---
-# Önceki yanıtta konuştuğumuz 4 saatlik zaman dilimi için yaygın/etkili ayarları kullanıyoruz.
-# Bunları Streamlit sidebar'ına da taşıyabiliriz, ancak basitlik için şimdilik sabit tutalım.
+# --- GÖSTERGE AYARLARI (Default Ayarlar) ---
 EMA_SHORT = 20
 EMA_LONG = 50
 RSI_PERIOD = 14
@@ -23,15 +21,14 @@ MACD_SIGNAL = 9
 
 # Sidebar
 crypto_symbol = st.sidebar.text_input("Kripto Sembolü:", "BTC-USD")
-# Not: yfinance 4h için maksimum 730 gün, 1h için 60 gün destekler. Ayarları buna göre optimize edelim.
 lookback_days = st.sidebar.slider("Gün Sayısı", 30, 365, 90) 
 analysis_type = st.sidebar.selectbox("Analiz Türü", ["4 Saatlik", "1 Günlük", "1 Saatlik"])
 
 interval_map = {"4 Saatlik": "4h", "1 Günlük": "1d", "1 Saatlik": "1h"}
 
 def get_crypto_data(symbol, days, interval):
-    """yfinance kullanarak kripto verilerini çeker."""
-    # Yfinance'ın zaman aralığı kısıtlamalarını dikkate alarak period'u ayarla
+    """yfinance kullanarak kripto verilerini çeker ve zaman aralığı kısıtlamalarını kontrol eder."""
+    # yfinance kısıtlamaları için gün sayısını ayarla
     if interval == '1h' and days > 60:
         days = 60
         st.sidebar.caption("1 Saatlik veriler için maksimum 60 gün desteklenir.")
@@ -40,6 +37,8 @@ def get_crypto_data(symbol, days, interval):
         st.sidebar.caption("4 Saatlik veriler için maksimum 730 gün desteklenir.")
 
     try:
+        # data = yf.download(symbol, period=f"{days}d", interval=interval, progress=False)
+        # Eğer yfinance'tan tam tarih aralığı çekmek istenirse:
         data = yf.download(symbol, period=f"{days}d", interval=interval, progress=False)
         return data
     except Exception as e:
@@ -51,32 +50,31 @@ def calculate_indicators(data):
     if data.empty:
         return data
 
-    # 1. EMA Hesaplama (Exponential Moving Average)
+    # 1. EMA Hesaplama
     data['EMA_Short'] = data['Close'].ewm(span=EMA_SHORT, adjust=False).mean()
     data['EMA_Long'] = data['Close'].ewm(span=EMA_LONG, adjust=False).mean()
 
-    # 2. RSI Hesaplama (Relative Strength Index)
-    # Pandas kullanarak basit RSI hesaplaması
+    # 2. RSI Hesaplama
     delta = data['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=RSI_PERIOD).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=RSI_PERIOD).mean()
     rs = gain / loss
     data['RSI'] = 100 - (100 / (1 + rs))
 
-    # 3. Bollinger Bantları Hesaplama
+    # 3. Bollinger Bantları Hesaplama (Hata Düzeltildi)
     data['BB_Middle'] = data['Close'].rolling(window=BOLL_PERIOD).mean()
-    std = data['Close'].rolling(window=BOLL_PERIOD).std()
+    std = data['Close'].rolling(window=BOLL_PERIOD).std() 
     data['BB_Upper'] = data['BB_Middle'] + (std * BOLL_STDDEV)
     data['BB_Lower'] = data['BB_Middle'] - (std * BOLL_STDDEV)
 
-    # 4. MACD Hesaplama (Moving Average Convergence Divergence)
+    # 4. MACD Hesaplama
     data['MACD_Fast'] = data['Close'].ewm(span=MACD_FAST, adjust=False).mean()
     data['MACD_Slow'] = data['Close'].ewm(span=MACD_SLOW, adjust=False).mean()
     data['MACD'] = data['MACD_Fast'] - data['MACD_Slow']
     data['MACD_Signal'] = data['MACD'].ewm(span=MACD_SIGNAL, adjust=False).mean()
     data['MACD_Hist'] = data['MACD'] - data['MACD_Signal']
 
-    return data.dropna() # Hesaplamadan sonra NaN değerleri düşür
+    return data.dropna()
 
 def main():
     try:
@@ -105,7 +103,7 @@ def main():
             shared_xaxes=True, 
             vertical_spacing=0.05,
             row_heights=[0.5, 0.25, 0.25], # Fiyat grafiğine daha fazla alan
-            subplot_titles=('Fiyat & Hareketli Ortalamalar & Bollinger Bantları', 'Göreceli Güç Endeksi (RSI)', 'MACD')
+            subplot_titles=('Fiyat & EMA & Bollinger Bantları', 'Göreceli Güç Endeksi (RSI)', 'MACD')
         )
 
         # 1. SATIR: Fiyat, EMA ve Bollinger
@@ -131,7 +129,7 @@ def main():
         fig.add_trace(go.Scatter(x=data.index, y=data['RSI'], line=dict(color='green', width=1.5), name='RSI'), row=2, col=1)
         fig.add_hline(y=70, line_dash="dash", line_color="red", row=2, col=1, annotation_text="Aşırı Alım (70)", annotation_position="top left")
         fig.add_hline(y=30, line_dash="dash", line_color="green", row=2, col=1, annotation_text="Aşırı Satım (30)", annotation_position="bottom left")
-        fig.update_yaxes(range=[0, 100], row=2, col=1)
+        fig.update_yaxes(range=[-5, 105], row=2, col=1) # RSI 0-100 aralığında olduğu için biraz boşluk bırakıldı.
 
         # 3. SATIR: MACD
         # MACD Histogram
@@ -147,9 +145,14 @@ def main():
             title_text=f"{crypto_symbol} {analysis_type} Teknik Analiz", 
             xaxis_rangeslider_visible=False, # Alttaki kaydırıcıyı gizle
             height=900, 
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="right", x=1)
         )
         
+        # X eksenini (Tarih/Saat) en alttaki grafikte göster
+        fig.update_xaxes(showgrid=True, row=3, col=1)
+        fig.update_xaxes(showgrid=False, row=1, col=1) # Mum grafiğinde X eksenini temizle
+        fig.update_xaxes(showgrid=False, row=2, col=1) # RSI grafiğinde X eksenini temizle
+
         st.plotly_chart(fig, use_container_width=True)
         
         # --- Son Veriler Tablosu ---
@@ -159,11 +162,10 @@ def main():
         display_cols = ['Open', 'High', 'Low', 'Close', 'Volume', 'EMA_Short', 'EMA_Long', 'RSI', 'BB_Upper', 'BB_Lower', 'MACD', 'MACD_Signal']
         display_data = data.tail(10)[display_cols].copy()
         
-        # Formatlama (Fiyat ve Hacim)
-        # Sadece fiyat sütunlarını ($) ve hacim sütununu (virgül) formatla
+        # Formatlama
         for col in ['Open', 'High', 'Low', 'Close', 'EMA_Short', 'EMA_Long', 'BB_Upper', 'BB_Lower']:
             if col in display_data.columns:
-                display_data[col] = display_data[col].map('${:.2f}'.format)
+                display_data[col] = display_data[col].map('${:,.2f}'.format)
         
         if 'RSI' in display_data.columns:
             display_data['RSI'] = display_data['RSI'].map('{:.2f}'.format) + '%'
@@ -178,7 +180,7 @@ def main():
         st.dataframe(display_data)
         
     except Exception as e:
-        st.error(f"❌ Hata oluştu: {str(e)}")
+        st.error(f"❌ Genel bir hata oluştu: {str(e)}")
 
 if __name__ == "__main__":
     main()
