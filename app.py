@@ -3,6 +3,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+from scipy import stats
 
 st.set_page_config(page_title="Profesyonel Kripto Analiz", layout="wide")
 
@@ -46,7 +47,7 @@ if not check_password():
     st.stop()  # Şifre doğru değilse uygulamayı durdur
 
 # Şifre doğruysa ana uygulamayı göster
-st.title("🎯 Profesyonel Kripto Trading Analizi")
+st.title("🎯 Profesyonel Kripto Trading Analizi - Destek/Direnç Analizi")
 
 # Sidebar
 with st.sidebar:
@@ -54,6 +55,12 @@ with st.sidebar:
     crypto_symbol = st.text_input("Kripto Sembolü:", "BTC-USD")
     lookback_days = st.slider("Gün Sayısı", 30, 365, 90)
     analysis_type = st.selectbox("Analiz Türü", ["4 Saatlik", "1 Günlük", "1 Saatlik"])
+    
+    # Analiz parametreleri
+    st.subheader("📊 Analiz Ayarları")
+    sensitivity = st.slider("Destek/Direnç Hassasiyeti", 1, 10, 3)
+    min_touch_points = st.slider("Minimum Temas Noktası", 2, 5, 2)
+    wick_analysis = st.checkbox("İğne (Wick) Analizi", value=True)
     
     # Çıkış butonu
     if st.button("🔒 Çıkış Yap"):
@@ -71,375 +78,479 @@ def get_crypto_data(symbol, days, interval):
         st.error(f"Veri çekilemedi: {e}")
         return None
 
-def calculate_advanced_indicators(data):
-    """Gelişmiş teknik göstergeleri hesapla"""
-    df = data.copy()
-    
-    # 1. EMA'lar - Trend analizi
-    df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
-    df['EMA_50'] = df['Close'].ewm(span=50, adjust=False).mean()
-    df['EMA_200'] = df['Close'].ewm(span=200, adjust=False).mean()
-    
-    # 2. RSI - Momentum
-    def calculate_rsi(prices, period=14):
-        delta = prices.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
-        return rsi
-    
-    df['RSI'] = calculate_rsi(df['Close'])
-    
-    # 3. Bollinger Bantları - Volatilite
-    def calculate_bollinger_bands(prices, window=20, num_std=2):
-        middle_band = prices.rolling(window=window).mean()
-        std = prices.rolling(window=window).std()
-        upper_band = middle_band + (std * num_std)
-        lower_band = middle_band - (std * num_std)
-        return upper_band, lower_band
-    
-    bb_upper, bb_lower = calculate_bollinger_bands(df['Close'])
-    df['BB_Upper'] = bb_upper
-    df['BB_Lower'] = bb_lower
-    df['BB_Middle'] = df['Close'].rolling(window=20).mean()
-    
-    # 4. MACD - Momentum ve trend dönüşleri
-    def calculate_macd(prices, fast=12, slow=26, signal=9):
-        ema_fast = prices.ewm(span=fast, adjust=False).mean()
-        ema_slow = prices.ewm(span=slow, adjust=False).mean()
-        macd = ema_fast - ema_slow
-        macd_signal = macd.ewm(span=signal, adjust=False).mean()
-        macd_histogram = macd - macd_signal
-        return macd, macd_signal, macd_histogram
-    
-    df['MACD'], df['MACD_Signal'], df['MACD_Histogram'] = calculate_macd(df['Close'])
-    
-    # 5. ATR - Volatilite ölçümü
-    def calculate_atr(data, period=14):
-        high_low = data['High'] - data['Low']
-        high_close = np.abs(data['High'] - data['Close'].shift())
-        low_close = np.abs(data['Low'] - data['Close'].shift())
-        true_range = np.maximum(np.maximum(high_low, high_close), low_close)
-        atr = true_range.rolling(window=period).mean()
-        return atr
-    
-    df['ATR'] = calculate_atr(df)
-    
-    # 6. Volume analizi - SADECE Volume_MA
-    df['Volume_MA'] = df['Volume'].rolling(window=20).mean()
-    
-    return df
-
-def generate_trading_signals(data):
-    """Trading sinyalleri üret"""
-    df = data.copy()
-    signals = []
-    
-    if len(df) < 50:
-        return signals
-    
+def find_support_resistance_levels(data, sensitivity=3, min_touch_points=2, use_wick_analysis=True):
+    """
+    Mum kapanışları ve iğnelere dayalı destek/direnç seviyelerini bulur
+    """
     try:
-        # Mevcut değerler
+        df = data.copy()
+        
+        # Fiyat verilerini topla
+        if use_wick_analysis:
+            # İğne analizi: High, Low, Close kullan
+            price_levels = []
+            for i in range(len(df)):
+                # Önemli seviyeler: High, Low, Close
+                price_levels.extend([
+                    float(df['High'].iloc[i]),
+                    float(df['Low'].iloc[i]), 
+                    float(df['Close'].iloc[i])
+                ])
+        else:
+            # Sadece kapanış fiyatları
+            price_levels = [float(x) for x in df['Close']]
+        
+        # Fiyat seviyelerini hassasiyete göre grupla
+        price_levels = sorted(price_levels)
+        
+        # Benzersiz seviyeleri bul ve yakın seviyeleri birleştir
+        unique_levels = []
+        tolerance = (max(price_levels) - min(price_levels)) * (sensitivity / 1000.0)
+        
+        i = 0
+        while i < len(price_levels):
+            current_level = price_levels[i]
+            group = [current_level]
+            
+            # Yakın seviyeleri grupla
+            j = i + 1
+            while j < len(price_levels) and price_levels[j] - current_level <= tolerance:
+                group.append(price_levels[j])
+                j += 1
+            
+            # Grup ortalamasını al
+            if len(group) >= min_touch_points:
+                unique_levels.append(np.mean(group))
+            
+            i = j
+        
+        # Seviyeleri destek ve direnç olarak ayır
         current_price = float(df['Close'].iloc[-1])
-        ema_20 = float(df['EMA_20'].iloc[-1])
-        ema_50 = float(df['EMA_50'].iloc[-1])
-        ema_200 = float(df['EMA_200'].iloc[-1])
-        rsi = float(df['RSI'].iloc[-1])
-        bb_upper = float(df['BB_Upper'].iloc[-1])
-        bb_lower = float(df['BB_Lower'].iloc[-1])
-        macd = float(df['MACD'].iloc[-1])
-        macd_signal = float(df['MACD_Signal'].iloc[-1])
-        atr = float(df['ATR'].iloc[-1])
         
-        # Volume analizi - MANUEL HESAPLA
-        current_volume = float(df['Volume'].iloc[-1])
-        volume_ma = float(df['Volume_MA'].iloc[-1])
-        volume_ratio = current_volume / volume_ma if volume_ma > 0 else 1.0
+        support_levels = [level for level in unique_levels if level < current_price]
+        resistance_levels = [level for level in unique_levels if level > current_price]
         
-        # 1. TREND ANALİZİ - EMA
-        trend_strength = 0
-        if ema_20 > ema_50 > ema_200 and current_price > ema_20:
-            signals.append("🚀 GÜÇLÜ YÜKSELİŞ TRENDİ - EMA'lar uyumlu")
-            trend_strength = 2
-        elif ema_20 < ema_50 < ema_200 and current_price < ema_20:
-            signals.append("🔻 GÜÇLÜ DÜŞÜŞ TRENDİ - EMA'lar uyumlu")
-            trend_strength = -2
-        elif ema_20 > ema_50:
-            signals.append("↗️ YÜKSELİŞ EĞİLİMİ - Kısa vade pozitif")
-            trend_strength = 1
-        elif ema_20 < ema_50:
-            signals.append("↘️ DÜŞÜŞ EĞİLİMİ - Kısa vade negatif")
-            trend_strength = -1
-        
-        # Golden Cross / Death Cross
-        if len(df) >= 2:
-            prev_ema_20 = float(df['EMA_20'].iloc[-2])
-            prev_ema_50 = float(df['EMA_50'].iloc[-2])
-            if prev_ema_20 <= prev_ema_50 and ema_20 > ema_50:
-                signals.append("⭐ GOLDEN CROSS - EMA20, EMA50'yı yukarı kesti - ALIM")
-            elif prev_ema_20 >= prev_ema_50 and ema_20 < ema_50:
-                signals.append("💀 DEATH CROSS - EMA20, EMA50'yı aşağı kesti - SATIM")
-        
-        # 2. RSI SİNYALLERİ
-        if rsi < 30:
-            signals.append("🎯 RSI AŞIRI SATIM - Potansiyel ALIM fırsatı")
-            if trend_strength > 0:
-                signals.append("✅ RSI + Trend uyumu - GÜÇLÜ ALIM")
-        elif rsi > 70:
-            signals.append("⚠️ RSI AŞIRI ALIM - Potansiyel SATIM sinyali")
-            if trend_strength < 0:
-                signals.append("❌ RSI + Trend uyumu - GÜÇLÜ SATIM")
-        elif 30 <= rsi <= 70:
-            if rsi > 50 and trend_strength > 0:
-                signals.append("🟢 RSI + Trend - Yükseliş destekli")
-            elif rsi < 50 and trend_strength < 0:
-                signals.append("🔴 RSI + Trend - Düşüş destekli")
-        
-        # 3. BOLLINGER BANT SİNYALLERİ
-        if (bb_upper - bb_lower) > 0:
-            bb_position = (current_price - bb_lower) / (bb_upper - bb_lower) * 100
-            if current_price <= bb_lower and rsi < 35:
-                signals.append("📉 BOLLINGER ALT BANT + RSI - GÜÇLÜ ALIM SİNYALİ")
-            elif current_price >= bb_upper and rsi > 65:
-                signals.append("📈 BOLLINGER ÜST BANT + RSI - GÜÇLÜ SATIM SİNYALİ")
-        
-        # Bollinger Squeeze tespiti
-        if not pd.isna(df['BB_Middle'].iloc[-1]) and df['BB_Middle'].iloc[-1] > 0:
-            bb_width = (bb_upper - bb_lower) / df['BB_Middle'].iloc[-1] * 100
-            if bb_width < 5:  # Dar bant
-                signals.append("⚡ BOLLINGER SQUEEZE - Büyük hareket yakın!")
-        
-        # 4. MACD SİNYALLERİ
-        if len(df) >= 2:
-            prev_macd = float(df['MACD'].iloc[-2])
-            prev_macd_signal = float(df['MACD_Signal'].iloc[-2])
-            if macd > macd_signal and prev_macd <= prev_macd_signal:
-                signals.append("✅ MACD ALTI KESİŞ - ALIM sinyali")
-                if trend_strength > 0:
-                    signals.append("💪 MACD + Trend - ALIM güçlü")
-            elif macd < macd_signal and prev_macd >= prev_macd_signal:
-                signals.append("❌ MACD ÜSTÜ KESİŞ - SATIM sinyali")
-                if trend_strength < 0:
-                    signals.append("💪 MACD + Trend - SATIM güçlü")
-        
-        # 5. VOLUME ANALİZİ
-        if volume_ratio > 1.5:
-            signals.append(f"📊 HACİM ARTIŞI - {volume_ratio:.1f}x - Sinyal güvenilir")
-        
-        # 6. ATR TABANLI STOP LOSS ÖNERİSİ
-        stop_loss_pct = (atr / current_price) * 100 * 2  # 2x ATR
-        signals.append(f"🛡️ Önerilen Stop Loss: %{stop_loss_pct:.1f} (2x ATR)")
-        
-        # Take Profit seviyeleri
-        if trend_strength > 0:
-            tp1 = current_price * 1.01  # %1
-            tp2 = current_price * 1.02  # %2
-            tp3 = current_price * 1.03  # %3
-            signals.append(f"🎯 Take Profit Seviyeleri: ${tp1:.2f} | ${tp2:.2f} | ${tp3:.2f}")
-    
-    except Exception as e:
-        signals.append(f"⚠️ Sinyal hesaplama hatası: {str(e)}")
-    
-    return signals
-
-def calculate_support_resistance_simple(data):
-    """Basit destek ve direnç seviyelerini hesapla"""
-    try:
-        # Son 50 mum üzerinden basit pivot noktaları bul
-        recent_data = data.tail(50)
-        
-        # Yüksek ve düşük değerleri al (numpy array'e çevir)
-        highs = recent_data['High'].values
-        lows = recent_data['Low'].values
-        
-        support_levels = []
-        resistance_levels = []
-        
-        # Basit yöntem: Yerel maksimum ve minimumları bul
-        for i in range(2, len(highs)-2):
-            current_high = float(highs[i])
-            current_low = float(lows[i])
-            
-            # Direnç kontrolü (yerel maksimum)
-            if (current_high > float(highs[i-1]) and 
-                current_high > float(highs[i-2]) and 
-                current_high > float(highs[i+1]) and 
-                current_high > float(highs[i+2])):
-                resistance_levels.append(current_high)
-            
-            # Destek kontrolü (yerel minimum)
-            if (current_low < float(lows[i-1]) and 
-                current_low < float(lows[i-2]) and 
-                current_low < float(lows[i+1]) and 
-                current_low < float(lows[i+2])):
-                support_levels.append(current_low)
-        
-        # Benzersiz değerler ve sıralama
-        support_levels = sorted(list(set(support_levels)))
-        resistance_levels = sorted(list(set(resistance_levels)))
+        # En güçlü seviyeleri seç (en çok temas edenler)
+        support_levels = sorted(support_levels, reverse=True)[:5]  # En yakın 5 destek
+        resistance_levels = sorted(resistance_levels)[:5]  # En yakın 5 direnç
         
         return support_levels, resistance_levels
         
     except Exception as e:
-        # Hata durumunda boş listeler döndür
-        st.error(f"Destek/direnç hesaplama hatası: {e}")
+        st.error(f"Destek/direnç analiz hatası: {e}")
         return [], []
+
+def calculate_pivot_points(data):
+    """Klasik pivot point seviyelerini hesapla"""
+    try:
+        df = data.copy()
+        recent = df.tail(1).iloc[0]
+        
+        high = float(recent['High'])
+        low = float(recent['Low'])
+        close = float(recent['Close'])
+        
+        # Pivot Point
+        pivot = (high + low + close) / 3
+        
+        # Direnç seviyeleri
+        r1 = 2 * pivot - low
+        r2 = pivot + (high - low)
+        r3 = high + 2 * (pivot - low)
+        
+        # Destek seviyeleri
+        s1 = 2 * pivot - high
+        s2 = pivot - (high - low)
+        s3 = low - 2 * (high - pivot)
+        
+        return pivot, [s1, s2, s3], [r1, r2, r3]
+        
+    except Exception as e:
+        return None, [], []
+
+def generate_trading_signals_with_levels(data, support_levels, resistance_levels):
+    """Destek/direnç seviyelerine göre trading sinyalleri üret"""
+    signals = []
+    
+    if len(data) < 10:
+        return signals
+    
+    try:
+        current_price = float(data['Close'].iloc[-1])
+        prev_price = float(data['Close'].iloc[-2])
+        
+        # Yakın destek/direnç seviyelerini bul
+        nearest_support = max([level for level in support_levels if level < current_price], default=None)
+        nearest_resistance = min([level for level in resistance_levels if level > current_price], default=None)
+        
+        if nearest_support:
+            distance_to_support = ((current_price - nearest_support) / current_price) * 100
+            if distance_to_support <= 2:  # %2'den yakınsa
+                signals.append(f"🎯 DESTEK YAKIN: ${nearest_support:.2f} (%{distance_to_support:.1f} uzak)")
+                if prev_price > current_price:  # Düşüş trendinde
+                    signals.append("🔄 DESTEK TESTİ - POTANSİYEL ALIM")
+        
+        if nearest_resistance:
+            distance_to_resistance = ((nearest_resistance - current_price) / current_price) * 100
+            if distance_to_resistance <= 2:  # %2'den yakınsa
+                signals.append(f"🎯 DİRENÇ YAKIN: ${nearest_resistance:.2f} (%{distance_to_resistance:.1f} uzak)")
+                if prev_price < current_price:  # Yükseliş trendinde
+                    signals.append("🔄 DİRENÇ TESTİ - POTANSİYEL SATIM")
+        
+        # Kırılma sinyalleri
+        if nearest_support and current_price < nearest_support and prev_price >= nearest_s_price >= nearest_support:
+upport:
+            signals.append("            signals.append("❌ DEST❌ DESTEK KEK KIRILDI -IRILDI - SAT SATIM SİNYIM SİNYALİALİ")
+        
+        if")
+        
+        if nearest_res nearest_resistance and current_priceistance and current_price > nearest_res > nearest_resistance and previstance and prev_price <= nearest_res_price <= nearest_resistance:
+           istance:
+            signals.append(" signals.append("✅ DİR✅ DİRENÇENÇ KIRILDI KIRILDI - AL - ALIM SİNYIM SİNYALİALİ")
+        
+        return")
+        
+        return signals
+        
+ signals
+        
+    except Exception as e    except Exception as e:
+        return [:
+        return [f"Sinyf"Sinyal hatası: {al hatası: {str(e)}"]
+
+defstr(e)}"]
 
 def main():
     try:
+        interval = main():
+    try:
         interval = interval_map[analysis_type]
-        st.write(f"**{crypto_symbol}** için {analysis_type} veriler çekiliyor...")
+ interval_map[analysis_type]
+        st.write(f"**        st.write(f"**{{crypto_symbol}** içincrypto_symbol}** için { {analysis_type} veriler çanalysis_type} veriler çekiliyor...")
         
-        data = get_crypto_data(crypto_symbol, lookback_days, interval)
+ekiliyor...")
         
-        if data is None or data.empty:
-            st.error("Veri çekilemedi.")
+        data = get_crypto        data = get_crypto_data(crypto_symbol, look_data(crypto_symbol, lookback_days, interval)
+back_days, interval)
+        
+        
+        if data is None        if data is None or data or data.empty:
+            st.empty:
+            st.error("Veri çek.error("Veri çekilemediilemedi.")
             return
         
-        st.success(f"✅ {len(data)} adet mum verisi çekildi")
+        st.")
+            return
         
-        # Gelişmiş göstergeleri hesapla
-        data = calculate_advanced_indicators(data)
+        st.success(f"✅ {len.success(f"✅ {len(data)} adet mum ver(data)} adet mum verisi çekildi")
+isi çekildi")
         
-        # Trading sinyalleri üret
-        signals = generate_trading_signals(data)
+        # Destek/d        
+        # Destek/direnç seviyelerini bulirenç seviyelerini bul
+        support_levels,
+        support_levels, resistance_levels resistance_levels = = find_support_resistance_levels find_support_resistance_levels(
+(
+            data, sensitivity, min_t            data, sensitivity, min_touchouch_points, wick_analysis_points, wick_analysis
+       
+        )
         
-        # Basit destek/direnç seviyeleri
-        support_levels, resistance_levels = calculate_support_resistance_simple(data)
+        # Pivot point hesapla )
         
-        # Mevcut fiyat
+        # Pivot point hesapla
+        pivot, pivot
+        pivot, pivot_supports, pivot_resist_supports, pivot_resistances = calculate_pivot_points(dataances = calculate_pivot_points(data)
+        
+        # Mev)
+        
+        # Mevcutcut fiyat
+        current_price = float(data['Close'].iloc[-1 fiyat
         current_price = float(data['Close'].iloc[-1])
         
-        # Mevcut fiyata yakın seviyeleri filtrele
-        key_support = [level for level in support_levels if abs(level - current_price) / current_price * 100 <= 15]
-        key_resistance = [level for level in resistance_levels if abs(level - current_price) / current_price * 100 <= 15]
+        # Trading sinyall])
+        
+        # Trading sinyalleri üret
+        signalseri üret
+        signals = generate_trading_signals = generate_trading_signals_with_levels(data, support_with_levels(data, support_levels_levels, resistance_levels, resistance_levels)
+        
+)
         
         # Ana panel
-        col1, col2 = st.columns([2, 1])
+        # Ana panel
+               col1, col col1, col2 = st.columns([2, 2 = st.columns([2, 1])
         
-        with col1:
-            st.subheader("📈 Detaylı Grafik Analizi")
+        with col1])
+        
+        with col11:
+            st.subheader:
+            st.subheader("("📈 Destek/D📈 Destek/Direnç Grafik Analiziirenç Grafik Analizi")
+            
+            fig = go")
             
             fig = go.Figure()
             
-            # Mum grafiği
-            fig.add_trace(go.Candlestick(
+            #.Figure()
+            
+            # Çizgi grafiği Çizgi grafiği (kapanış fiy (kapanış fiyatları)
+            fig.add_traceatları)
+            fig.add_trace(go.Scatter(
                 x=data.index,
-                open=data['Open'],
-                high=data['High'],
-                low=data['Low'],
-                close=data['Close'],
-                name='Fiyat'
+                y(go.Scatter(
+                x=data.index,
+                y=data['=data['Close'],
+                name='Kapanış FiyatıClose'],
+                name='Kapanış Fiyatı',
+                line=dict(color',
+                line=dict(color='blue', width='blue', width=2=2),
+                mode='),
+                mode='lines'
+lines'
             ))
             
-            # EMA'lar
-            fig.add_trace(go.Scatter(x=data.index, y=data['EMA_20'], name='EMA 20', line=dict(color='blue', width=2)))
-            fig.add_trace(go.Scatter(x=data.index, y=data['EMA_50'], name='EMA 50', line=dict(color='orange', width=2)))
-            fig.add_trace(go.Scatter(x=data.index, y=data['EMA_200'], name='EMA 200', line=dict(color='red', width=2)))
+                       ))
             
-            # Bollinger Bantları
-            fig.add_trace(go.Scatter(x=data.index, y=data['BB_Upper'], name='BB Upper', line=dict(color='gray', width=1, dash='dash')))
-            fig.add_trace(go.Scatter(x=data.index, y=data['BB_Lower'], name='BB Lower', line=dict(color='gray', width=1, dash='dash')))
+            # Me # Mevcut fiyvcut fiyat çizgat çizgisi
+isi
+            fig.add_            fig.add_hline(yhline(y=current_price,=current_price, line_dash line_dash="solid",="solid", line_color="black line_color="black", line_width", line_width=2,=2, 
+                         annotation_text 
+                         annotation_text=f=f"Mevcut F"Mevcut Fiyatiyat: ${current_price: ${current_price:.2:.2f}")
             
-            # Destek/direnç çizgileri (sadece yakın olanlar)
-            for level in key_support[-3:]:
-                fig.add_hline(y=level, line_dash="dash", line_color="green", line_width=2, opacity=0.7)
+           f}")
             
-            for level in key_resistance[-3:]:
-                fig.add_hline(y=level, line_dash="dash", line_color="red", line_width=2, opacity=0.7)
+            # Destek # Destek seviy seviyeleri
+            for i, level in enumerateeleri
+            for i,(support level in enumerate(support_levels):
+               _level fig.add_hline(y=level, line_dash="s):
+                fig.add_hline(y=level, linedash", line_color="green_dash="dash", line_color="green", line_width", line_width=2,
+=2,
+                             annotation_text                             annotation_text=f"Destek=f"Destek {i+1 {i+1}: ${}: ${level:.2flevel:.2f}")
+            
+}")
+            
+            # Diren            # Direnç seç seviyviyelereleri
+            for i, leveli
+            for i, level in enumerate(res in enumerate(resistance_levels):
+                fig.add_hline(y=istance_levels):
+                fig.add_hlinelevel, line_dash="dash", line_color="(y=levelred", line_width=2, line_dash="dash", line_color="red", line_width=2,
+                             annotation_text=f"D,
+                             annotation_text=f"Direnirenç {i+1ç {i+1}: ${level:.2f}: ${level:.2f}")
+            
+}")
+            
+            # Pivot            # Pivot point
+ point
+            if pivot:
+                           if pivot:
+                fig fig.add_hline(y=p.add_hline(y=pivotivot, line_dash="dot, line_dash="dot", line_color="orange",", line_color="orange", line_width line_width=2,
+                             annotation=2,
+                             annotation_text_text=f"Pivot=f"Pivot:: ${pivot:.2f ${pivot:.2f}")
+            
+            fig.update_layout}")
             
             fig.update_layout(
                 height=600,
-                title=f"{crypto_symbol} {analysis_type} - Profesyonel Analiz",
-                xaxis_title="Tarih",
+(
+                height=600,
+                title                title=f"{=f"{crypto_symbol} - Destekcrypto_symbol} - Destek/Diren/Direnç Analizi",
+               ç Analizi",
+                xaxis xaxis_title="Tarih_title="Tarih",
+                yaxis_title="",
                 yaxis_title="Fiyat (USD)",
+                showFiyat (USD)",
                 showlegend=True
             )
             
-            st.plotly_chart(fig, use_container_width=True)
+legend=True
+            )
+            
+            st            st.plotly_chart.plotly_chart(fig, use_container_width(fig, use_container_width=True=True)
         
         with col2:
-            st.subheader("🎯 TRADING SİNYALLERİ")
+            st.subheader)
+        
+        with col2:
+            st.subheader("("🎯 TRADING🎯 TRADING Sİ SİNYALLERİ")
+NYALLERİ")
+            
             
             if signals:
-                for signal in signals:
-                    if "ALIM" in signal or "GOLDEN" in signal:
+                           if signals:
+                for for signal in signals:
+                    if signal in signals:
+                    if " "ALIM" in signalALIM" in signal or or "KIRILDI "KIRILDI" in" in signal and "D signal and "DİRİRENENÇ" in signal:
+                        st.success(f"✅ {Ç" in signal:
                         st.success(f"✅ {signal}")
-                    elif "SATIM" in signal or "DEATH" in signal:
-                        st.error(f"❌ {signal}")
-                    elif "GÜÇLÜ" in signal:
-                        st.warning(f"⚠️ {signal}")
+                   signal}")
+                    elif "SATIM" in signal or "KIRILDI elif "SATIM" in signal or "KIRILDI" in signal" in signal and "DEST and "DESTEK" in signal:
+                        st.errorEK" in signal:
+                        st(f"❌ {signal.error(f"❌ {signal}")
+                    elif "TEST"}")
+                    elif "TEST" in signal in signal or "YAKIN" in signal:
+ or "YAKIN" in signal:
+                                               st.warning(f"⚠ st.warning(f"⚠️️ {signal}")
                     else:
-                        st.info(f"📊 {signal}")
+ {signal}")
+                    else:
+                        st.info(f"                        st.info(f"📊 {signal}")
+            else📊 {signal}")
             else:
-                st.info("📊 Net trading sinyali yok")
+               :
+                st.info(" st.info("📊 Net trading📊 Net trading sinyali sinyali yok")
+ yok")
             
-            st.subheader("📊 GÖSTERGELER")
-            current = data.iloc[-1]
-            st.metric("Fiyat", f"${current_price:.2f}")
-            st.metric("RSI", f"{current['RSI']:.1f}" if not pd.isna(current['RSI']) else "N/A")
-            st.metric("MACD", f"{current['MACD']:.4f}" if not pd.isna(current['MACD']) else "N/A")
-            st.metric("ATR", f"{current['ATR']:.2f}" if not pd.isna(current['ATR']) else "N/A")
+            st.sub            
+            st.subheader("header("📊 FİYAT ANAL📊 FİYAT ANALİZİ")
+            stİZİ")
+            st.metric("Mevcut.metric("Mevcut F Fiyat", f"${iyat", f"${currentcurrent_price:.2f}")
             
-            # Volume Ratio'yu manuel hesapla ve göster
-            current_volume = float(data['Volume'].iloc[-1])
-            volume_ma = float(data['Volume_MA'].iloc[-1]) if not pd.isna(data['Volume_MA'].iloc[-1]) else current_volume
-            volume_ratio = current_volume / volume_ma if volume_ma > 0 else 1.0
-            st.metric("Volume Ratio", f"{volume_ratio:.1f}x")
+_price:.2f}")
             
-            st.subheader("💎 SEVİYELER")
-            st.write("**Destek:**")
-            if key_support:
-                for level in sorted(key_support)[-3:]:
-                    st.write(f"🟢 ${level:.2f}")
+            if support_levels            if support_levels:
+                nearest_support =:
+                nearest_support = max(support_levels)
+ max(support_levels)
+                               distance_support = distance_support = ((current ((current_price - nearest_support)_price - nearest_support) / current_price) * / current_price) *  100
+                st.metric100
+                st.metric("En Yakın Destek("En Yakın Destek", f"${nearest_support:.2f}", f"%", f"${nearest_support:.2f}", f"%{distance{distance_support:.1_support:.1f}")
+f}")
             else:
-                st.write("Destek seviyesi bulunamadı")
+                           else:
+                st.metric(" st.metric("En YakEn Yakın Destek",ın Destek", "Bul "Bulununamadı")
             
-            st.write("**Direnç:**")
-            if key_resistance:
-                for level in sorted(key_resistance)[-3:]:
-                    st.write(f"🔴 ${level:.2f}")
+            if resistance_levels:
+               amadı")
+            
+            if resistance_levels:
+                nearest_resistance nearest_resistance = min(res = min(resistance_levels)
+istance_levels)
+                distance_res                distance_resistance = ((neistance = ((nearest_resarest_resistance - current_priceistance - current_price) /) / current_price) * current_price) * 100 100
+                st.m
+                st.metric("etric("En Yakın DEn Yakın Dirençirenç", f"${", f"${nearest_resnearest_resistance:.2istance:.2f}", f"%{distance_resistancef}", f"%{distance_resistance:.1:.1f}")
+            elsef}")
             else:
-                st.write("Direnç seviyesi bulunamadı")
+               :
+                st.metric(" st.metric("En YakEn Yakın Direnın Direnç",ç", "Bul "Bulununamadı")
+            
+            st.subamadı")
+            
+            st.subheader("💎header("💎 DEST DESTEK SEVİYELERİEK SEVİYELERİ")
+           ")
+            if support_levels if support_levels:
+               :
+                for i, level for i, level in enumerate in enumerate(sorted(support_levels(sorted(support_levels, reverse, reverse=True)):
+                    distance=True)):
+                    distance = (( = ((current_pricecurrent_price - level) / current_price) * - level) / current_price) * 100 100
+                    st.write(f"
+                    st.write(f"🟢 D{i+1🟢 D{i+1}: ${level:.2f}}: ${level:.2f} (%{ (%{distance:.1fdistance:.1f} aşağıda)")
+            else:
+               } aşağıda)")
+            else:
+                st.write st.write("Destek se("Destek seviyesviyesi bulunami bulunamadı")
+adı")
+            
+            st            
+            st.subheader(".subheader("🚀 Dİ🚀 DİRENRENÇ SEVİÇ SEVİYELYELERİ")
+           ERİ")
+            if resistance if resistance_levels:
+               _levels:
+                for i for i, level in enumerate(sorted(resistance_levels)):
+                    distance, level in enumerate(sorted(resistance_levels)):
+                    distance = ((level - = ((level - current_price current_price) / current_price) *) / current_price) * 100
+                    100
+                    st.write(f" st.write(f"🔴 R{i🔴 R{i+1+1}: ${level:.2f} (%{distance:.1f} yukarıda)")
+            else:
+                st}: ${level:.2f} (%{distance:.1f} yukarıda)")
+            else:
+                st.write("D.write("Direnç seirenç seviyesiviyesi bulunam bulunamadı")
+            
+adı")
+            
+            #            # Pivot Point bil Pivot Point bilgisigisi
+            if pivot
+            if pivot:
+                st:
+                st.subheader(".subheader("⚖️⚖️ PIVOT POINT")
+                st.write(f"**Pivot:** PIVOT POINT")
+                st.write(f"**Pivot:** ${p ${pivot:.2fivot:.2f}")
+               }")
+                st.write(f" st.write(f"**S1:** ${p**S1:** ${pivotivot_supports[0]:_supports[0]:.2.2f}")
+                stf}")
+                st.write(f.write(f"**R1"**R1:**:** ${pivot_resist ${pivot_resistancesances[0]:.2[0]:.2f}")
+f}")
         
-        # Alt grafikler
-        st.subheader("📊 TEKNİK GÖSTERGELER")
-        col3, col4 = st.columns(2)
+        #        
+        # Det Detaylıaylı analiz analiz
+       
+        st.subheader("📋 DETAYLI ANALİZ st.subheader("📋 DETAYLI ANALİZ RAPOR RAPORU")
         
-        with col3:
-            # RSI Grafiği
-            fig_rsi = go.Figure()
-            fig_rsi.add_trace(go.Scatter(x=data.index, y=data['RSI'], name='RSI', line=dict(color='purple')))
-            fig_rsi.add_hline(y=70, line_dash="dash", line_color="red")
-            fig_rsi.add_hline(y=30, line_dash="dash", line_color="green")
-            fig_rsi.add_hline(y=50, line_dash="dot", line_color="gray")
-            fig_rsi.update_layout(height=300, title="RSI (14)")
-            st.plotly_chart(fig_rsi, use_container_width=True)
+       U")
         
-        with col4:
-            # MACD Grafiği
-            fig_macd = go.Figure()
-            fig_macd.add_trace(go.Scatter(x=data.index, y=data['MACD'], name='MACD', line=dict(color='blue')))
-            fig_macd.add_trace(go.Scatter(x=data.index, y=data['MACD_Signal'], name='Sinyal', line=dict(color='red')))
-            fig_macd.add_trace(go.Bar(x=data.index, y=data['MACD_Histogram'], name='Histogram', marker_color='gray'))
-            fig_macd.update_layout(height=300, title="MACD")
-            st.plotly_chart(fig_macd, use_container_width=True)
+        col3 col3, col4 =, col4 = st.columns st.columns(2)
         
-        # Son veriler
-        with st.expander("📜 DETAYLI VERİLER"):
-            display_data = data.tail(10)[['Open', 'High', 'Low', 'Close', 'Volume', 'RSI', 'EMA_20', 'EMA_50']].copy()
+(2)
+        
+        with        with col3:
+            st col3:
+            st.write.write("**📈 Tek("**📈 Teknik Özet:**")
+           nik Özet:**")
+            st st.write(f"- Anal.write(f"- Analiz ediz edilen mum sayısilen mum sayısı:ı: {len(data)} {len(data)}")
+           ")
+            st.write(f"- Tespit edilen dest st.write(f"- Tespit edilen destek seviyesi: {ek seviyesi: {lenlen(support_levels(support_levels)}")
+)}")
+            st.write(f"-            st.write(f"- T Tespit edilen direnespit edilen direnç seç seviyesi:viyesi: {len {len(resistance_levels)}(resistance_levels)}")
+")
+            st.write(f"- İ            st.write(f"- İğne analizi: {'Ağne analizi: {'Açık'çık' if w if wick_analysis elseick_analysis else 'Kapalı'}")
+            'Kapalı'}")
+            st st.write(f"- Hass.write(f"- Hassasiyetasiyet seviyesi: { seviyesi: {sensitivity}/10")
+            
+sensitivity}/10")
+            
+               with col4:
+            with col4:
+            st.write st.write("**🎯("**🎯 Trading Önerileri:**")
+            if not signals:
+                st Trading Önerileri:**")
+            if not signals:
+                st.write("- Net.write("- Net sinyal yok - Piy sinyal yok - Piyasa gözlemi öasa gözlemi önerilir")
+            elifnerilir")
+            elif any any("ALIM"("ALIM" in signal for signal in signals):
+                in signal for signal in signals):
+                st.write("- 🟢 st.write("- 🟢 ALIM yönünde ALIM yönünde sinyaller mev sinyaller mecut")
+            elif any("SATIM" in signal forvcut")
+            elif any("SATIM" in signal for signal in signals):
+                st.write signal in signals):
+                st.write("- 🔴 SATIM y("- 🔴 SATIM yönünde sinyaller mevcut")
+            elseönünde sinyaller mevcut")
+            else:
+                st.write("- 🟡 NÖTR - Bekle ve gör")
+        
+       :
+                st.write("- 🟡 NÖTR - Bekle ve gör")
+        
+        # Son 10 mumun detayları
+        with st.expander("📜 SON 10 M # Son 10 mumun detayları
+        with st.expander("📜 SON 10 MUM DETAYI"):
+            display_data = data.tail(10)[['Open', 'High', 'Low', 'Close', 'UM DETAYI"):
+            display_data = data.tail(10)[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
             
             # Formatlama
-            for col in ['Open', 'High', 'Low', 'Close', 'EMA_20', 'EMA_50']:
-                display_data[col] = display_data[col].map(lambda x: f"${x:.2f}" if not pd.isna(x) else "N/A")
-            display_data['Volume'] = display_data['Volume'].map(lambda x: f"{x:,.0f}" if not pd.isna(x) else "N/A")
-            display_data['RSI'] = display_data['RSI'].map(lambda x: f"{x:.1f}" if not pd.isna(x) else "N/A")
+Volume']].copy()
+            
+            # Formatlama
+            for col in ['Open            for col in ['Open', 'High', 'Low', 'Close']:
+                display_data', 'High', 'Low', 'Close']:
+                display_data[col] = display_data[col].map(lambda x: f[col] = display_data[col].map(lambda x"${x:.2f}" if not pd.isna(x) else ": f"${x:.2f}" if not pd.isna(x) else "N/A")
+            display_data['Volume'] = display_data['Volume'].map(lambda x: f"{x:,.0f}" if notN/A")
+            display_data['Volume'] = display_data['Volume'].map(lambda x: f"{x:,.0f pd.isna(x) else "N/A")
+            
+            st.dataframe(display_data)
+            
+    except Exception as e}" if not pd.isna(x) else "N/A")
             
             st.dataframe(display_data)
             
     except Exception as e:
-        st.error(f"❌ Hata oluştu: {str(e)}")
+        st.error:
+        st.error(f"❌ Hata olu(f"❌ Hata oluştu: {str(e)}")
 
 if __name__ == "__main__":
     main()
