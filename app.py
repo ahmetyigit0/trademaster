@@ -21,14 +21,19 @@ def get_crypto_data(symbol, days, interval):
     """Kripto verilerini çek"""
     try:
         data = yf.download(symbol, period=f"{days}d", interval=interval, progress=False)
+        # None değerleri kontrol et ve temizle
+        if data is not None and not data.empty:
+            data = data.dropna()
         return data
     except Exception as e:
         st.error(f"Veri çekilemedi: {e}")
         return None
 
 def safe_float_format(value):
-    """Güvenli float formatlama"""
+    """Güvenli float formatlama - None değerleri handle et"""
     try:
+        if value is None or pd.isna(value):
+            return "N/A"
         return float(value)
     except (ValueError, TypeError):
         return 0.0
@@ -47,26 +52,29 @@ def main():
         
         st.success(f"✅ {len(data)} adet {analysis_type} mum verisi çekildi")
         
-        # Veri tiplerini kontrol et
-        st.write("Veri Tipleri:")
-        st.write(data.dtypes)
-        
-        # Basit veri gösterimi - ÇOK GÜVENLİ VERSİYON
+        # Basit veri gösterimi - NONE DEĞERLERİ HANDLE EDEN VERSİYON
         with st.expander("📜 Son Mum Verileri"):
             display_data = data.tail(10)[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
             
-            # Tüm değerleri float'a çevir ve formatla
+            # Tüm değerleri float'a çevir ve formatla - NONE kontrolü ile
             for col in ['Open', 'High', 'Low', 'Close']:
-                display_data[col] = display_data[col].apply(lambda x: f"${safe_float_format(x):.2f}")
+                display_data[col] = display_data[col].apply(
+                    lambda x: f"${safe_float_format(x):.2f}" if safe_float_format(x) != "N/A" else "N/A"
+                )
             
             # Volume için özel format
-            display_data['Volume'] = display_data['Volume'].apply(lambda x: f"{safe_float_format(x):,.0f}")
+            display_data['Volume'] = display_data['Volume'].apply(
+                lambda x: f"{safe_float_format(x):,.0f}" if safe_float_format(x) != "N/A" else "N/A"
+            )
             
             st.dataframe(display_data)
             
         # Mevcut fiyat bilgisi
         current_price = safe_float_format(data['Close'].iloc[-1])
-        st.metric("Mevcut Fiyat", f"${current_price:.2f}")
+        if current_price != "N/A":
+            st.metric("Mevcut Fiyat", f"${current_price:.2f}")
+        else:
+            st.metric("Mevcut Fiyat", "N/A")
         
     except Exception as e:
         st.error(f"❌ Hata oluştu: {str(e)}")
