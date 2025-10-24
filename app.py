@@ -77,11 +77,11 @@ def calculate_advanced_indicators(data):
     
     df['ATR'] = calculate_atr(df)
     
-    # 6. Volume analizi - DÜZELTME: Tek tek hesapla
+    # 6. Volume analizi - KESİN ÇÖZÜM
     df['Volume_MA'] = df['Volume'].rolling(window=20).mean()
-    # Volume_Ratio'yu ayrı satırda hesapla
-    volume_ratio = df['Volume'] / df['Volume_MA']
-    df['Volume_Ratio'] = volume_ratio
+    # Volume_Ratio'yu Series olarak hesapla ve ata
+    volume_ratio_series = df['Volume'] / df['Volume_MA']
+    df = df.assign(Volume_Ratio=volume_ratio_series)
     
     return df
 
@@ -146,17 +146,18 @@ def generate_trading_signals(data):
             signals.append("🔴 RSI + Trend - Düşüş destekli")
     
     # 3. BOLLINGER BANT SİNYALLERİ
-    bb_position = (current_price - bb_lower) / (bb_upper - bb_lower) * 100 if (bb_upper - bb_lower) > 0 else 50
-    
-    if current_price <= bb_lower and rsi < 35:
-        signals.append("📉 BOLLINGER ALT BANT + RSI - GÜÇLÜ ALIM SİNYALİ")
-    elif current_price >= bb_upper and rsi > 65:
-        signals.append("📈 BOLLINGER ÜST BANT + RSI - GÜÇLÜ SATIM SİNYALİ")
+    if (bb_upper - bb_lower) > 0:
+        bb_position = (current_price - bb_lower) / (bb_upper - bb_lower) * 100
+        if current_price <= bb_lower and rsi < 35:
+            signals.append("📉 BOLLINGER ALT BANT + RSI - GÜÇLÜ ALIM SİNYALİ")
+        elif current_price >= bb_upper and rsi > 65:
+            signals.append("📈 BOLLINGER ÜST BANT + RSI - GÜÇLÜ SATIM SİNYALİ")
     
     # Bollinger Squeeze tespiti
-    bb_width = (bb_upper - bb_lower) / df['BB_Middle'].iloc[-1] * 100 if not pd.isna(df['BB_Middle'].iloc[-1]) else 10
-    if bb_width < 5:  # Dar bant
-        signals.append("⚡ BOLLINGER SQUEEZE - Büyük hareket yakın!")
+    if not pd.isna(df['BB_Middle'].iloc[-1]):
+        bb_width = (bb_upper - bb_lower) / df['BB_Middle'].iloc[-1] * 100
+        if bb_width < 5:  # Dar bant
+            signals.append("⚡ BOLLINGER SQUEEZE - Büyük hareket yakın!")
     
     # 4. MACD SİNYALLERİ
     if len(df) >= 2:
