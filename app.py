@@ -200,7 +200,7 @@ def calculate_support_resistance_simple(data):
         # Son 50 mum üzerinden basit pivot noktaları bul
         recent_data = data.tail(50)
         
-        # Yüksek ve düşük değerleri al
+        # Yüksek ve düşük değerleri al (numpy array'e çevir)
         highs = recent_data['High'].values
         lows = recent_data['Low'].values
         
@@ -234,6 +234,7 @@ def calculate_support_resistance_simple(data):
         
     except Exception as e:
         # Hata durumunda boş listeler döndür
+        st.error(f"Destek/direnç hesaplama hatası: {e}")
         return [], []
 
 def main():
