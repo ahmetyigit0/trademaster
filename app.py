@@ -77,7 +77,7 @@ def calculate_advanced_indicators(data):
     
     df['ATR'] = calculate_atr(df)
     
-    # 6. Volume analizi - SADECE Volume_MA, Volume_Ratio'yu KALDIR
+    # 6. Volume analizi - SADECE Volume_MA
     df['Volume_MA'] = df['Volume'].rolling(window=20).mean()
     
     return df
@@ -195,24 +195,42 @@ def generate_trading_signals(data):
     return signals
 
 def calculate_support_resistance(data):
-    """Destek ve direnç seviyelerini hesapla"""
+    """Destek ve direnç seviyelerini hesapla - DÜZELTİLMİŞ"""
+    # Series'i numpy array'e çevir ve float'a dönüştür
     highs = data['High'].astype(float).values
     lows = data['Low'].astype(float).values
     
     support_levels = []
     resistance_levels = []
     
-    # Basit pivot point hesaplama
+    # Basit pivot point hesaplama - DÜZELTİLMİŞ
     for i in range(2, len(data)-2):
-        # Direnç
-        if (highs[i] > highs[i-1] and highs[i] > highs[i-2] and 
-            highs[i] > highs[i+1] and highs[i] > highs[i+2]):
-            resistance_levels.append(highs[i])
+        current_high = float(highs[i])
+        current_low = float(lows[i])
         
-        # Destek
-        if (lows[i] < lows[i-1] and lows[i] < lows[i-2] and 
-            lows[i] < lows[i+1] and lows[i] < lows[i+2]):
-            support_levels.append(lows[i])
+        # Direnç - yerel maksimum
+        is_resistance = True
+        for j in range(1, 3):  # 2 önceki ve 2 sonraki mum
+            prev_high = float(highs[i-j])
+            next_high = float(highs[i+j])
+            if current_high <= prev_high or current_high <= next_high:
+                is_resistance = False
+                break
+        
+        if is_resistance:
+            resistance_levels.append(current_high)
+        
+        # Destek - yerel minimum
+        is_support = True
+        for j in range(1, 3):  # 2 önceki ve 2 sonraki mum
+            prev_low = float(lows[i-j])
+            next_low = float(lows[i+j])
+            if current_low >= prev_low or current_low >= next_low:
+                is_support = False
+                break
+        
+        if is_support:
+            support_levels.append(current_low)
     
     return support_levels, resistance_levels
 
@@ -242,6 +260,12 @@ def main():
         current_price = float(data['Close'].iloc[-1])
         key_support = [level for level in support_levels if abs(level - current_price) / current_price * 100 <= 10]
         key_resistance = [level for level in resistance_levels if abs(level - current_price) / current_price * 100 <= 10]
+        
+        # Benzersiz seviyeler
+        key_support = list(set(key_support))
+        key_resistance = list(set(key_resistance))
+        key_support.sort()
+        key_resistance.sort()
         
         # Ana panel
         col1, col2 = st.columns([2, 1])
