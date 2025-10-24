@@ -837,4 +837,46 @@ def main():
             
         else:
             st.markdown("### ⚪ BEKLE")
-            st.info("Koşullar uygun de")
+            st.info("Koşullar uygun değil")
+        
+        st.divider()
+        
+        # Trend ve gösterge
+        st.subheader("📈 Trend")
+        trend_icon = "🟢" if trend == "bull" else "🔴"
+        st.metric("EMA50", trend_icon + " " + ("YÜKSELİŞ" if trend == "bull" else "DÜŞÜŞ"))
+        st.metric("RSI", f"{rsi_value:.1f}")
+        
+        st.divider()
+        
+        # Yakın bantlar
+        st.subheader("🎯 Yakın Bantlar")
+        
+        for i, zone in enumerate(nearest_support):
+            st.write(f"**S{i+1}:** {format_price(zone.low)}-{format_price(zone.high)}")
+            st.caption(f"Skor: {zone.score}, Durum: {zone.status}")
+        
+        for i, zone in enumerate(nearest_resistance):
+            st.write(f"**R{i+1}:** {format_price(zone.low)}-{format_price(zone.high)}")
+            st.caption(f"Skor: {zone.score}, Durum: {zone.status}")
+    
+    # Detaylı bant listesi
+    with st.expander("📋 Tüm Bant Detayları"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Destek Bantları**")
+            for i, zone in enumerate(all_support):
+                status_icon = "🟢" if zone.status == "valid" else "🟠" if zone.status == "fake" else "⚫"
+                st.write(f"{status_icon} S{i+1}: {format_price(zone.low)}-{format_price(zone.high)}")
+                st.caption(f"Skor: {zone.score}, Temas: {zone.touches}, Durum: {zone.status}")
+        
+        with col2:
+            st.write("**Direnç Bantları**")
+            for i, zone in enumerate(all_resistance):
+                status_icon = "🔴" if zone.status == "valid" else "🟠" if zone.status == "fake" else "⚫"
+                st.write(f"{status_icon} R{i+1}: {format_price(zone.low)}-{format_price(zone.high)}")
+                st.caption(f"Skor: {zone.score}, Temas: {zone.touches}, Durum: {zone.status}")
+
+if __name__ == "__main__":
+    main()
