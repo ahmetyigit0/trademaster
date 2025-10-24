@@ -77,10 +77,8 @@ def calculate_advanced_indicators(data):
     
     df['ATR'] = calculate_atr(df)
     
-    # 6. Volume analizi - EN BASIT ÇÖZÜM
+    # 6. Volume analizi - SADECE Volume_MA, Volume_Ratio'yu KALDIR
     df['Volume_MA'] = df['Volume'].rolling(window=20).mean()
-    # Volume_Ratio'yu doğrudan hesapla ve ata
-    df['Volume_Ratio'] = df['Volume'] / df['Volume_MA']
     
     return df
 
@@ -104,7 +102,11 @@ def generate_trading_signals(data):
         macd = float(df['MACD'].iloc[-1])
         macd_signal = float(df['MACD_Signal'].iloc[-1])
         atr = float(df['ATR'].iloc[-1])
-        volume_ratio = float(df['Volume_Ratio'].iloc[-1]) if not pd.isna(df['Volume_Ratio'].iloc[-1]) else 1.0
+        
+        # Volume analizi - MANUEL HESAPLA
+        current_volume = float(df['Volume'].iloc[-1])
+        volume_ma = float(df['Volume_MA'].iloc[-1])
+        volume_ratio = current_volume / volume_ma if volume_ma > 0 else 1.0
         
         # 1. TREND ANALİZİ - EMA
         trend_strength = 0
@@ -307,7 +309,12 @@ def main():
             st.metric("RSI", f"{current['RSI']:.1f}" if not pd.isna(current['RSI']) else "N/A")
             st.metric("MACD", f"{current['MACD']:.4f}" if not pd.isna(current['MACD']) else "N/A")
             st.metric("ATR", f"{current['ATR']:.2f}" if not pd.isna(current['ATR']) else "N/A")
-            st.metric("Volume Ratio", f"{current['Volume_Ratio']:.1f}x" if not pd.isna(current['Volume_Ratio']) else "N/A")
+            
+            # Volume Ratio'yu manuel hesapla ve göster
+            current_volume = float(data['Volume'].iloc[-1])
+            volume_ma = float(data['Volume_MA'].iloc[-1]) if not pd.isna(data['Volume_MA'].iloc[-1]) else current_volume
+            volume_ratio = current_volume / volume_ma if volume_ma > 0 else 1.0
+            st.metric("Volume Ratio", f"{volume_ratio:.1f}x")
             
             st.subheader("💎 SEVİYELER")
             st.write("**Destek:**")
