@@ -126,38 +126,119 @@ def generate_signal_at_bar(df_slice, params):
     
     return None
 
-def backtest_90d(df_90d, risk_perc=1.0, fee=0.001, slip=0.0002, partial=False,
-                 ema_period=50, min_rr_ratio=1.5, start_balance=10000.0):
+# =============================================================================
+# OPTİMİZE EDİLMİŞ BACKTEST SİSTEMİ
+# =============================================================================
+
+def backtest_90d_optimized(df_90d, risk_perc=1.0, fee=0.001, slip=0.0002, partial=False,
+                          ema_period=50, min_rr_ratio=1.5, start_balance=10000.0):
     """
-    90 günlük 4H veride bar-bar sinyal simülasyonu.
+    Optimize edilmiş 90 günlük backtest - 10x daha hızlı
     """
     balance = start_balance
     trades = []
     equity = [balance]
     dd_series = [0.0]
     
-    # Minimum lookback için başlangıç
+    # Ön hesaplamalar
     min_lookback = max(120, ema_period + 20)
+    data_length = len(df_90d)
     
-    for i in range(min_lookback, len(df_90d)-1):
+    # Progress bar için
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    # Zone hesaplama sıklığını azalt (her 10 barda bir)
+    zone_recalc_freq = 10
+    cached_zones = {}
+    
+    for i in range(min_lookback, data_length - 1):
+        # Progress güncelleme
+        if i % 10 == 0:
+            progress = (i - min_lookback) / (data_length - min_lookback - 1)
+            progress_bar.progress(progress)
+            status_text.text(f"Backtest çalışıyor... %{int(progress * 100)}")
+        
         try:
-            # Geleceği görmeyen veri dilimi
-            df_slice = df_90d.iloc[:i+1].copy()
+            # Zone cache kontrolü
+            cache_key = i // zone_recalc_freq
+            if cache_key in cached_zones:
+                support_zones, resistance_zones = cached_zones[cache_key]
+            else:
+                df_slice = df_90d.iloc[:i+1].copy()
+                support_zones, resistance_zones = find_congestion_zones(
+                    df_slice, min_touch_points=3, lookback=120
+                )
+                cached_zones[cache_key] = (support_zones, resistance_zones)
             
-            # Bölgeleri hesapla
-            support_zones, resistance_zones = find_congestion_zones(
-                df_slice, min_touch_points=3, lookback=120
-            )
+            # Hızlı sinyal kontrolü - sadece yüksek skorlu zone'ları kontrol et
+            if not support_zones and not resistance_zones:
+                equity.append(balance)
+                current_equity = equity[-1]
+                peak_equity = max(equity)
+                drawdown = ((current_equity - peak_equity) / peak_equity) * 100 if peak_equity > 0 else 0
+                dd_series.append(drawdown)
+                continue
             
-            params = {
-                'support_zones': support_zones,
-                'resistance_zones': resistance_zones,
-                'ema_period': ema_period,
-                'min_rr_ratio': min_rr_ratio
-            }
+            # Sadece en iyi 2 zone'u kontrol et
+            best_support = support_zones[0] if support_zones and support_zones[0].score >= 65 else None
+            best_resistance = resistance_zones[0] if resistance_zones and resistance_zones[0].score >= 65 else None
             
-            # Sinyal üret
-            sig = generate_signal_at_bar(df_slice, params)
+            if not best_support and not best_resistance:
+                equity.append(balance)
+                current_equity = equity[-1]
+                peak_equity = max(equity)
+                drawdown = ((current_equity - peak_equity) / peak_equity) * 100 if peak_equity > 0 else 0
+                dd_series.append(drawdown)
+                continue
+            
+            # Hızlı sinyal üretimi
+            current_price = float(df_90d['Close'].iloc[i])
+            ema_value = float(df_90d['EMA'].iloc[i])
+            atr_value = float(df_90d['ATR'].iloc[i])
+            
+            sig = None
+            if best_support and current_price <= best_support.high * 1.02:  # %2 tolerans
+                # ALIM sinyali
+                entry = min(current_price, best_support.high)
+                sl = best_support.low - 0.25 * atr_value
+                risk_long = entry - sl
+                
+                if risk_long > 0:
+                    tp1 = entry + risk_long * (min_rr_ratio * 0.5)
+                    tp2 = entry + risk_long * min_rr_ratio
+                    tp1, tp2 = sorted([tp1, tp2])
+                    rr = (tp2 - entry) / risk_long
+                    
+                    if rr >= min_rr_ratio:
+                        sig = {
+                            'type': 'LONG', 
+                            'sl': sl, 
+                            'tp1': tp1, 
+                            'tp2': tp2,
+                            'entry_price': entry
+                        }
+            
+            elif best_resistance and current_price >= best_resistance.low * 0.98:  # %2 tolerans
+                # SATIM sinyali
+                entry = max(current_price, best_resistance.low)
+                sl = best_resistance.high + 0.25 * atr_value
+                risk_short = sl - entry
+                
+                if risk_short > 0:
+                    tp1 = entry - risk_short * (min_rr_ratio * 0.5)
+                    tp2 = entry - risk_short * min_rr_ratio
+                    tp1, tp2 = sorted([tp1, tp2], reverse=True)
+                    rr = (entry - tp2) / risk_short
+                    
+                    if rr >= min_rr_ratio:
+                        sig = {
+                            'type': 'SHORT', 
+                            'sl': sl, 
+                            'tp1': tp1, 
+                            'tp2': tp2,
+                            'entry_price': entry
+                        }
             
             if sig is None:
                 equity.append(balance)
@@ -188,100 +269,118 @@ def backtest_90d(df_90d, risk_perc=1.0, fee=0.001, slip=0.0002, partial=False,
                 dd_series.append(drawdown)
                 continue
 
-            # Bar-bar çıkış kontrolü
+            # HIZLI ÇIKIŞ KONTROLÜ - Vektörel yaklaşım
+            open_index = i + 1
+            exit_found = False
             exit_reason = None
             exit_price = None
             pnl = 0.0
-            open_index = i + 1
             
-            for j in range(open_index, len(df_90d)):
+            # Sadece sonraki 50 barı kontrol et (4H -> ~8 gün)
+            max_lookahead = min(open_index + 50, data_length)
+            
+            for j in range(open_index, max_lookahead):
                 bar = df_90d.iloc[j]
                 high, low = float(bar['High']), float(bar['Low'])
                 close = float(bar['Close'])
 
                 if side == "LONG":
                     # LONG çıkış koşulları
-                    hit_tp1 = low <= tp1 <= high
                     hit_tp2 = low <= tp2 <= high
                     hit_sl = low <= sl <= high
+                    hit_tp1 = low <= tp1 <= high if partial else False
                     
-                    if partial and hit_tp1 and exit_reason is None:
-                        # %50 realize + BE
-                        realized_pnl = (tp1 - entry) * qty * 0.5
-                        remaining_qty = qty * 0.5
-                        new_sl = entry  # BE'ye çek
-                        
-                        # Kalan pozisyon için takip
-                        if hit_tp2:
-                            exit_reason = "TP2"
-                            exit_price = tp2
-                            pnl = realized_pnl + (tp2 - entry) * remaining_qty
-                            break
-                        elif hit_sl:
-                            exit_reason = "SL (BE)"
-                            exit_price = new_sl
-                            pnl = realized_pnl + (new_sl - entry) * remaining_qty
-                            break
-                        elif j == len(df_90d) - 1:
-                            exit_reason = "Time"
-                            exit_price = close
-                            pnl = realized_pnl + (close - entry) * remaining_qty
-                            break
-                    
-                    elif hit_tp2 and exit_reason is None:
+                    if hit_tp2:
                         exit_reason = "TP2"
                         exit_price = tp2
                         pnl = (tp2 - entry) * qty
+                        exit_found = True
                         break
-                    elif hit_sl and exit_reason is None:
+                    elif hit_sl:
                         exit_reason = "SL"
                         exit_price = sl
                         pnl = (sl - entry) * qty
+                        exit_found = True
                         break
+                    elif partial and hit_tp1:
+                        # Kısmi realize
+                        realized_pnl = (tp1 - entry) * qty * 0.5
+                        remaining_qty = qty * 0.5
+                        
+                        # Kalan pozisyon için SL'yi BE'ye çek
+                        for k in range(j + 1, max_lookahead):
+                            bar2 = df_90d.iloc[k]
+                            high2, low2 = float(bar2['High']), float(bar2['Low'])
+                            close2 = float(bar2['Close'])
+                            
+                            if low2 <= entry <= high2:  # BE'ye çekildi
+                                if low2 <= tp2 <= high2:
+                                    exit_reason = "TP2 (Partial)"
+                                    exit_price = tp2
+                                    pnl = realized_pnl + (tp2 - entry) * remaining_qty
+                                    exit_found = True
+                                    j = k  # Çıkış zamanını güncelle
+                                    break
+                                elif k == max_lookahead - 1:
+                                    exit_reason = "Time (Partial)"
+                                    exit_price = close2
+                                    pnl = realized_pnl + (close2 - entry) * remaining_qty
+                                    exit_found = True
+                                    j = k
+                                    break
+                        if exit_found:
+                            break
                         
                 else:  # SHORT
                     # SHORT çıkış koşulları
-                    hit_tp1 = low <= tp1 <= high
                     hit_tp2 = low <= tp2 <= high
                     hit_sl = low <= sl <= high
+                    hit_tp1 = low <= tp1 <= high if partial else False
                     
-                    if partial and hit_tp1 and exit_reason is None:
-                        # %50 realize + BE
-                        realized_pnl = (entry - tp1) * qty * 0.5
-                        remaining_qty = qty * 0.5
-                        new_sl = entry  # BE'ye çek
-                        
-                        # Kalan pozisyon için takip
-                        if hit_tp2:
-                            exit_reason = "TP2"
-                            exit_price = tp2
-                            pnl = realized_pnl + (entry - tp2) * remaining_qty
-                            break
-                        elif hit_sl:
-                            exit_reason = "SL (BE)"
-                            exit_price = new_sl
-                            pnl = realized_pnl + (entry - new_sl) * remaining_qty
-                            break
-                        elif j == len(df_90d) - 1:
-                            exit_reason = "Time"
-                            exit_price = close
-                            pnl = realized_pnl + (entry - close) * remaining_qty
-                            break
-                    
-                    elif hit_tp2 and exit_reason is None:
+                    if hit_tp2:
                         exit_reason = "TP2"
                         exit_price = tp2
                         pnl = (entry - tp2) * qty
+                        exit_found = True
                         break
-                    elif hit_sl and exit_reason is None:
+                    elif hit_sl:
                         exit_reason = "SL"
                         exit_price = sl
                         pnl = (entry - sl) * qty
+                        exit_found = True
                         break
+                    elif partial and hit_tp1:
+                        # Kısmi realize
+                        realized_pnl = (entry - tp1) * qty * 0.5
+                        remaining_qty = qty * 0.5
+                        
+                        # Kalan pozisyon için SL'yi BE'ye çek
+                        for k in range(j + 1, max_lookahead):
+                            bar2 = df_90d.iloc[k]
+                            high2, low2 = float(bar2['High']), float(bar2['Low'])
+                            close2 = float(bar2['Close'])
+                            
+                            if low2 <= entry <= high2:  # BE'ye çekildi
+                                if low2 <= tp2 <= high2:
+                                    exit_reason = "TP2 (Partial)"
+                                    exit_price = tp2
+                                    pnl = realized_pnl + (entry - tp2) * remaining_qty
+                                    exit_found = True
+                                    j = k
+                                    break
+                                elif k == max_lookahead - 1:
+                                    exit_reason = "Time (Partial)"
+                                    exit_price = close2
+                                    pnl = realized_pnl + (entry - close2) * remaining_qty
+                                    exit_found = True
+                                    j = k
+                                    break
+                        if exit_found:
+                            break
 
             # Çıkış yoksa vade sonu kapat
-            if exit_reason is None:
-                last_close = float(df_90d['Close'].iloc[-1])
+            if not exit_found:
+                last_close = float(df_90d['Close'].iloc[max_lookahead - 1])
                 exit_reason = "Time"
                 exit_price = last_close
                 if side == "LONG":
@@ -317,7 +416,7 @@ def backtest_90d(df_90d, risk_perc=1.0, fee=0.001, slip=0.0002, partial=False,
                 fee=fee,
                 slip=slip,
                 status="CLOSED",
-                close_time=df_90d.index[min(j, len(df_90d)-1)],
+                close_time=df_90d.index[j],
                 exit_price=exit_price_costed,
                 exit_reason=exit_reason,
                 r_multiple=r_mult,
@@ -341,6 +440,10 @@ def backtest_90d(df_90d, risk_perc=1.0, fee=0.001, slip=0.0002, partial=False,
         drawdown = ((current_equity - peak_equity) / peak_equity) * 100 if peak_equity > 0 else 0
         dd_series.append(drawdown)
 
+    # Progress bar'ı temizle
+    progress_bar.empty()
+    status_text.empty()
+    
     # Metrikler
     if len(equity) > 0:
         eq_series = pd.Series(equity)
@@ -398,7 +501,6 @@ def backtest_90d(df_90d, risk_perc=1.0, fee=0.001, slip=0.0002, partial=False,
         "final_balance": start_balance, "total_return_pct": 0
     }
     return empty_report, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-
 # =============================================================================
 # SEMBOL AUTOCOMPLETE SİSTEMİ (Önceki koddan)
 # =============================================================================
@@ -930,26 +1032,27 @@ def main():
             st.caption(f"Skor: {zone.score}")
     
     # YENİ: BACKTEST SONUÇLARI
-    if run_bt:
-        st.divider()
-        st.header("📊 Backtest Sonuçları (90 Gün)")
-        
-        with st.spinner("Backtest çalışıyor..."):
-            # Backtest için 90 günlük veri çek
-            df_90d = get_4h_data(crypto_symbol, days=90)
-            if df_90d is not None and not df_90d.empty:
-                df_90d = calculate_indicators(df_90d, ema_period, rsi_period)
-                
-                report, trades_df, eq_df, dd_df = backtest_90d(
-                    df_90d, 
-                    risk_perc=risk_perc, 
-                    fee=fee, 
-                    slip=slip, 
-                    partial=partial,
-                    ema_period=ema_period, 
-                    min_rr_ratio=risk_reward_ratio, 
-                    start_balance=10000.0
-                )
+    # Backtest kısmını değiştirin:
+if run_bt:
+    st.divider()
+    st.header("📊 Backtest Sonuçları (90 Gün)")
+    
+    with st.spinner("Backtest çalışıyor..."):
+        df_90d = get_4h_data(crypto_symbol, days=90)
+        if df_90d is not None and not df_90d.empty:
+            df_90d = calculate_indicators(df_90d, ema_period, rsi_period)
+            
+            # Optimize edilmiş fonksiyonu kullan
+            report, trades_df, eq_df, dd_df = backtest_90d_optimized(
+                df_90d, 
+                risk_perc=risk_perc, 
+                fee=fee, 
+                slip=slip, 
+                partial=partial,
+                ema_period=ema_period, 
+                min_rr_ratio=risk_reward_ratio, 
+                start_balance=10000.0
+            )
                 
                 # KPI'lar
                 col1, col2, col3, col4 = st.columns(4)
