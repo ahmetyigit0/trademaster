@@ -77,11 +77,10 @@ def calculate_advanced_indicators(data):
     
     df['ATR'] = calculate_atr(df)
     
-    # 6. Volume analizi - KESİN ÇÖZÜM
+    # 6. Volume analizi - EN BASIT ÇÖZÜM
     df['Volume_MA'] = df['Volume'].rolling(window=20).mean()
-    # Volume_Ratio'yu Series olarak hesapla ve ata
-    volume_ratio_series = df['Volume'] / df['Volume_MA']
-    df = df.assign(Volume_Ratio=volume_ratio_series)
+    # Volume_Ratio'yu doğrudan hesapla ve ata
+    df['Volume_Ratio'] = df['Volume'] / df['Volume_MA']
     
     return df
 
@@ -93,99 +92,103 @@ def generate_trading_signals(data):
     if len(df) < 50:
         return signals
     
-    # Mevcut değerler
-    current_price = float(df['Close'].iloc[-1])
-    ema_20 = float(df['EMA_20'].iloc[-1])
-    ema_50 = float(df['EMA_50'].iloc[-1])
-    ema_200 = float(df['EMA_200'].iloc[-1])
-    rsi = float(df['RSI'].iloc[-1])
-    bb_upper = float(df['BB_Upper'].iloc[-1])
-    bb_lower = float(df['BB_Lower'].iloc[-1])
-    macd = float(df['MACD'].iloc[-1])
-    macd_signal = float(df['MACD_Signal'].iloc[-1])
-    atr = float(df['ATR'].iloc[-1])
-    volume_ratio = float(df['Volume_Ratio'].iloc[-1]) if not pd.isna(df['Volume_Ratio'].iloc[-1]) else 1.0
-    
-    # 1. TREND ANALİZİ - EMA
-    trend_strength = 0
-    if ema_20 > ema_50 > ema_200 and current_price > ema_20:
-        signals.append("🚀 GÜÇLÜ YÜKSELİŞ TRENDİ - EMA'lar uyumlu")
-        trend_strength = 2
-    elif ema_20 < ema_50 < ema_200 and current_price < ema_20:
-        signals.append("🔻 GÜÇLÜ DÜŞÜŞ TRENDİ - EMA'lar uyumlu")
-        trend_strength = -2
-    elif ema_20 > ema_50:
-        signals.append("↗️ YÜKSELİŞ EĞİLİMİ - Kısa vade pozitif")
-        trend_strength = 1
-    elif ema_20 < ema_50:
-        signals.append("↘️ DÜŞÜŞ EĞİLİMİ - Kısa vade negatif")
-        trend_strength = -1
-    
-    # Golden Cross / Death Cross
-    if len(df) >= 2:
-        prev_ema_20 = float(df['EMA_20'].iloc[-2])
-        prev_ema_50 = float(df['EMA_50'].iloc[-2])
-        if prev_ema_20 <= prev_ema_50 and ema_20 > ema_50:
-            signals.append("⭐ GOLDEN CROSS - EMA20, EMA50'yı yukarı kesti - ALIM")
-        elif prev_ema_20 >= prev_ema_50 and ema_20 < ema_50:
-            signals.append("💀 DEATH CROSS - EMA20, EMA50'yı aşağı kesti - SATIM")
-    
-    # 2. RSI SİNYALLERİ
-    if rsi < 30:
-        signals.append("🎯 RSI AŞIRI SATIM - Potansiyel ALIM fırsatı")
-        if trend_strength > 0:
-            signals.append("✅ RSI + Trend uyumu - GÜÇLÜ ALIM")
-    elif rsi > 70:
-        signals.append("⚠️ RSI AŞIRI ALIM - Potansiyel SATIM sinyali")
-        if trend_strength < 0:
-            signals.append("❌ RSI + Trend uyumu - GÜÇLÜ SATIM")
-    elif 30 <= rsi <= 70:
-        if rsi > 50 and trend_strength > 0:
-            signals.append("🟢 RSI + Trend - Yükseliş destekli")
-        elif rsi < 50 and trend_strength < 0:
-            signals.append("🔴 RSI + Trend - Düşüş destekli")
-    
-    # 3. BOLLINGER BANT SİNYALLERİ
-    if (bb_upper - bb_lower) > 0:
-        bb_position = (current_price - bb_lower) / (bb_upper - bb_lower) * 100
-        if current_price <= bb_lower and rsi < 35:
-            signals.append("📉 BOLLINGER ALT BANT + RSI - GÜÇLÜ ALIM SİNYALİ")
-        elif current_price >= bb_upper and rsi > 65:
-            signals.append("📈 BOLLINGER ÜST BANT + RSI - GÜÇLÜ SATIM SİNYALİ")
-    
-    # Bollinger Squeeze tespiti
-    if not pd.isna(df['BB_Middle'].iloc[-1]):
-        bb_width = (bb_upper - bb_lower) / df['BB_Middle'].iloc[-1] * 100
-        if bb_width < 5:  # Dar bant
-            signals.append("⚡ BOLLINGER SQUEEZE - Büyük hareket yakın!")
-    
-    # 4. MACD SİNYALLERİ
-    if len(df) >= 2:
-        prev_macd = float(df['MACD'].iloc[-2])
-        prev_macd_signal = float(df['MACD_Signal'].iloc[-2])
-        if macd > macd_signal and prev_macd <= prev_macd_signal:
-            signals.append("✅ MACD ALTI KESİŞ - ALIM sinyali")
+    try:
+        # Mevcut değerler
+        current_price = float(df['Close'].iloc[-1])
+        ema_20 = float(df['EMA_20'].iloc[-1])
+        ema_50 = float(df['EMA_50'].iloc[-1])
+        ema_200 = float(df['EMA_200'].iloc[-1])
+        rsi = float(df['RSI'].iloc[-1])
+        bb_upper = float(df['BB_Upper'].iloc[-1])
+        bb_lower = float(df['BB_Lower'].iloc[-1])
+        macd = float(df['MACD'].iloc[-1])
+        macd_signal = float(df['MACD_Signal'].iloc[-1])
+        atr = float(df['ATR'].iloc[-1])
+        volume_ratio = float(df['Volume_Ratio'].iloc[-1]) if not pd.isna(df['Volume_Ratio'].iloc[-1]) else 1.0
+        
+        # 1. TREND ANALİZİ - EMA
+        trend_strength = 0
+        if ema_20 > ema_50 > ema_200 and current_price > ema_20:
+            signals.append("🚀 GÜÇLÜ YÜKSELİŞ TRENDİ - EMA'lar uyumlu")
+            trend_strength = 2
+        elif ema_20 < ema_50 < ema_200 and current_price < ema_20:
+            signals.append("🔻 GÜÇLÜ DÜŞÜŞ TRENDİ - EMA'lar uyumlu")
+            trend_strength = -2
+        elif ema_20 > ema_50:
+            signals.append("↗️ YÜKSELİŞ EĞİLİMİ - Kısa vade pozitif")
+            trend_strength = 1
+        elif ema_20 < ema_50:
+            signals.append("↘️ DÜŞÜŞ EĞİLİMİ - Kısa vade negatif")
+            trend_strength = -1
+        
+        # Golden Cross / Death Cross
+        if len(df) >= 2:
+            prev_ema_20 = float(df['EMA_20'].iloc[-2])
+            prev_ema_50 = float(df['EMA_50'].iloc[-2])
+            if prev_ema_20 <= prev_ema_50 and ema_20 > ema_50:
+                signals.append("⭐ GOLDEN CROSS - EMA20, EMA50'yı yukarı kesti - ALIM")
+            elif prev_ema_20 >= prev_ema_50 and ema_20 < ema_50:
+                signals.append("💀 DEATH CROSS - EMA20, EMA50'yı aşağı kesti - SATIM")
+        
+        # 2. RSI SİNYALLERİ
+        if rsi < 30:
+            signals.append("🎯 RSI AŞIRI SATIM - Potansiyel ALIM fırsatı")
             if trend_strength > 0:
-                signals.append("💪 MACD + Trend - ALIM güçlü")
-        elif macd < macd_signal and prev_macd >= prev_macd_signal:
-            signals.append("❌ MACD ÜSTÜ KESİŞ - SATIM sinyali")
+                signals.append("✅ RSI + Trend uyumu - GÜÇLÜ ALIM")
+        elif rsi > 70:
+            signals.append("⚠️ RSI AŞIRI ALIM - Potansiyel SATIM sinyali")
             if trend_strength < 0:
-                signals.append("💪 MACD + Trend - SATIM güçlü")
+                signals.append("❌ RSI + Trend uyumu - GÜÇLÜ SATIM")
+        elif 30 <= rsi <= 70:
+            if rsi > 50 and trend_strength > 0:
+                signals.append("🟢 RSI + Trend - Yükseliş destekli")
+            elif rsi < 50 and trend_strength < 0:
+                signals.append("🔴 RSI + Trend - Düşüş destekli")
+        
+        # 3. BOLLINGER BANT SİNYALLERİ
+        if (bb_upper - bb_lower) > 0:
+            bb_position = (current_price - bb_lower) / (bb_upper - bb_lower) * 100
+            if current_price <= bb_lower and rsi < 35:
+                signals.append("📉 BOLLINGER ALT BANT + RSI - GÜÇLÜ ALIM SİNYALİ")
+            elif current_price >= bb_upper and rsi > 65:
+                signals.append("📈 BOLLINGER ÜST BANT + RSI - GÜÇLÜ SATIM SİNYALİ")
+        
+        # Bollinger Squeeze tespiti
+        if not pd.isna(df['BB_Middle'].iloc[-1]) and df['BB_Middle'].iloc[-1] > 0:
+            bb_width = (bb_upper - bb_lower) / df['BB_Middle'].iloc[-1] * 100
+            if bb_width < 5:  # Dar bant
+                signals.append("⚡ BOLLINGER SQUEEZE - Büyük hareket yakın!")
+        
+        # 4. MACD SİNYALLERİ
+        if len(df) >= 2:
+            prev_macd = float(df['MACD'].iloc[-2])
+            prev_macd_signal = float(df['MACD_Signal'].iloc[-2])
+            if macd > macd_signal and prev_macd <= prev_macd_signal:
+                signals.append("✅ MACD ALTI KESİŞ - ALIM sinyali")
+                if trend_strength > 0:
+                    signals.append("💪 MACD + Trend - ALIM güçlü")
+            elif macd < macd_signal and prev_macd >= prev_macd_signal:
+                signals.append("❌ MACD ÜSTÜ KESİŞ - SATIM sinyali")
+                if trend_strength < 0:
+                    signals.append("💪 MACD + Trend - SATIM güçlü")
+        
+        # 5. VOLUME ANALİZİ
+        if volume_ratio > 1.5:
+            signals.append(f"📊 HACİM ARTIŞI - {volume_ratio:.1f}x - Sinyal güvenilir")
+        
+        # 6. ATR TABANLI STOP LOSS ÖNERİSİ
+        stop_loss_pct = (atr / current_price) * 100 * 2  # 2x ATR
+        signals.append(f"🛡️ Önerilen Stop Loss: %{stop_loss_pct:.1f} (2x ATR)")
+        
+        # Take Profit seviyeleri
+        if trend_strength > 0:
+            tp1 = current_price * 1.01  # %1
+            tp2 = current_price * 1.02  # %2
+            tp3 = current_price * 1.03  # %3
+            signals.append(f"🎯 Take Profit Seviyeleri: ${tp1:.2f} | ${tp2:.2f} | ${tp3:.2f}")
     
-    # 5. VOLUME ANALİZİ
-    if volume_ratio > 1.5:
-        signals.append(f"📊 HACİM ARTIŞI - {volume_ratio:.1f}x - Sinyal güvenilir")
-    
-    # 6. ATR TABANLI STOP LOSS ÖNERİSİ
-    stop_loss_pct = (atr / current_price) * 100 * 2  # 2x ATR
-    signals.append(f"🛡️ Önerilen Stop Loss: %{stop_loss_pct:.1f} (2x ATR)")
-    
-    # Take Profit seviyeleri
-    if trend_strength > 0:
-        tp1 = current_price * 1.01  # %1
-        tp2 = current_price * 1.02  # %2
-        tp3 = current_price * 1.03  # %3
-        signals.append(f"🎯 Take Profit Seviyeleri: ${tp1:.2f} | ${tp2:.2f} | ${tp3:.2f}")
+    except Exception as e:
+        signals.append(f"⚠️ Sinyal hesaplama hatası: {str(e)}")
     
     return signals
 
