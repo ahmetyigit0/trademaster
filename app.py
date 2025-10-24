@@ -165,9 +165,9 @@ def find_congestion_zones(data, lookback=80, min_touch_points=3):
         support_zones = [zone for zone in congestion_zones if zone['price'] < current_price]
         resistance_zones = [zone for zone in congestion_zones if zone['price'] > current_price]
         
-        # Güçlü olanları seç ve sırala
-        support_zones = sorted(support_zones, key=lambda x: x['strength'], reverse=True)[:5]
-        resistance_zones = sorted(resistance_zones, key=lambda x: x['strength'], reverse=True)[:5]
+        # Güçlü olanları seç ve SIRALI olarak düzenle
+        support_zones = sorted(support_zones, key=lambda x: x['price'], reverse=True)[:5]  # Yüksekten düşüğe
+        resistance_zones = sorted(resistance_zones, key=lambda x: x['price'])[:5]  # Düşükten yükseğe
         
         return support_zones, resistance_zones
         
@@ -235,23 +235,25 @@ def generate_trading_signals(data, support_zones, resistance_zones, ema_period=5
         analysis_details.append("---")
         analysis_details.append("🎯 YOĞUNLUK BÖLGELERİ:")
         
-        # Destek bölgeleri analizi
+        # Destek bölgeleri analizi (S1 en yüksek, S3 en düşük)
         for i, zone in enumerate(support_zones[:3]):
             reactions, strong_rejections = analyze_wicks(data, zone['price'])
-            analysis_details.append(f"🟢 Destek {i+1}: {format_price(zone['price'])} (Güç: {zone['strength']}, Tepki: {reactions}, Red: {strong_rejections})")
+            level_name = f"S{i+1}"  # S1, S2, S3
+            analysis_details.append(f"🟢 {level_name}: {format_price(zone['price'])} (Güç: {zone['strength']}, Tepki: {reactions}, Red: {strong_rejections})")
         
-        # Direnç bölgeleri analizi
+        # Direnç bölgeleri analizi (R1 en düşük, R3 en yüksek)
         for i, zone in enumerate(resistance_zones[:3]):
             reactions, strong_rejections = analyze_wicks(data, zone['price'])
-            analysis_details.append(f"🔴 Direnç {i+1}: {format_price(zone['price'])} (Güç: {zone['strength']}, Tepki: {reactions}, Red: {strong_rejections})")
+            level_name = f"R{i+1}"  # R1, R2, R3
+            analysis_details.append(f"🔴 {level_name}: {format_price(zone['price'])} (Güç: {zone['strength']}, Tepki: {reactions}, Red: {strong_rejections})")
         
         # 3. SİNYAL ÜRETİMİ
         analysis_details.append("---")
         analysis_details.append("🎪 SİNYAL DEĞERLENDİRMESİ:")
         
         # En güçlü destek/direnç bölgeleri
-        strongest_support = support_zones[0] if support_zones else None
-        strongest_resistance = resistance_zones[0] if resistance_zones else None
+        strongest_support = support_zones[0] if support_zones else None  # S1 - en yüksek destek
+        strongest_resistance = resistance_zones[0] if resistance_zones else None  # R1 - en düşük direnç
         
         # ALIM SİNYALİ KOŞULLARI
         if (trend_direction == "BULLISH" and strongest_support and 
@@ -388,43 +390,97 @@ def generate_trading_signals(data, support_zones, resistance_zones, ema_period=5
 def add_zones_to_chart(fig, support_zones, resistance_zones):
     """Grafiğe destek ve direnç bölgelerini ekle (optimize edilmiş)"""
     
-    # Destek bölgeleri - Yatay çizgiler yerine alanlar
+    # Destek bölgeleri - S1 (en yüksek), S2, S3 (en düşük)
     for i, zone in enumerate(support_zones[:3]):
+        level_name = f"S{i+1}"
         # Şeffaf yeşil alan
         fig.add_hrect(
             y0=zone['start'], y1=zone['end'],
-            fillcolor="green", opacity=0.2,
+            fillcolor="green", opacity=0.15,
             line_width=0,
-            annotation_text=f"S{i+1}",
-            annotation_position="top left"
+            annotation_text=level_name,
+            annotation_position="top left",
+            annotation_font_size=10,
+            annotation_font_color="darkgreen"
         )
         # İnce yeşil çizgi
         fig.add_hline(
             y=zone['price'],
             line_dash="solid",
             line_color="green",
-            line_width=1,
-            opacity=0.7
+            line_width=2,
+            opacity=0.8
         )
     
-    # Direnç bölgeleri - Yatay çizgiler yerine alanlar
+    # Direnç bölgeleri - R1 (en düşük), R2, R3 (en yüksek)
     for i, zone in enumerate(resistance_zones[:3]):
+        level_name = f"R{i+1}"
         # Şeffaf kırmızı alan
         fig.add_hrect(
             y0=zone['start'], y1=zone['end'],
-            fillcolor="red", opacity=0.2,
+            fillcolor="red", opacity=0.15,
             line_width=0,
-            annotation_text=f"R{i+1}",
-            annotation_position="top right"
+            annotation_text=level_name,
+            annotation_position="top right",
+            annotation_font_size=10,
+            annotation_font_color="darkred"
         )
         # İnce kırmızı çizgi
         fig.add_hline(
             y=zone['price'],
             line_dash="solid",
             line_color="red",
-            line_width=1,
-            opacity=0.7
+            line_width=2,
+            opacity=0.8
         )
+    
+    return fig
+
+# Mum çubuğu grafiği oluşturma
+def create_candlestick_chart(data, support_zones, resistance_zones, ema_period, crypto_symbol):
+    """Mum çubuğu grafiği oluştur"""
+    fig = go.Figure()
+    
+    # Mum çubukları
+    fig.add_trace(go.Candlestick(
+        x=data.index,
+        open=data['Open'],
+        high=data['High'],
+        low=data['Low'],
+        close=data['Close'],
+        name='Price',
+        increasing_line_color='#00ff00',  # Yeşil mumlar
+        decreasing_line_color='#ff0000',   # Kırmızı mumlar
+        increasing_fillcolor='#00ff00',
+        decreasing_fillcolor='#ff0000',
+        line=dict(width=1)
+    ))
+    
+    # EMA
+    fig.add_trace(go.Scatter(
+        x=data.index,
+        y=data['EMA'],
+        name=f'EMA {ema_period}',
+        line=dict(color='orange', width=2)
+    ))
+    
+    # Optimize edilmiş destek/direnç bölgeleri
+    fig = add_zones_to_chart(fig, support_zones, resistance_zones)
+    
+    # Grafik ayarları
+    fig.update_layout(
+        height=600,
+        title=f"{crypto_symbol} - 4 Saatlik Mum Grafiği",
+        xaxis_title="Tarih",
+        yaxis_title="Fiyat (USD)",
+        showlegend=True,
+        xaxis_rangeslider_visible=False,
+        plot_bgcolor='#1e1e1e',
+        paper_bgcolor='#1e1e1e',
+        font=dict(color='white'),
+        xaxis=dict(gridcolor='#444'),
+        yaxis=dict(gridcolor='#444')
+    )
     
     return fig
 
@@ -444,7 +500,7 @@ def main():
     # Göstergeleri hesapla
     data = calculate_indicators(data, ema_period, rsi_period)
     
-    # Yoğunluk bölgelerini bul
+    # Yoğunluk bölgelerini bul (SIRALI olarak)
     support_zones, resistance_zones = find_congestion_zones(data, min_touch_points=min_touch_points)
     
     # Sinyal üret
@@ -461,42 +517,11 @@ def main():
     col1, col2 = st.columns([3, 1])
     
     with col1:
-        st.subheader(f"📈 {crypto_symbol} - 4 Saatlik Grafik Analizi")
+        st.subheader(f"📈 {crypto_symbol} - 4 Saatlik Mum Grafiği")
         
-        # Grafik oluştur
-        fig = go.Figure()
-        
-        # Mum grafiği
-        fig.add_trace(go.Candlestick(
-            x=data.index,
-            open=data['Open'],
-            high=data['High'],
-            low=data['Low'],
-            close=data['Close'],
-            name='Price'
-        ))
-        
-        # EMA
-        fig.add_trace(go.Scatter(
-            x=data.index,
-            y=data['EMA'],
-            name=f'EMA {ema_period}',
-            line=dict(color='orange', width=2)
-        ))
-        
-        # Optimize edilmiş destek/direnç bölgeleri
-        fig = add_zones_to_chart(fig, support_zones, resistance_zones)
-        
-        fig.update_layout(
-            height=600,
-            title=f"{crypto_symbol} - 4 Saatlik Profesyonel Analiz",
-            xaxis_title="Tarih",
-            yaxis_title="Fiyat (USD)",
-            showlegend=True,
-            xaxis_rangeslider_visible=False
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
+        # Mum çubuğu grafiği oluştur
+        chart_fig = create_candlestick_chart(data, support_zones, resistance_zones, ema_period, crypto_symbol)
+        st.plotly_chart(chart_fig, use_container_width=True)
     
     with col2:
         st.subheader("🎯 TRADING SİNYALLERİ")
@@ -535,16 +560,18 @@ def main():
         trend = "YÜKSELİŞ" if current_price > ema_value else "DÜŞÜŞ"
         st.metric("TREND", trend)
         
-        # Destek/Direnç Listesi
+        # Destek/Direnç Listesi - SIRALI olarak
         st.subheader("💎 SEVİYELER")
         
-        st.write("**🟢 DESTEK:**")
+        st.write("**🟢 DESTEK (S1→S3):**")
         for i, zone in enumerate(support_zones[:3]):
-            st.write(f"S{i+1}: {format_price(zone['price'])}")
+            level_name = f"S{i+1}"
+            st.write(f"{level_name}: {format_price(zone['price'])}")
         
-        st.write("**🔴 DİRENÇ:**")
+        st.write("**🔴 DİRENÇ (R1→R3):**")
         for i, zone in enumerate(resistance_zones[:3]):
-            st.write(f"R{i+1}: {format_price(zone['price'])}")
+            level_name = f"R{i+1}"
+            st.write(f"{level_name}: {format_price(zone['price'])}")
     
     # Detaylı analiz
     st.subheader("🔍 DETAYLI ANALİZ RAPORU")
