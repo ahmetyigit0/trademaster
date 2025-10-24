@@ -40,17 +40,17 @@ def main():
         
         st.success(f"✅ {len(data)} adet {analysis_type} mum verisi çekildi")
         
-        # Basit veri gösterimi - HATA BURADA MI?
+        # Basit veri gösterimi - HATA DÜZELTİLDİ
         with st.expander("📜 Son Mum Verileri"):
             display_data = data.tail(10)[['Open', 'High', 'Low', 'Close', 'Volume']].round(2)
             
-            # STYLE.FORMAT KULLANMIYORUZ - Manuel formatlama
+            # TÜM DEĞERLERİ FLOAT'A ÇEVİR - HATA DÜZELTME
             formatted_data = pd.DataFrame({
-                'Open': [f"${x:.2f}" for x in display_data['Open']],
-                'High': [f"${x:.2f}" for x in display_data['High']],
-                'Low': [f"${x:.2f}" for x in display_data['Low']],
-                'Close': [f"${x:.2f}" for x in display_data['Close']],
-                'Volume': [f"{x:,.0f}" for x in display_data['Volume']]
+                'Open': [f"${float(x):.2f}" for x in display_data['Open']],
+                'High': [f"${float(x):.2f}" for x in display_data['High']],
+                'Low': [f"${float(x):.2f}" for x in display_data['Low']],
+                'Close': [f"${float(x):.2f}" for x in display_data['Close']],
+                'Volume': [f"{float(x):,.0f}" for x in display_data['Volume']]
             }, index=display_data.index)
             
             st.dataframe(formatted_data)
