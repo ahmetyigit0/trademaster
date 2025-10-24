@@ -26,6 +26,13 @@ def get_crypto_data(symbol, days, interval):
         st.error(f"Veri çekilemedi: {e}")
         return None
 
+def safe_float_format(value):
+    """Güvenli float formatlama"""
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return 0.0
+
 def main():
     try:
         # Veri çekme
@@ -40,28 +47,31 @@ def main():
         
         st.success(f"✅ {len(data)} adet {analysis_type} mum verisi çekildi")
         
-        # Basit veri gösterimi - HATA DÜZELTİLDİ
+        # Veri tiplerini kontrol et
+        st.write("Veri Tipleri:")
+        st.write(data.dtypes)
+        
+        # Basit veri gösterimi - ÇOK GÜVENLİ VERSİYON
         with st.expander("📜 Son Mum Verileri"):
-            display_data = data.tail(10)[['Open', 'High', 'Low', 'Close', 'Volume']].round(2)
+            display_data = data.tail(10)[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
             
-            # TÜM DEĞERLERİ FLOAT'A ÇEVİR - HATA DÜZELTME
-            formatted_data = pd.DataFrame({
-                'Open': [f"${float(x):.2f}" for x in display_data['Open']],
-                'High': [f"${float(x):.2f}" for x in display_data['High']],
-                'Low': [f"${float(x):.2f}" for x in display_data['Low']],
-                'Close': [f"${float(x):.2f}" for x in display_data['Close']],
-                'Volume': [f"{float(x):,.0f}" for x in display_data['Volume']]
-            }, index=display_data.index)
+            # Tüm değerleri float'a çevir ve formatla
+            for col in ['Open', 'High', 'Low', 'Close']:
+                display_data[col] = display_data[col].apply(lambda x: f"${safe_float_format(x):.2f}")
             
-            st.dataframe(formatted_data)
+            # Volume için özel format
+            display_data['Volume'] = display_data['Volume'].apply(lambda x: f"{safe_float_format(x):,.0f}")
+            
+            st.dataframe(display_data)
             
         # Mevcut fiyat bilgisi
-        current_price = float(data['Close'].iloc[-1])
+        current_price = safe_float_format(data['Close'].iloc[-1])
         st.metric("Mevcut Fiyat", f"${current_price:.2f}")
         
     except Exception as e:
         st.error(f"❌ Hata oluştu: {str(e)}")
-        st.info("Lütfen sembolü kontrol edin ve internet bağlantınızı doğrulayın.")
+        import traceback
+        st.error(f"Detay: {traceback.format_exc()}")
 
 if __name__ == "__main__":
     main()
