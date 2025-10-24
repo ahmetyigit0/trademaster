@@ -29,7 +29,7 @@ def check_password():
 if not check_password():
     st.stop()
 
-st.title("🎯 4 Saatlik Profesyonel Teknik Analiz Stratejisi")
+st.title("🎯 4 Saatlik Profesyonel Teknik Analiz Stratejisi - SON 3 GÜN")
 
 # Sidebar
 with st.sidebar:
@@ -53,12 +53,12 @@ with st.sidebar:
         if st.button("XRP-USD", use_container_width=True):
             crypto_symbol = "XRP-USD"
     
-    lookback_period = st.slider("Analiz Periyodu (Gün)", 30, 200, 100)
+    st.info("📅 Analiz: SON 3 GÜN")
     
     st.subheader("📊 Parametreler")
-    ema_period = st.slider("EMA Period", 20, 100, 50)
-    rsi_period = st.slider("RSI Period", 5, 21, 14)
-    min_touch_points = st.slider("Minimum Temas Noktası", 2, 5, 3)
+    ema_period = st.slider("EMA Period", 5, 50, 20)
+    rsi_period = st.slider("RSI Period", 5, 21, 10)
+    min_touch_points = st.slider("Minimum Temas Noktası", 2, 5, 2)
     risk_reward_ratio = st.slider("Min Risk/Ödül Oranı", 1.0, 3.0, 1.5)
 
 # Fiyat formatlama fonksiyonu
@@ -82,16 +82,17 @@ def format_price(price):
     except (ValueError, TypeError):
         return "N/A"
 
-# Veri çekme
+# Veri çekme - SADECE SON 3 GÜN
 @st.cache_data
-def get_4h_data(symbol, days):
+def get_4h_data(symbol):
     try:
         # Sembolü temizle ve kontrol et
         symbol = symbol.upper().strip()
         if '-' not in symbol:
             symbol = symbol + '-USD'  # Varsayılan USD pair ekle
         
-        data = yf.download(symbol, period=f"{days}d", interval="4h", progress=False)
+        # SADECE SON 3 GÜN verisi çek
+        data = yf.download(symbol, period="3d", interval="4h", progress=False)
         
         if data.empty or len(data) == 0:
             st.error(f"❌ {symbol} için veri bulunamadı!")
@@ -103,7 +104,7 @@ def get_4h_data(symbol, days):
         return None
 
 # Teknik göstergeler
-def calculate_indicators(data, ema_period=50, rsi_period=14):
+def calculate_indicators(data, ema_period=20, rsi_period=10):
     if data is None or len(data) == 0:
         return data
         
@@ -121,14 +122,14 @@ def calculate_indicators(data, ema_period=50, rsi_period=14):
     
     return df
 
-# Yoğunluk tabanlı destek/direnç analizi
-def find_congestion_zones(data, lookback=80, min_touch_points=3):
-    """Fiyatın en çok zaman geçirdiği yoğunluk alanlarını bul"""
+# Yoğunluk tabanlı destek/direnç analizi - SON 3 GÜN
+def find_congestion_zones(data, min_touch_points=2):
+    """Fiyatın en çok zaman geçirdiği yoğunluk alanlarını bul - SON 3 GÜN"""
     try:
         if data is None or len(data) == 0:
             return [], []
             
-        df = data.tail(lookback).copy()
+        df = data.copy()  # Tüm veri son 3 gün zaten
         
         if len(df) == 0:
             return [], []
@@ -150,12 +151,12 @@ def find_congestion_zones(data, lookback=80, min_touch_points=3):
             
         price_levels = sorted(price_levels)
         
-        # Yoğunluk analizi
+        # Yoğunluk analizi - daha hassas bölgeler (son 3 gün için)
         price_range = max(price_levels) - min(price_levels)
         if price_range == 0:
             return [], []
             
-        bin_size = price_range * 0.01  # %1'lik bölgeler
+        bin_size = price_range * 0.005  # %0.5'lik daha küçük bölgeler (hassas)
         
         bins = {}
         current_bin = min(price_levels)
@@ -188,8 +189,8 @@ def find_congestion_zones(data, lookback=80, min_touch_points=3):
             return [], []
         
         # Güçlü olanları seç ve SIRALI olarak düzenle
-        support_zones = sorted(support_zones, key=lambda x: x['price'], reverse=True)[:5]  # Yüksekten düşüğe
-        resistance_zones = sorted(resistance_zones, key=lambda x: x['price'])[:5]  # Düşükten yükseğe
+        support_zones = sorted(support_zones, key=lambda x: x['price'], reverse=True)[:3]  # Sadece 3 destek
+        resistance_zones = sorted(resistance_zones, key=lambda x: x['price'])[:3]  # Sadece 3 direnç
         
         return support_zones, resistance_zones
         
@@ -197,15 +198,15 @@ def find_congestion_zones(data, lookback=80, min_touch_points=3):
         st.error(f"Yoğunluk analizi hatası: {e}")
         return [], []
 
-# Fitil analizi
-def analyze_wicks(data, zone_price, tolerance_percent=1.0):
-    """Belirli bir fiyat bölgesindeki fitil tepkilerini analiz et"""
+# Fitil analizi - SON 3 GÜN
+def analyze_wicks(data, zone_price, tolerance_percent=0.5):
+    """Belirli bir fiyat bölgesindeki fitil tepkilerini analiz et - SON 3 GÜN"""
     try:
         if data is None or len(data) == 0:
             return 0, 0
             
-        df = data.tail(50).copy()  # Son 50 mum
-        tolerance = zone_price * (tolerance_percent / 100)
+        df = data.copy()  # Tüm veri son 3 gün
+        tolerance = zone_price * (tolerance_percent / 100)  # Daha dar tolerans
         
         reactions = 0
         strong_rejections = 0
@@ -217,16 +218,20 @@ def analyze_wicks(data, zone_price, tolerance_percent=1.0):
                 close = float(df['Close'].iloc[i])
                 open_price = float(df['Open'].iloc[i])
                 
-                # Bölgeye yakın mı?
+                # Bölgeye yakın mı? (daha dar tolerans)
                 if abs(high - zone_price) <= tolerance or abs(low - zone_price) <= tolerance:
                     reactions += 1
                     
                     # Güçlü reddetme sinyali kontrolü
+                    body_size = abs(open_price - close)
+                    upper_wick = high - max(open_price, close)
+                    lower_wick = min(open_price, close) - low
+                    
                     # Uzun üst fitil (direnç reddi)
-                    if high > zone_price and (high - max(open_price, close)) > (abs(open_price - close)) * 1.5:
+                    if high > zone_price and upper_wick > body_size * 1.2:
                         strong_rejections += 1
                     # Uzun alt fitil (destek reddi)
-                    elif low < zone_price and (min(open_price, close) - low) > (abs(open_price - close)) * 1.5:
+                    elif low < zone_price and lower_wick > body_size * 1.2:
                         strong_rejections += 1
             except (ValueError, IndexError):
                 continue
@@ -236,9 +241,9 @@ def analyze_wicks(data, zone_price, tolerance_percent=1.0):
     except Exception as e:
         return 0, 0
 
-# Mum grafiği oluşturma
+# Mum grafiği oluşturma - SON 3 GÜN
 def create_candlestick_chart_manual(data, support_zones, resistance_zones, crypto_symbol):
-    """MANUEL MUM ÇİZİMİ"""
+    """MANUEL MUM ÇİZİMİ - SON 3 GÜN"""
     
     fig = go.Figure()
     
@@ -262,7 +267,7 @@ def create_candlestick_chart_manual(data, support_zones, resistance_zones, crypt
                 x=[data.index[i], data.index[i]],
                 y=[open_price, close_price],
                 mode='lines',
-                line=dict(color=color, width=10),
+                line=dict(color=color, width=8),
                 showlegend=False
             ))
             
@@ -271,7 +276,7 @@ def create_candlestick_chart_manual(data, support_zones, resistance_zones, crypt
                 x=[data.index[i], data.index[i]],
                 y=[max(open_price, close_price), high],
                 mode='lines',
-                line=dict(color=color, width=2),
+                line=dict(color=color, width=1.5),
                 showlegend=False
             ))
             
@@ -280,7 +285,7 @@ def create_candlestick_chart_manual(data, support_zones, resistance_zones, crypt
                 x=[data.index[i], data.index[i]],
                 y=[min(open_price, close_price), low],
                 mode='lines',
-                line=dict(color=color, width=2),
+                line=dict(color=color, width=1.5),
                 showlegend=False
             ))
         except (ValueError, IndexError):
@@ -322,11 +327,11 @@ def create_candlestick_chart_manual(data, support_zones, resistance_zones, crypt
                 y=zone['price'],
                 line_dash="solid",
                 line_color="#00FF00",
-                line_width=3,
+                line_width=2,
                 opacity=0.8,
                 annotation_text=f"S{i+1}",
                 annotation_position="left",
-                annotation_font_size=14,
+                annotation_font_size=12,
                 annotation_font_color="#00FF00"
             )
         except Exception:
@@ -339,11 +344,11 @@ def create_candlestick_chart_manual(data, support_zones, resistance_zones, crypt
                 y=zone['price'],
                 line_dash="solid",
                 line_color="#FF0000",
-                line_width=3,
+                line_width=2,
                 opacity=0.8,
                 annotation_text=f"R{i+1}",
                 annotation_position="right",
-                annotation_font_size=14,
+                annotation_font_size=12,
                 annotation_font_color="#FF0000"
             )
         except Exception:
@@ -351,28 +356,28 @@ def create_candlestick_chart_manual(data, support_zones, resistance_zones, crypt
     
     # Grafik ayarları
     fig.update_layout(
-        height=600,
-        title=f"{crypto_symbol} - 4 Saatlik Profesyonel Mum Analizi",
+        height=500,
+        title=f"{crypto_symbol} - SON 3 GÜN 4 Saatlik Analiz",
         xaxis_title="Tarih",
         yaxis_title="Fiyat (USD)",
         showlegend=True,
         xaxis_rangeslider_visible=False,
         plot_bgcolor='#0E1117',
         paper_bgcolor='#0E1117',
-        font=dict(color='white', size=12),
+        font=dict(color='white', size=10),
         xaxis=dict(gridcolor='#444'),
         yaxis=dict(gridcolor='#444')
     )
     
     return fig
 
-# Ana trading stratejisi
-def generate_trading_signals(data, support_zones, resistance_zones, ema_period=50, min_rr_ratio=1.5):
-    """Profesyonel trading sinyalleri üret"""
+# Ana trading stratejisi - SON 3 GÜN
+def generate_trading_signals(data, support_zones, resistance_zones, ema_period=20, min_rr_ratio=1.5):
+    """Profesyonel trading sinyalleri üret - SON 3 GÜN"""
     signals = []
     analysis_details = []
     
-    if data is None or len(data) < ema_period + 10:
+    if data is None or len(data) < 5:  # Minimum 5 mum verisi
         analysis_details.append("❌ Yetersiz veri - analiz yapılamıyor")
         return signals, analysis_details
     
@@ -381,85 +386,69 @@ def generate_trading_signals(data, support_zones, resistance_zones, ema_period=5
         ema_value = float(data['EMA'].iloc[-1])
         rsi_value = float(data['RSI'].iloc[-1])
         
-        # 1. TREND ANALİZİ
+        # 1. TREND ANALİZİ - SON 3 GÜN
         trend_direction = "BULLISH" if current_price > ema_value else "BEARISH"
         distance_to_ema = abs(current_price - ema_value) / ema_value * 100
         
-        analysis_details.append(f"📈 TREND: {'YÜKSELİŞ' if trend_direction == 'BULLISH' else 'DÜŞÜŞ'}")
+        analysis_details.append(f"📈 SON 3 GÜN TREND: {'YÜKSELİŞ' if trend_direction == 'BULLISH' else 'DÜŞÜŞ'}")
         analysis_details.append(f"📊 EMA {ema_period}: {format_price(ema_value)}")
         analysis_details.append(f"📍 Fiyat-EMA Mesafesi: %{distance_to_ema:.2f}")
         analysis_details.append(f"📉 RSI: {rsi_value:.1f}")
         
-        # 2. YOĞUNLUK BÖLGELERİ ANALİZİ
+        # 2. YOĞUNLUK BÖLGELERİ ANALİZİ - SON 3 GÜN
         analysis_details.append("---")
-        analysis_details.append("🎯 YOĞUNLUK BÖLGELERİ:")
+        analysis_details.append("🎯 SON 3 GÜN YOĞUNLUK BÖLGELERİ:")
         
-        # Destek bölgeleri analizi (S1 en yüksek, S3 en düşük)
+        # Destek bölgeleri analizi
         for i, zone in enumerate(support_zones[:3]):
             reactions, strong_rejections = analyze_wicks(data, zone['price'])
-            level_name = f"S{i+1}"  # S1, S2, S3
+            level_name = f"S{i+1}"
             analysis_details.append(f"🟢 {level_name}: {format_price(zone['price'])} (Güç: {zone['strength']}, Tepki: {reactions}, Red: {strong_rejections})")
         
-        # Direnç bölgeleri analizi (R1 en düşük, R3 en yüksek)
+        # Direnç bölgeleri analizi
         for i, zone in enumerate(resistance_zones[:3]):
             reactions, strong_rejections = analyze_wicks(data, zone['price'])
-            level_name = f"R{i+1}"  # R1, R2, R3
+            level_name = f"R{i+1}"
             analysis_details.append(f"🔴 {level_name}: {format_price(zone['price'])} (Güç: {zone['strength']}, Tepki: {reactions}, Red: {strong_rejections})")
         
-        # 3. SİNYAL ÜRETİMİ
+        # 3. SİNYAL ÜRETİMİ - SON 3 GÜN
         analysis_details.append("---")
-        analysis_details.append("🎪 SİNYAL DEĞERLENDİRMESİ:")
+        analysis_details.append("🎪 SON 3 GÜN SİNYAL DEĞERLENDİRMESİ:")
         
         # En güçlü destek/direnç bölgeleri
-        strongest_support = support_zones[0] if support_zones else None  # S1 - en yüksek destek
-        strongest_resistance = resistance_zones[0] if resistance_zones else None  # R1 - en düşük direnç
+        strongest_support = support_zones[0] if support_zones else None
+        strongest_resistance = resistance_zones[0] if resistance_zones else None
         
-        # ALIM SİNYALİ KOŞULLARI
-        if (trend_direction == "BULLISH" and strongest_support and 
-            current_price <= strongest_support['price'] * 1.02):  # %2 tolerans
-            
+        # KISA VADELİ ALIM SİNYALİ KOŞULLARI
+        buy_signal = False
+        sell_signal = False
+        
+        # ALIM SİNYALİ - Daha agresif kurallar (kısa vade)
+        if strongest_support and current_price <= strongest_support['price'] * 1.01:  # %1 tolerans
             reactions, strong_rejections = analyze_wicks(data, strongest_support['price'])
             
-            # Çalışırlık değerlendirmesi
             conditions_met = 0
-            total_conditions = 4
+            total_conditions = 3
             
-            # Koşul 1: Trend uyumu
-            if trend_direction == "BULLISH":
+            # Koşul 1: Trend nötr veya yükseliş
+            if trend_direction == "BULLISH" or distance_to_ema < 3:
                 conditions_met += 1
-                analysis_details.append("✅ Trend uyumlu (Yükseliş)")
+                analysis_details.append("✅ Trend uyumlu")
             
-            # Koşul 2: Bölge test edilmiş mi?
-            if reactions >= 2:
+            # Koşul 2: Bölge test edilmiş
+            if reactions >= 1:  # 1 tepki yeterli (kısa vade)
                 conditions_met += 1
                 analysis_details.append("✅ Bölge test edilmiş")
             
-            # Koşul 3: Güçlü reddetme var mı?
-            if strong_rejections >= 1:
+            # Koşul 3: Güçlü reddetme veya RSI
+            if strong_rejections >= 1 or rsi_value < 40:
                 conditions_met += 1
-                analysis_details.append("✅ Güçlü reddetme mevcut")
+                analysis_details.append("✅ Teknik destek mevcut")
             
-            # Koşul 4: RSI aşırı satımda mı?
-            if rsi_value < 35:
-                conditions_met += 1
-                analysis_details.append("✅ RSI aşırı satım bölgesinde")
-            
-            # Risk/Ödül kontrolü
-            if strongest_resistance:
-                potential_profit = strongest_resistance['price'] - current_price
-                potential_loss = current_price - strongest_support['price'] * 0.98  # %2 stop loss
-                rr_ratio = potential_profit / potential_loss if potential_loss > 0 else 0
-                
-                analysis_details.append(f"📊 Risk/Ödül: {rr_ratio:.2f}")
-                
-                if rr_ratio >= min_rr_ratio:
-                    conditions_met += 1
-                    analysis_details.append("✅ Risk/Ödül uygun")
-            
-            # Sinyal kararı
             success_rate = conditions_met / total_conditions
-            if success_rate >= 0.6:  # %60 başarı oranı
-                stop_loss = strongest_support['price'] * 0.98
+            if success_rate >= 0.67:  # %67 başarı oranı
+                buy_signal = True
+                stop_loss = strongest_support['price'] * 0.99  # %1 stop
                 take_profit = current_price + (current_price - stop_loss) * min_rr_ratio
                 
                 signals.append({
@@ -468,57 +457,35 @@ def generate_trading_signals(data, support_zones, resistance_zones, ema_period=5
                     'stop_loss': stop_loss,
                     'take_profit': take_profit,
                     'confidence': success_rate,
-                    'reason': f"Destek bölgesinde yükseliş tepkisi - Güven: %{success_rate*100:.0f}"
+                    'reason': f"Kısa vadeli destek tepkisi - Güven: %{success_rate*100:.0f}"
                 })
-            else:
-                analysis_details.append("❌ ALIM: Yetersiz koşul - BEKLE")
         
-        # SATIM SİNYALİ KOŞULLARI
-        elif (trend_direction == "BEARISH" and strongest_resistance and 
-              current_price >= strongest_resistance['price'] * 0.98):  # %2 tolerans
-            
+        # SATIM SİNYALİ - Daha agresif kurallar (kısa vade)
+        elif strongest_resistance and current_price >= strongest_resistance['price'] * 0.99:  # %1 tolerans
             reactions, strong_rejections = analyze_wicks(data, strongest_resistance['price'])
             
-            # Çalışırlık değerlendirmesi
             conditions_met = 0
-            total_conditions = 4
+            total_conditions = 3
             
-            # Koşul 1: Trend uyumu
-            if trend_direction == "BEARISH":
+            # Koşul 1: Trend nötr veya düşüş
+            if trend_direction == "BEARISH" or distance_to_ema < 3:
                 conditions_met += 1
-                analysis_details.append("✅ Trend uyumlu (Düşüş)")
+                analysis_details.append("✅ Trend uyumlu")
             
-            # Koşul 2: Bölge test edilmiş mi?
-            if reactions >= 2:
+            # Koşul 2: Bölge test edilmiş
+            if reactions >= 1:  # 1 tepki yeterli (kısa vade)
                 conditions_met += 1
                 analysis_details.append("✅ Bölge test edilmiş")
             
-            # Koşul 3: Güçlü reddetme var mı?
-            if strong_rejections >= 1:
+            # Koşul 3: Güçlü reddetme veya RSI
+            if strong_rejections >= 1 or rsi_value > 60:
                 conditions_met += 1
-                analysis_details.append("✅ Güçlü reddetme mevcut")
+                analysis_details.append("✅ Teknik direnç mevcut")
             
-            # Koşul 4: RSI aşırı alımda mı?
-            if rsi_value > 65:
-                conditions_met += 1
-                analysis_details.append("✅ RSI aşırı alım bölgesinde")
-            
-            # Risk/Ödül kontrolü
-            if strongest_support:
-                potential_profit = current_price - strongest_support['price']
-                potential_loss = strongest_resistance['price'] * 1.02 - current_price  # %2 stop loss
-                rr_ratio = potential_profit / potential_loss if potential_loss > 0 else 0
-                
-                analysis_details.append(f"📊 Risk/Ödül: {rr_ratio:.2f}")
-                
-                if rr_ratio >= min_rr_ratio:
-                    conditions_met += 1
-                    analysis_details.append("✅ Risk/Ödül uygun")
-            
-            # Sinyal kararı
             success_rate = conditions_met / total_conditions
-            if success_rate >= 0.6:
-                stop_loss = strongest_resistance['price'] * 1.02
+            if success_rate >= 0.67:  # %67 başarı oranı
+                sell_signal = True
+                stop_loss = strongest_resistance['price'] * 1.01  # %1 stop
                 take_profit = current_price - (stop_loss - current_price) * min_rr_ratio
                 
                 signals.append({
@@ -527,54 +494,63 @@ def generate_trading_signals(data, support_zones, resistance_zones, ema_period=5
                     'stop_loss': stop_loss,
                     'take_profit': take_profit,
                     'confidence': success_rate,
-                    'reason': f"Direnç bölgesinde düşüş tepkisi - Güven: %{success_rate*100:.0f}"
+                    'reason': f"Kısa vadeli direnç tepkisi - Güven: %{success_rate*100:.0f}"
                 })
-            else:
-                analysis_details.append("❌ SATIM: Yetersiz koşul - BEKLE")
         
-        else:
-            analysis_details.append("🎭 NET SİNYAL YOK - Piyasa gözlemi önerilir")
+        if not buy_signal and not sell_signal:
+            analysis_details.append("🎭 NET SİNYAL YOK - Kısa vadeli piyasa gözlemi")
             
-            # EMA'ya uzaklık kontrolü
-            if distance_to_ema > 5:  # %5'ten fazla uzaksa
-                analysis_details.append("⚠️ Fiyat EMA'dan çok uzak - Risk yüksek")
+            # Özel kısa vadeli uyarılar
+            if distance_to_ema > 8:
+                analysis_details.append("⚠️ Fiyat EMA'dan çok uzak - Kısa vadeli düzeltme riski")
+            if rsi_value > 70:
+                analysis_details.append("⚠️ RSI aşırı alım - Kısa vadeli satış baskısı beklenebilir")
+            if rsi_value < 30:
+                analysis_details.append("⚠️ RSI aşırı satım - Kısa vadeli toplanma beklenebilir")
         
         return signals, analysis_details
         
     except Exception as e:
-        st.error(f"Sinyal üretim hatası: {e}")
         analysis_details.append(f"❌ Sinyal üretim hatası: {e}")
         return [], analysis_details
 
 # Ana uygulama
 def main():
-    # Veri yükleme
-    with st.spinner(f'⏳ {crypto_symbol} için 4 saatlik veriler yükleniyor...'):
-        data_full = get_4h_data(crypto_symbol, days=lookback_period)
+    st.info("""
+    **📊 SON 3 GÜN ANALİZİ - Kısa Vadeli Strateji**
+    - 🕒 Zaman Periyodu: Son 3 Gün
+    - ⏰ Mum Aralığı: 4 Saatlik
+    - 🎯 Amaç: Kısa vadeli fırsatları tespit
+    - ⚠️ Risk: Yüksek volatilite - Dikkatli kullanın
+    """)
     
-    if data_full is None or data_full.empty:
+    # Veri yükleme - SADECE SON 3 GÜN
+    with st.spinner(f'⏳ {crypto_symbol} için SON 3 GÜN 4 saatlik veriler yükleniyor...'):
+        data_3days = get_4h_data(crypto_symbol)
+    
+    if data_3days is None or data_3days.empty:
         st.error(f"❌ {crypto_symbol} için veri yüklenemedi!")
         st.info("💡 Lütfen geçerli bir kripto sembolü girin (Örnek: BTC-USD, ETH-USD, XRP-USD)")
         return
     
-    st.success(f"✅ {crypto_symbol} için {len(data_full)} adet 4 saatlik mum verisi yüklendi")
+    st.success(f"✅ {crypto_symbol} için SON 3 GÜN {len(data_3days)} adet 4 saatlik mum verisi yüklendi")
     
     # Göstergeleri hesapla
-    data_full = calculate_indicators(data_full, ema_period, rsi_period)
+    data_3days = calculate_indicators(data_3days, ema_period, rsi_period)
     
-    # Yoğunluk bölgelerini bul (SIRALI olarak)
-    support_zones, resistance_zones = find_congestion_zones(data_full, min_touch_points=min_touch_points)
+    # Yoğunluk bölgelerini bul (SON 3 GÜN)
+    support_zones, resistance_zones = find_congestion_zones(data_3days, min_touch_points=min_touch_points)
     
-    # Sinyal üret
+    # Sinyal üret (SON 3 GÜN)
     signals, analysis_details = generate_trading_signals(
-        data_full, support_zones, resistance_zones, ema_period, risk_reward_ratio
+        data_3days, support_zones, resistance_zones, ema_period, risk_reward_ratio
     )
     
     # Mevcut durum
     try:
-        current_price = float(data_full['Close'].iloc[-1])
-        ema_value = float(data_full['EMA'].iloc[-1])
-        rsi_value = float(data_full['RSI'].iloc[-1])
+        current_price = float(data_3days['Close'].iloc[-1])
+        ema_value = float(data_3days['EMA'].iloc[-1])
+        rsi_value = float(data_3days['RSI'].iloc[-1])
     except (ValueError, IndexError):
         current_price = 0
         ema_value = 0
@@ -584,75 +560,77 @@ def main():
     col1, col2 = st.columns([3, 1])
     
     with col1:
-        st.subheader(f"📈 {crypto_symbol} - 4 Saatlik Profesyonel Mum Analizi")
+        st.subheader(f"📈 {crypto_symbol} - SON 3 GÜN 4 Saatlik Analiz")
         
-        # MUM GRAFİĞİNİ GÖSTER
-        chart_fig = create_candlestick_chart_manual(data_full.tail(100), support_zones, resistance_zones, crypto_symbol)
+        # MUM GRAFİĞİNİ GÖSTER - SON 3 GÜN
+        chart_fig = create_candlestick_chart_manual(data_3days, support_zones, resistance_zones, crypto_symbol)
         st.plotly_chart(chart_fig, use_container_width=True)
         
-        st.info("""
-        **📊 MUM GRAFİĞİ AÇIKLAMASI:**
-        - 🟢 **Yeşil Mum:** Kapanış > Açılış (Yükseliş)
-        - 🔴 **Kırmızı Mum:** Kapanış < Açılış (Düşüş)
-        - 🟢 **S1,S2,S3:** Destek Seviyeleri
-        - 🔴 **R1,R2,R3:** Direnç Seviyeleri  
-        - 🟡 **Sarı Çizgi:** Mevcut Fiyat
-        - 🟠 **Turuncu Çizgi:** EMA Trend Göstergesi
+        st.warning("""
+        **⚠️ KISA VADELİ STRATEJİ UYARISI:**
+        - 📅 Analiz periyodu: SADECE SON 3 GÜN
+        - ⏰ Kısa vadeli sinyaller (4-24 saat)
+        - 🔄 Hızlı pozisyon giriş/çıkışı
+        - 📉 Stop-loss KESİNLİKLE kullanın
         """)
     
     with col2:
-        st.subheader("🎯 TRADING SİNYALLERİ")
+        st.subheader("🎯 KISA VADELİ SİNYALLER")
         
         if signals:
             for signal in signals:
                 if signal['type'] == 'BUY':
                     st.success(f"""
-                    **✅ ALIM SİNYALİ**
+                    **✅ KISA ALIM**
                     - Giriş: {format_price(signal['price'])}
                     - Stop: {format_price(signal['stop_loss'])}
                     - TP: {format_price(signal['take_profit'])}
                     - Güven: %{signal['confidence']*100:.0f}
+                    - Süre: 4-24 saat
                     """)
                 else:
                     st.error(f"""
-                    **❌ SATIM SİNYALİ**
+                    **❌ KISA SATIM**
                     - Giriş: {format_price(signal['price'])}
                     - Stop: {format_price(signal['stop_loss'])}
                     - TP: {format_price(signal['take_profit'])}
                     - Güven: %{signal['confidence']*100:.0f}
+                    - Süre: 4-24 saat
                     """)
         else:
             st.info("""
             **🎭 NET SİNYAL YOK**
+            - Kısa vadeli koşullar uygun değil
             - Piyasa gözlemi önerilir
-            - Koşullar uygun değil
             - BEKLE stratejisi uygula
             """)
         
-        st.subheader("📊 MEVCUT DURUM")
+        st.subheader("📊 SON DURUM")
         st.metric("Fiyat", format_price(current_price))
         st.metric(f"EMA {ema_period}", format_price(ema_value))
         st.metric("RSI", f"{rsi_value:.1f}")
         
         trend = "YÜKSELİŞ" if current_price > ema_value else "DÜŞÜŞ"
-        st.metric("TREND", trend)
+        st.metric("3 GÜN TREND", trend)
         
-        # Destek/Direnç Listesi - SIRALI olarak
-        st.subheader("💎 SEVİYELER")
+        # Destek/Direnç Listesi
+        st.subheader("💎 KISA VADE SEVİYELER")
         
-        st.write("**🟢 DESTEK (S1→S3):**")
+        st.write("**🟢 DESTEK:**")
         for i, zone in enumerate(support_zones[:3]):
             level_name = f"S{i+1}"
-            st.write(f"{level_name}: {format_price(zone['price'])}")
+            distance_pct = ((current_price - zone['price']) / current_price * 100)
+            st.write(f"{level_name}: {format_price(zone['price'])} (%{distance_pct:.1f})")
         
-        st.write("**🔴 DİRENÇ (R1→R3):**")
+        st.write("**🔴 DİRENÇ:**")
         for i, zone in enumerate(resistance_zones[:3]):
             level_name = f"R{i+1}"
-            st.write(f"{level_name}: {format_price(zone['price'])}")
+            distance_pct = ((zone['price'] - current_price) / current_price * 100)
+            st.write(f"{level_name}: {format_price(zone['price'])} (%{distance_pct:.1f})")
     
     # Detaylı analiz
-    st.subheader("🔍 DETAYLI ANALİZ RAPORU")
-    with st.expander("Analiz Detayları", expanded=True):
+    st.subheader("🔍 SON 3 GÜN DETAYLI ANALİZ")
+    with st.expander("Kısa Vadeli Analiz Detayları", expanded=True):
         for detail in analysis_details:
             if "✅" in detail:
                 st.success(detail)
