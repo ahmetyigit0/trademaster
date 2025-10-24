@@ -3,10 +3,9 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import plotly.subplots as sp
 from datetime import datetime, timedelta
 
-st.set_page_config(page_title="TradingView Clone", layout="wide")
+st.set_page_config(page_title="4Saatlik Profesyonel TA", layout="wide")
 
 # Şifre koruması
 def check_password():
@@ -30,302 +29,435 @@ def check_password():
 if not check_password():
     st.stop()
 
-# TradingView CSS
-st.markdown("""
-<style>
-    .tv-header {
-        background: #1e222d;
-        padding: 8px 15px;
-        border-bottom: 1px solid #363c4e;
-        color: white;
-    }
-    .symbol-display {
-        font-size: 20px;
-        font-weight: bold;
-        color: #ececec;
-    }
-    .price-display {
-        font-size: 24px;
-        font-weight: bold;
-    }
-    .price-up { color: #00b15d; }
-    .price-down { color: #ff5b5a; }
-    .indicator-panel {
-        background: #1e222d;
-        border-radius: 5px;
-        padding: 10px;
-        margin: 5px 0;
-    }
-    .timeframe-btn {
-        background: #2a2e39;
-        border: 1px solid #363c4e;
-        border-radius: 3px;
-        padding: 5px 10px;
-        margin: 2px;
-        color: #b2b5be;
-        cursor: pointer;
-    }
-    .timeframe-btn.active {
-        background: #2962ff;
-        color: white;
-    }
-</style>
-""", unsafe_allow_html=True)
+st.title("🎯 4 Saatlik Profesyonel Teknik Analiz Stratejisi")
 
-# TradingView benzeri header
-col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 1, 1])
-with col1:
-    st.markdown('<div class="tv-header"><div class="symbol-display">BTC/USD</div></div>', unsafe_allow_html=True)
-with col2:
-    current_price = 43250.50
-    price_change = 2.45
-    st.markdown(f'<div class="tv-header price-display price-up">${current_price:,.2f}</div>', unsafe_allow_html=True)
-with col3:
-    st.markdown(f'<div class="tv-header price-up">+{price_change}%</div>', unsafe_allow_html=True)
-with col4:
-    st.markdown('<div class="tv-header">24H Volume: $28.5B</div>', unsafe_allow_html=True)
-with col5:
-    st.markdown('<div class="tv-header">Market Cap: $845B</div>', unsafe_allow_html=True)
-
-# Ana layout
-main_col, side_col = st.columns([4, 1])
-
-with main_col:
-    # Timeframe butonları
-    timeframes = ["1m", "5m", "15m", "1H", "4H", "1D", "1W", "1M"]
-    cols = st.columns(len(timeframes))
-    for i, tf in enumerate(timeframes):
-        with cols[i]:
-            if st.button(tf, key=f"tf_{tf}"):
-                st.session_state.selected_tf = tf
+# Sidebar
+with st.sidebar:
+    st.header("⚙️ Strateji Ayarları")
+    crypto_symbol = st.selectbox("Sembol", ["BTC-USD", "ETH-USD", "ADA-USD", "DOT-USD", "LINK-USD"])
+    lookback_period = st.slider("Analiz Periyodu (Gün)", 30, 200, 100)
     
-    # Grafik container
-    st.markdown("""
-    <div style="background: #131722; border-radius: 5px; padding: 10px; margin: 10px 0;">
-    """, unsafe_allow_html=True)
-    
-    # TradingView benzeri grafik
-    def create_tradingview_chart():
-        # Örnek veri oluştur
-        dates = pd.date_range(start='2024-01-01', end='2024-01-31', freq='D')
-        np.random.seed(42)
-        prices = []
-        current_price = 40000
-        for _ in range(len(dates)):
-            change = np.random.normal(0, 0.02)
-            current_price *= (1 + change)
-            prices.append(current_price)
-        
-        df = pd.DataFrame({
-            'Date': dates,
-            'Open': [p * (1 + np.random.normal(0, 0.01)) for p in prices],
-            'High': [p * (1 + abs(np.random.normal(0, 0.015))) for p in prices],
-            'Low': [p * (1 - abs(np.random.normal(0, 0.015))) for p in prices],
-            'Close': prices,
-            'Volume': [np.random.randint(1000000, 5000000) for _ in range(len(dates))]
-        })
-        
-        # Ana grafik
-        fig = sp.make_subplots(
-            rows=2, cols=1,
-            shared_xaxes=True,
-            vertical_spacing=0.05,
-            subplot_titles=('Price Chart', 'Volume'),
-            row_width=[0.7, 0.3]
-        )
-        
-        # Mum grafiği
-        fig.add_trace(go.Candlestick(
-            x=df['Date'],
-            open=df['Open'],
-            high=df['High'],
-            low=df['Low'],
-            close=df['Close'],
-            name='Price'
-        ), row=1, col=1)
-        
-        # EMA'lar
-        df['EMA_20'] = df['Close'].ewm(span=20).mean()
-        df['EMA_50'] = df['Close'].ewm(span=50).mean()
-        
-        fig.add_trace(go.Scatter(
-            x=df['Date'], y=df['EMA_20'],
-            name='EMA 20',
-            line=dict(color='#ff6b6b', width=1.5)
-        ), row=1, col=1)
-        
-        fig.add_trace(go.Scatter(
-            x=df['Date'], y=df['EMA_50'],
-            name='EMA 50',
-            line=dict(color='#4ecdc4', width=1.5)
-        ), row=1, col=1)
-        
-        # Volume
-        colors = ['red' if df['Close'].iloc[i] < df['Open'].iloc[i] else 'green' 
-                 for i in range(len(df))]
-        
-        fig.add_trace(go.Bar(
-            x=df['Date'],
-            y=df['Volume'],
-            name='Volume',
-            marker_color=colors,
-            opacity=0.7
-        ), row=2, col=1)
-        
-        # Layout güncellemeleri
-        fig.update_layout(
-            height=600,
-            plot_bgcolor='#131722',
-            paper_bgcolor='#131722',
-            font=dict(color='#d1d4dc'),
-            xaxis=dict(
-                gridcolor='#2a2e39',
-                rangeslider=dict(visible=False)
-            ),
-            yaxis=dict(gridcolor='#2a2e39'),
-            xaxis2=dict(gridcolor='#2a2e39'),
-            yaxis2=dict(gridcolor='#2a2e39'),
-            showlegend=True,
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1
-            )
-        )
-        
-        # Grafik stilleri
-        fig.update_xaxes(showline=True, linewidth=1, linecolor='#363c4e')
-        fig.update_yaxes(showline=True, linewidth=1, linecolor='#363c4e')
-        
-        return fig
-    
-    # Grafiği göster
-    chart_fig = create_tradingview_chart()
-    st.plotly_chart(chart_fig, use_container_width=True, config={
-        'displayModeBar': True,
-        'displaylogo': False,
-        'modeBarButtonsToAdd': ['drawline', 'drawopenpath', 'drawcircle', 'drawrect', 'eraseshape'],
-        'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d']
-    })
+    st.subheader("📊 Parametreler")
+    ema_period = st.slider("EMA Period", 20, 100, 50)
+    rsi_period = st.slider("RSI Period", 5, 21, 14)
+    min_touch_points = st.slider("Minimum Temas Noktası", 2, 5, 3)
+    risk_reward_ratio = st.slider("Min Risk/Ödül Oranı", 1.0, 3.0, 1.5)
 
-with side_col:
-    st.markdown("""
-    <div style="background: #1e222d; border-radius: 5px; padding: 15px; margin: 10px 0;">
-    """, unsafe_allow_html=True)
-    
-    # Göstergeler paneli
-    st.subheader("📊 Göstergeler")
-    
-    # RSI
-    st.markdown('<div class="indicator-panel">', unsafe_allow_html=True)
-    st.metric("RSI (14)", "56.7", "2.3")
-    st.progress(56.7/100)
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    # MACD
-    st.markdown('<div class="indicator-panel">', unsafe_allow_html=True)
-    st.write("**MACD**")
-    st.write("Histogram: 12.5")
-    st.write("Signal: 8.2")
-    st.write("MACD: 4.3")
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Bollinger Bands
-    st.markdown('<div class="indicator-panel">', unsafe_allow_html=True)
-    st.write("**Bollinger Bands**")
-    st.write("Upper: $44,230")
-    st.write("Middle: $42,150")
-    st.write("Lower: $40,070")
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Trading Sinyalleri
-    st.markdown("""
-    <div style="background: #1e222d; border-radius: 5px; padding: 15px; margin: 10px 0;">
-        <h4>🎯 Sinyaller</h4>
-        <div style="color: #00b15d; margin: 5px 0;">✓ EMA 20 > EMA 50</div>
-        <div style="color: #ff5b5a; margin: 5px 0;">✗ RSI > 70 (Aşırı Alım)</div>
-        <div style="color: #00b15d; margin: 5px 0;">✓ Volume Artışı</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-# Alt panel - Teknik analiz
-st.markdown("---")
-st.subheader("📈 Teknik Analiz")
-
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    st.markdown("""
-    <div style="background: #1e222d; padding: 15px; border-radius: 5px;">
-        <h4>Trend Analizi</h4>
-        <div>Kısa Vade: ↗️ Yükseliş</div>
-        <div>Orta Vade: ➡️ Yatay</div>
-        <div>Uzun Vade: ↗️ Yükseliş</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with col2:
-    st.markdown("""
-    <div style="background: #1e222d; padding: 15px; border-radius: 5px;">
-        <h4>Destek/Direnç</h4>
-        <div>Destek 1: $41,200</div>
-        <div>Destek 2: $40,500</div>
-        <div>Direnç 1: $43,800</div>
-        <div>Direnç 2: $45,200</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with col3:
-    st.markdown("""
-    <div style="background: #1e222d; padding: 15px; border-radius: 5px;">
-        <h4>Volatilite</h4>
-        <div>ATR: 850</div>
-        <div>Volatilite: Orta</div>
-        <div>Average Volume: 2.4M</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with col4:
-    st.markdown("""
-    <div style="background: #1e222d; padding: 15px; border-radius: 5px;">
-        <h4>Öneriler</h4>
-        <div>Risk/Reward: 1:2.5</div>
-        <div>Stop Loss: $40,800</div>
-        <div>Take Profit: $45,500</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-# Çizim araçları
-st.sidebar.markdown("---")
-st.sidebar.subheader("🛠️ Çizim Araçları")
-drawing_tools = st.sidebar.multiselect(
-    "Araçlar",
-    ["Yatay Çizgi", "Dikey Çizgi", "Trend Çizgi", "Fibonacci", "Dikdörtgen", "Daire"],
-    default=["Yatay Çizgi", "Trend Çizgi"]
-)
-
-# TradingView benzeri kısayollar
-st.sidebar.markdown("---")
-st.sidebar.subheader("⌨️ Kısayollar")
-st.sidebar.write("**1-9** - Timeframe")
-st.sidebar.write("**Alt + 1-5** - Grafik tipi")
-st.sidebar.write("**Ctrl + Z** - Geri al")
-st.sidebar.write("**Space** - Hareket aracı")
-
-# Gerçek veri ile çalışan fonksiyon
-def get_real_data(symbol="BTC-USD", period="1mo", interval="1d"):
+# Veri çekme
+@st.cache_data
+def get_4h_data(symbol, days):
     try:
-        data = yf.download(symbol, period=period, interval=interval, progress=False)
+        data = yf.download(symbol, period=f"{days}d", interval="4h", progress=False)
         return data
     except Exception as e:
         st.error(f"Veri çekilemedi: {e}")
         return None
 
-# Gerçek veri butonu
-if st.sidebar.button("🔄 Gerçek Veri Yükle"):
-    real_data = get_real_data()
-    if real_data is not None:
-        st.success("Gerçek veri yüklendi!")
-        # Burada gerçek veri ile grafik güncellemesi yapılabilir
+# Teknik göstergeler
+def calculate_indicators(data, ema_period=50, rsi_period=14):
+    df = data.copy()
+    
+    # EMA
+    df['EMA'] = df['Close'].ewm(span=ema_period, adjust=False).mean()
+    
+    # RSI
+    delta = df['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=rsi_period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=rsi_period).mean()
+    rs = gain / loss
+    df['RSI'] = 100 - (100 / (1 + rs))
+    
+    return df
+
+# Yoğunluk tabanlı destek/direnç analizi
+def find_congestion_zones(data, lookback=80, min_touch_points=3):
+    """Fiyatın en çok zaman geçirdiği yoğunluk alanlarını bul"""
+    try:
+        df = data.tail(lookback).copy()
+        
+        # Tüm önemli fiyat noktaları (kapanış, high, low)
+        price_levels = []
+        for i in range(len(df)):
+            price_levels.extend([
+                float(df['Close'].iloc[i]),
+                float(df['High'].iloc[i]),
+                float(df['Low'].iloc[i])
+            ])
+        
+        price_levels = sorted(price_levels)
+        if not price_levels:
+            return [], []
+        
+        # Yoğunluk analizi
+        price_range = max(price_levels) - min(price_levels)
+        bin_size = price_range * 0.01  # %1'lik bölgeler
+        
+        bins = {}
+        current_bin = min(price_levels)
+        
+        while current_bin <= max(price_levels):
+            bin_end = current_bin + bin_size
+            count = sum(1 for price in price_levels if current_bin <= price <= bin_end)
+            if count > 0:
+                bins[(current_bin, bin_end)] = count
+            current_bin = bin_end
+        
+        # Yoğun bölgeleri bul
+        congestion_zones = []
+        for (zone_start, zone_end), count in bins.items():
+            if count >= min_touch_points:
+                zone_center = (zone_start + zone_end) / 2
+                congestion_zones.append({
+                    'price': zone_center,
+                    'strength': count,
+                    'start': zone_start,
+                    'end': zone_end
+                })
+        
+        # Destek ve direnç olarak ayır
+        current_price = float(df['Close'].iloc[-1])
+        support_zones = [zone for zone in congestion_zones if zone['price'] < current_price]
+        resistance_zones = [zone for zone in congestion_zones if zone['price'] > current_price]
+        
+        # Güçlü olanları seç ve sırala
+        support_zones = sorted(support_zones, key=lambda x: x['strength'], reverse=True)[:5]
+        resistance_zones = sorted(resistance_zones, key=lambda x: x['strength'], reverse=True)[:5]
+        
+        return support_zones, resistance_zones
+        
+    except Exception as e:
+        st.error(f"Yoğunluk analizi hatası: {e}")
+        return [], []
+
+# Fitil analizi
+def analyze_wicks(data, zone_price, tolerance_percent=1.0):
+    """Belirli bir fiyat bölgesindeki fitil tepkilerini analiz et"""
+    try:
+        df = data.tail(50).copy()  # Son 50 mum
+        tolerance = zone_price * (tolerance_percent / 100)
+        
+        reactions = 0
+        strong_rejections = 0
+        
+        for i in range(len(df)):
+            high = float(df['High'].iloc[i])
+            low = float(df['Low'].iloc[i])
+            close = float(df['Close'].iloc[i])
+            open_price = float(df['Open'].iloc[i])
+            
+            # Bölgeye yakın mı?
+            if abs(high - zone_price) <= tolerance or abs(low - zone_price) <= tolerance:
+                reactions += 1
+                
+                # Güçlü reddetme sinyali kontrolü
+                # Uzun üst fitil (direnç reddi)
+                if high > zone_price and (high - max(open_price, close)) > (abs(open_price - close)) * 1.5:
+                    strong_rejections += 1
+                # Uzun alt fitil (destek reddi)
+                elif low < zone_price and (min(open_price, close) - low) > (abs(open_price - close)) * 1.5:
+                    strong_rejections += 1
+        
+        return reactions, strong_rejections
+        
+    except Exception as e:
+        return 0, 0
+
+# Ana trading stratejisi
+def generate_trading_signals(data, support_zones, resistance_zones, ema_period=50, min_rr_ratio=1.5):
+    """Profesyonel trading sinyalleri üret"""
+    signals = []
+    analysis_details = []
+    
+    if len(data) < ema_period + 10:
+        return signals, analysis_details
+    
+    try:
+        current_price = float(data['Close'].iloc[-1])
+        ema_value = float(data['EMA'].iloc[-1])
+        rsi_value = float(data['RSI'].iloc[-1])
+        
+        # 1. TREND ANALİZİ
+        trend_direction = "BULLISH" if current_price > ema_value else "BEARISH"
+        distance_to_ema = abs(current_price - ema_value) / ema_value * 100
+        
+        analysis_details.append(f"📈 TREND: {'YÜKSELİŞ' if trend_direction == 'BULLISH' else 'DÜŞÜŞ'}")
+        analysis_details.append(f"📊 EMA {ema_period}: ${ema_value:.2f}")
+        analysis_details.append(f"📍 Fiyat-EMA Mesafesi: %{distance_to_ema:.2f}")
+        analysis_details.append(f"📉 RSI: {rsi_value:.1f}")
+        
+        # 2. YOĞUNLUK BÖLGELERİ ANALİZİ
+        analysis_details.append("---")
+        analysis_details.append("🎯 YOĞUNLUK BÖLGELERİ:")
+        
+        # Destek bölgeleri analizi
+        for i, zone in enumerate(support_zones[:3]):
+            reactions, strong_rejections = analyze_wicks(data, zone['price'])
+            analysis_details.append(f"🟢 Destek {i+1}: ${zone['price']:.2f} (Güç: {zone['strength']}, Tepki: {reactions}, Red: {strong_rejections})")
+        
+        # Direnç bölgeleri analizi
+        for i, zone in enumerate(resistance_zones[:3]):
+            reactions, strong_rejections = analyze_wicks(data, zone['price'])
+            analysis_details.append(f"🔴 Direnç {i+1}: ${zone['price']:.2f} (Güç: {zone['strength']}, Tepki: {reactions}, Red: {strong_rejections})")
+        
+        # 3. SİNYAL ÜRETİMİ
+        analysis_details.append("---")
+        analysis_details.append("🎪 SİNYAL DEĞERLENDİRMESİ:")
+        
+        # En güçlü destek/direnç bölgeleri
+        strongest_support = support_zones[0] if support_zones else None
+        strongest_resistance = resistance_zones[0] if resistance_zones else None
+        
+        # ALIM SİNYALİ KOŞULLARI
+        if (trend_direction == "BULLISH" and strongest_support and 
+            current_price <= strongest_support['price'] * 1.02):  # %2 tolerans
+            
+            reactions, strong_rejections = analyze_wicks(data, strongest_support['price'])
+            
+            # Çalışırlık değerlendirmesi
+            conditions_met = 0
+            total_conditions = 4
+            
+            # Koşul 1: Trend uyumu
+            if trend_direction == "BULLISH":
+                conditions_met += 1
+                analysis_details.append("✅ Trend uyumlu (Yükseliş)")
+            
+            # Koşul 2: Bölge test edilmiş mi?
+            if reactions >= 2:
+                conditions_met += 1
+                analysis_details.append("✅ Bölge test edilmiş")
+            
+            # Koşul 3: Güçlü reddetme var mı?
+            if strong_rejections >= 1:
+                conditions_met += 1
+                analysis_details.append("✅ Güçlü reddetme mevcut")
+            
+            # Koşul 4: RSI aşırı satımda mı?
+            if rsi_value < 35:
+                conditions_met += 1
+                analysis_details.append("✅ RSI aşırı satım bölgesinde")
+            
+            # Risk/Ödül kontrolü
+            if strongest_resistance:
+                potential_profit = strongest_resistance['price'] - current_price
+                potential_loss = current_price - strongest_support['price'] * 0.98  # %2 stop loss
+                rr_ratio = potential_profit / potential_loss if potential_loss > 0 else 0
+                
+                analysis_details.append(f"📊 Risk/Ödül: {rr_ratio:.2f}")
+                
+                if rr_ratio >= min_rr_ratio:
+                    conditions_met += 1
+                    analysis_details.append("✅ Risk/Ödül uygun")
+            
+            # Sinyal kararı
+            success_rate = conditions_met / total_conditions
+            if success_rate >= 0.6:  # %60 başarı oranı
+                stop_loss = strongest_support['price'] * 0.98
+                take_profit = current_price + (current_price - stop_loss) * min_rr_ratio
+                
+                signals.append({
+                    'type': 'BUY',
+                    'price': current_price,
+                    'stop_loss': stop_loss,
+                    'take_profit': take_profit,
+                    'confidence': success_rate,
+                    'reason': f"Destek bölgesinde yükseliş tepkisi - Güven: %{success_rate*100:.0f}"
+                })
+            else:
+                analysis_details.append("❌ ALIM: Yetersiz koşul - BEKLE")
+        
+        # SATIM SİNYALİ KOŞULLARI
+        elif (trend_direction == "BEARISH" and strongest_resistance and 
+              current_price >= strongest_resistance['price'] * 0.98):  # %2 tolerans
+            
+            reactions, strong_rejections = analyze_wicks(data, strongest_resistance['price'])
+            
+            # Çalışırlık değerlendirmesi
+            conditions_met = 0
+            total_conditions = 4
+            
+            # Koşul 1: Trend uyumu
+            if trend_direction == "BEARISH":
+                conditions_met += 1
+                analysis_details.append("✅ Trend uyumlu (Düşüş)")
+            
+            # Koşul 2: Bölge test edilmiş mi?
+            if reactions >= 2:
+                conditions_met += 1
+                analysis_details.append("✅ Bölge test edilmiş")
+            
+            # Koşul 3: Güçlü reddetme var mı?
+            if strong_rejections >= 1:
+                conditions_met += 1
+                analysis_details.append("✅ Güçlü reddetme mevcut")
+            
+            # Koşul 4: RSI aşırı alımda mı?
+            if rsi_value > 65:
+                conditions_met += 1
+                analysis_details.append("✅ RSI aşırı alım bölgesinde")
+            
+            # Risk/Ödül kontrolü
+            if strongest_support:
+                potential_profit = current_price - strongest_support['price']
+                potential_loss = strongest_resistance['price'] * 1.02 - current_price  # %2 stop loss
+                rr_ratio = potential_profit / potential_loss if potential_loss > 0 else 0
+                
+                analysis_details.append(f"📊 Risk/Ödül: {rr_ratio:.2f}")
+                
+                if rr_ratio >= min_rr_ratio:
+                    conditions_met += 1
+                    analysis_details.append("✅ Risk/Ödül uygun")
+            
+            # Sinyal kararı
+            success_rate = conditions_met / total_conditions
+            if success_rate >= 0.6:
+                stop_loss = strongest_resistance['price'] * 1.02
+                take_profit = current_price - (stop_loss - current_price) * min_rr_ratio
+                
+                signals.append({
+                    'type': 'SELL',
+                    'price': current_price,
+                    'stop_loss': stop_loss,
+                    'take_profit': take_profit,
+                    'confidence': success_rate,
+                    'reason': f"Direnç bölgesinde düşüş tepkisi - Güven: %{success_rate*100:.0f}"
+                })
+            else:
+                analysis_details.append("❌ SATIM: Yetersiz koşul - BEKLE")
+        
+        else:
+            analysis_details.append("🎭 NET SİNYAL YOK - Piyasa gözlemi önerilir")
+            
+            # EMA'ya uzaklık kontrolü
+            if distance_to_ema > 5:  # %5'ten fazla uzaksa
+                analysis_details.append("⚠️ Fiyat EMA'dan çok uzak - Risk yüksek")
+        
+        return signals, analysis_details
+        
+    except Exception as e:
+        st.error(f"Sinyal üretim hatası: {e}")
+        return [], []
+
+# Ana uygulama
+def main():
+    # Veri yükleme
+    data = get_4h_data(crypto_symbol, lookback_period)
+    
+    if data is None or data.empty:
+        st.error("Veri yüklenemedi!")
+        return
+    
+    # Göstergeleri hesapla
+    data = calculate_indicators(data, ema_period, rsi_period)
+    
+    # Yoğunluk bölgelerini bul
+    support_zones, resistance_zones = find_congestion_zones(data, min_touch_points=min_touch_points)
+    
+    # Sinyal üret
+    signals, analysis_details = generate_trading_signals(
+        data, support_zones, resistance_zones, ema_period, risk_reward_ratio
+    )
+    
+    # Mevcut durum
+    current_price = float(data['Close'].iloc[-1])
+    ema_value = float(data['EMA'].iloc[-1])
+    rsi_value = float(data['RSI'].iloc[-1])
+    
+    # Layout
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        st.subheader("📈 4 Saatlik Grafik Analizi")
+        
+        # Grafik oluştur
+        fig = go.Figure()
+        
+        # Mum grafiği
+        fig.add_trace(go.Candlestick(
+            x=data.index,
+            open=data['Open'],
+            high=data['High'],
+            low=data['Low'],
+            close=data['Close'],
+            name='Price'
+        ))
+        
+        # EMA
+        fig.add_trace(go.Scatter(
+            x=data.index,
+            y=data['EMA'],
+            name=f'EMA {ema_period}',
+            line=dict(color='orange', width=2)
+        ))
+        
+        # Yoğunluk bölgeleri
+        for zone in support_zones[:3]:
+            fig.add_hline(y=zone['price'], line_dash="dash", line_color="green", 
+                         annotation_text=f"Destek: ${zone['price']:.2f}")
+        
+        for zone in resistance_zones[:3]:
+            fig.add_hline(y=zone['price'], line_dash="dash", line_color="red",
+                         annotation_text=f"Direnç: ${zone['price']:.2f}")
+        
+        fig.update_layout(
+            height=600,
+            title=f"{crypto_symbol} - 4 Saatlik Profesyonel Analiz",
+            xaxis_title="Tarih",
+            yaxis_title="Fiyat (USD)",
+            showlegend=True
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        st.subheader("🎯 TRADING SİNYALLERİ")
+        
+        if signals:
+            for signal in signals:
+                if signal['type'] == 'BUY':
+                    st.success(f"""
+                    **✅ ALIM SİNYALİ**
+                    - Giriş: ${signal['price']:.2f}
+                    - Stop: ${signal['stop_loss']:.2f}
+                    - TP: ${signal['take_profit']:.2f}
+                    - Güven: %{signal['confidence']*100:.0f}
+                    """)
+                else:
+                    st.error(f"""
+                    **❌ SATIM SİNYALİ**
+                    - Giriş: ${signal['price']:.2f}
+                    - Stop: ${signal['stop_loss']:.2f}
+                    - TP: ${signal['take_profit']:.2f}
+                    - Güven: %{signal['confidence']*100:.0f}
+                    """)
+        else:
+            st.info("""
+            **🎭 NET SİNYAL YOK**
+            - Piyasa gözlemi önerilir
+            - Koşullar uygun değil
+            - BEKLE stratejisi uygula
+            """)
+        
+        st.subheader("📊 MEVCUT DURUM")
+        st.metric("Fiyat", f"${current_price:.2f}")
+        st.metric(f"EMA {ema_period}", f"${ema_value:.2f}")
+        st.metric("RSI", f"{rsi_value:.1f}")
+        
+        trend = "YÜKSELİŞ" if current_price > ema_value else "DÜŞÜŞ"
+        st.metric("TREND", trend)
+    
+    # Detaylı analiz
+    st.subheader("🔍 DETAYLI ANALİZ RAPORU")
+    with st.expander("Analiz Detayları", expanded=True):
+        for detail in analysis_details:
+            if "✅" in detail:
+                st.success(detail)
+            elif "❌" in detail or "⚠️" in detail:
+                st.error(detail)
+            elif "🎯" in detail or "🎪" in detail:
+                st.warning(detail)
+            else:
+                st.info(detail)
+
+if __name__ == "__main__":
+    main()
