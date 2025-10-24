@@ -3,10 +3,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import plotly.io as pio
 from datetime import datetime, timedelta
-from PIL import Image
-import io
 
 st.set_page_config(page_title="4Saatlik Profesyonel TA", layout="wide")
 
@@ -389,9 +386,9 @@ def generate_trading_signals(data, support_zones, resistance_zones, ema_period=5
         st.error(f"Sinyal üretim hatası: {e}")
         return [], []
 
-# Sabit boyutlu mum grafiği oluşturma (fotoğraf formatında)
+# Sabit boyutlu mum grafiği oluşturma
 def create_fixed_size_candlestick_chart(data, crypto_symbol):
-    """Sabit boyutlu mum grafiği oluştur - fotoğraf formatında"""
+    """Sabit boyutlu mum grafiği oluştur"""
     
     # Grafik oluştur
     fig = go.Figure()
@@ -414,8 +411,8 @@ def create_fixed_size_candlestick_chart(data, crypto_symbol):
     
     # Grafik ayarları - SABİT BOYUT
     fig.update_layout(
-        width=1200,  # Sabit genişlik
-        height=600,  # Sabit yükseklik
+        width=1000,  # Sabit genişlik
+        height=500,  # Sabit yükseklik
         title={
             'text': f"{crypto_symbol} - Son 3 Günlük 4 Saatlik Mum Grafiği",
             'x': 0.5,
@@ -449,13 +446,6 @@ def create_fixed_size_candlestick_chart(data, crypto_symbol):
     )
     
     return fig
-
-# Grafiği resim olarak kaydetme
-def save_chart_as_image(fig):
-    """Grafiği resim olarak kaydet"""
-    # Yüksek kaliteli PNG olarak kaydet
-    img_bytes = fig.to_image(format="png", width=1200, height=600, scale=2)
-    return img_bytes
 
 # Ana uygulama
 def main():
@@ -496,20 +486,21 @@ def main():
         # Sabit boyutlu mum grafiği oluştur
         chart_fig = create_fixed_size_candlestick_chart(data_3days, crypto_symbol)
         
-        # Grafiği resim olarak göster (küçültme/büyütme olmadan)
+        # Grafiği sabit boyutlu ve etkileşimsiz göster
         st.plotly_chart(chart_fig, use_container_width=False, config={
             'displayModeBar': False,  # Araç çubuğunu gizle
-            'staticPlot': True        # Statik grafik (etkileşim yok)
+            'staticPlot': False,      # Küçük etkileşimlere izin ver
+            'responsive': False       # Responsive özelliği kapat
         })
         
-        # Grafiği indirme butonu
-        img_bytes = save_chart_as_image(chart_fig)
-        st.download_button(
-            label="📥 Grafiği İndir (PNG)",
-            data=img_bytes,
-            file_name=f"{crypto_symbol}_4h_chart.png",
-            mime="image/png"
-        )
+        # Grafik bilgisi
+        st.info("""
+        **📊 Grafik Özellikleri:**
+        - Son 3 günlük 4 saatlik mumlar
+        - Sabit boyut (küçültme/büyütme yok)
+        - Net yeşil/kırmızı iğneler
+        - Profesyonel trading görünümü
+        """)
     
     with col2:
         st.subheader("🎯 TRADING SİNYALLERİ")
