@@ -1053,7 +1053,6 @@ if run_bt:
                 min_rr_ratio=risk_reward_ratio, 
                 start_balance=10000.0
             )
-                
                 # KPI'lar
                 col1, col2, col3, col4 = st.columns(4)
                 
