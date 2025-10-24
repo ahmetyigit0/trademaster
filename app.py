@@ -3,377 +3,313 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import plotly.subplots as sp
+from datetime import datetime, timedelta
 
-st.set_page_config(page_title="Profesyonel Kripto Analiz", layout="wide")
+st.set_page_config(page_title="TradingView Clone", layout="wide")
 
 # Şifre koruması
 def check_password():
-    """Şifre kontrolü yapar"""
     def password_entered():
-        """Şifre girildiğinde kontrol eder"""
         if st.session_state["password"] == "efe":
             st.session_state["password_correct"] = True
-            del st.session_state["password"]  # Şifreyi temizle
+            del st.session_state["password"]
         else:
             st.session_state["password_correct"] = False
 
     if "password_correct" not in st.session_state:
-        # İlk giriş, şifre giriş alanını göster
-        st.text_input(
-            "Şifre", 
-            type="password", 
-            on_change=password_entered, 
-            key="password"
-        )
-        st.write("🔒 Bu uygulama şifre ile korunmaktadır")
+        st.text_input("Şifre", type="password", on_change=password_entered, key="password")
         return False
     elif not st.session_state["password_correct"]:
-        # Şifre yanlış, tekrar dene
-        st.text_input(
-            "Şifre", 
-            type="password", 
-            on_change=password_entered, 
-            key="password"
-        )
-        st.error("❌ Şifre yanlış! Lütfen tekrar deneyin.")
+        st.text_input("Şifre", type="password", on_change=password_entered, key="password")
+        st.error("❌ Şifre yanlış!")
         return False
     else:
-        # Şifre doğru
         return True
 
-# Şifre kontrolü
 if not check_password():
-    st.stop()  # Şifre doğru değilse uygulamayı durdur
+    st.stop()
 
-# Şifre doğruysa ana uygulamayı göster
-st.title("🎯 Profesyonel Kripto Trading Analizi - Destek/Direnç Analizi")
+# TradingView CSS
+st.markdown("""
+<style>
+    .tv-header {
+        background: #1e222d;
+        padding: 8px 15px;
+        border-bottom: 1px solid #363c4e;
+        color: white;
+    }
+    .symbol-display {
+        font-size: 20px;
+        font-weight: bold;
+        color: #ececec;
+    }
+    .price-display {
+        font-size: 24px;
+        font-weight: bold;
+    }
+    .price-up { color: #00b15d; }
+    .price-down { color: #ff5b5a; }
+    .indicator-panel {
+        background: #1e222d;
+        border-radius: 5px;
+        padding: 10px;
+        margin: 5px 0;
+    }
+    .timeframe-btn {
+        background: #2a2e39;
+        border: 1px solid #363c4e;
+        border-radius: 3px;
+        padding: 5px 10px;
+        margin: 2px;
+        color: #b2b5be;
+        cursor: pointer;
+    }
+    .timeframe-btn.active {
+        background: #2962ff;
+        color: white;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-# Sidebar
-with st.sidebar:
-    st.success("🔓 Giriş Başarılı!")
-    crypto_symbol = st.text_input("Kripto Sembolü:", "BTC-USD")
-    lookback_days = st.slider("Gün Sayısı", 30, 365, 90)
-    analysis_type = st.selectbox("Analiz Türü", ["4 Saatlik", "1 Günlük", "1 Saatlik"])
+# TradingView benzeri header
+col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 1, 1])
+with col1:
+    st.markdown('<div class="tv-header"><div class="symbol-display">BTC/USD</div></div>', unsafe_allow_html=True)
+with col2:
+    current_price = 43250.50
+    price_change = 2.45
+    st.markdown(f'<div class="tv-header price-display price-up">${current_price:,.2f}</div>', unsafe_allow_html=True)
+with col3:
+    st.markdown(f'<div class="tv-header price-up">+{price_change}%</div>', unsafe_allow_html=True)
+with col4:
+    st.markdown('<div class="tv-header">24H Volume: $28.5B</div>', unsafe_allow_html=True)
+with col5:
+    st.markdown('<div class="tv-header">Market Cap: $845B</div>', unsafe_allow_html=True)
+
+# Ana layout
+main_col, side_col = st.columns([4, 1])
+
+with main_col:
+    # Timeframe butonları
+    timeframes = ["1m", "5m", "15m", "1H", "4H", "1D", "1W", "1M"]
+    cols = st.columns(len(timeframes))
+    for i, tf in enumerate(timeframes):
+        with cols[i]:
+            if st.button(tf, key=f"tf_{tf}"):
+                st.session_state.selected_tf = tf
     
-    # Analiz parametreleri
-    st.subheader("📊 Analiz Ayarları")
-    sensitivity = st.slider("Destek/Direnç Hassasiyeti", 1, 10, 3)
-    min_touch_points = st.slider("Minimum Temas Noktası", 2, 5, 2)
-    wick_analysis = st.checkbox("İğne (Wick) Analizi", value=True)
+    # Grafik container
+    st.markdown("""
+    <div style="background: #131722; border-radius: 5px; padding: 10px; margin: 10px 0;">
+    """, unsafe_allow_html=True)
     
-    # Çıkış butonu
-    if st.button("🔒 Çıkış Yap"):
-        for key in st.session_state.keys():
-            del st.session_state[key]
-        st.rerun()
-
-interval_map = {"4 Saatlik": "4h", "1 Günlük": "1d", "1 Saatlik": "1h"}
-
-def get_crypto_data(symbol, days, interval):
-    try:
-        data = yf.download(symbol, period=f"{days}d", interval=interval, progress=False)
-        return data
-    except Exception as e:
-        st.error(f"Veri çekilemedi: {e}")
-        return None
-
-def find_support_resistance_levels(data, sensitivity=3, min_touch_points=2, use_wick_analysis=True):
-    """
-    Mum kapanışları ve iğnelere dayalı destek/direnç seviyelerini bulur
-    """
-    try:
-        df = data.copy()
+    # TradingView benzeri grafik
+    def create_tradingview_chart():
+        # Örnek veri oluştur
+        dates = pd.date_range(start='2024-01-01', end='2024-01-31', freq='D')
+        np.random.seed(42)
+        prices = []
+        current_price = 40000
+        for _ in range(len(dates)):
+            change = np.random.normal(0, 0.02)
+            current_price *= (1 + change)
+            prices.append(current_price)
         
-        # Fiyat verilerini topla
-        if use_wick_analysis:
-            # İğne analizi: High, Low, Close kullan
-            price_levels = []
-            for i in range(len(df)):
-                # Önemli seviyeler: High, Low, Close
-                price_levels.extend([
-                    float(df['High'].iloc[i]),
-                    float(df['Low'].iloc[i]), 
-                    float(df['Close'].iloc[i])
-                ])
-        else:
-            # Sadece kapanış fiyatları
-            price_levels = [float(x) for x in df['Close']]
+        df = pd.DataFrame({
+            'Date': dates,
+            'Open': [p * (1 + np.random.normal(0, 0.01)) for p in prices],
+            'High': [p * (1 + abs(np.random.normal(0, 0.015))) for p in prices],
+            'Low': [p * (1 - abs(np.random.normal(0, 0.015))) for p in prices],
+            'Close': prices,
+            'Volume': [np.random.randint(1000000, 5000000) for _ in range(len(dates))]
+        })
         
-        # Fiyat seviyelerini hassasiyete göre grupla
-        price_levels = sorted(price_levels)
-        
-        # Benzersiz seviyeleri bul ve yakın seviyeleri birleştir
-        unique_levels = []
-        tolerance = (max(price_levels) - min(price_levels)) * (sensitivity / 1000.0)
-        
-        i = 0
-        while i < len(price_levels):
-            current_level = price_levels[i]
-            group = [current_level]
-            
-            # Yakın seviyeleri grupla
-            j = i + 1
-            while j < len(price_levels) and price_levels[j] - current_level <= tolerance:
-                group.append(price_levels[j])
-                j += 1
-            
-            # Grup ortalamasını al
-            if len(group) >= min_touch_points:
-                unique_levels.append(np.mean(group))
-            
-            i = j
-        
-        # Seviyeleri destek ve direnç olarak ayır
-        current_price = float(df['Close'].iloc[-1])
-        
-        support_levels = [level for level in unique_levels if level < current_price]
-        resistance_levels = [level for level in unique_levels if level > current_price]
-        
-        # En güçlü seviyeleri seç (en çok temas edenler)
-        support_levels = sorted(support_levels, reverse=True)[:5]  # En yakın 5 destek
-        resistance_levels = sorted(resistance_levels)[:5]  # En yakın 5 direnç
-        
-        return support_levels, resistance_levels
-        
-    except Exception as e:
-        st.error(f"Destek/direnç analiz hatası: {e}")
-        return [], []
-
-def calculate_pivot_points(data):
-    """Klasik pivot point seviyelerini hesapla"""
-    try:
-        df = data.copy()
-        recent = df.tail(1).iloc[0]
-        
-        high = float(recent['High'])
-        low = float(recent['Low'])
-        close = float(recent['Close'])
-        
-        # Pivot Point
-        pivot = (high + low + close) / 3
-        
-        # Direnç seviyeleri
-        r1 = 2 * pivot - low
-        r2 = pivot + (high - low)
-        r3 = high + 2 * (pivot - low)
-        
-        # Destek seviyeleri
-        s1 = 2 * pivot - high
-        s2 = pivot - (high - low)
-        s3 = low - 2 * (high - pivot)
-        
-        return pivot, [s1, s2, s3], [r1, r2, r3]
-        
-    except Exception as e:
-        return None, [], []
-
-def generate_trading_signals_with_levels(data, support_levels, resistance_levels):
-    """Destek/direnç seviyelerine göre trading sinyalleri üret"""
-    signals = []
-    
-    if len(data) < 10:
-        return signals
-    
-    try:
-        current_price = float(data['Close'].iloc[-1])
-        prev_price = float(data['Close'].iloc[-2])
-        
-        # Yakın destek/direnç seviyelerini bul
-        nearest_support = max([level for level in support_levels if level < current_price], default=None)
-        nearest_resistance = min([level for level in resistance_levels if level > current_price], default=None)
-        
-        if nearest_support:
-            distance_to_support = ((current_price - nearest_support) / current_price) * 100
-            if distance_to_support <= 2:  # %2'den yakınsa
-                signals.append(f"DESTEK YAKIN: ${nearest_support:.2f} (%{distance_to_support:.1f} uzak)")
-                if prev_price > current_price:  # Düşüş trendinde
-                    signals.append("DESTEK TESTI - POTANSIYEL ALIM")
-        
-        if nearest_resistance:
-            distance_to_resistance = ((nearest_resistance - current_price) / current_price) * 100
-            if distance_to_resistance <= 2:  # %2'den yakınsa
-                signals.append(f"DIRENÇ YAKIN: ${nearest_resistance:.2f} (%{distance_to_resistance:.1f} uzak)")
-                if prev_price < current_price:  # Yükseliş trendinde
-                    signals.append("DIRENÇ TESTI - POTANSIYEL SATIM")
-        
-        # Kırılma sinyalleri
-        if nearest_support and current_price < nearest_support and prev_price >= nearest_support:
-            signals.append("DESTEK KIRILDI - SATIM SİNYALİ")
-        
-        if nearest_resistance and current_price > nearest_resistance and prev_price <= nearest_resistance:
-            signals.append("DIRENÇ KIRILDI - ALIM SİNYALİ")
-        
-        return signals
-        
-    except Exception as e:
-        return [f"Sinyal hatası: {str(e)}"]
-
-def main():
-    try:
-        interval = interval_map[analysis_type]
-        st.write(f"**{crypto_symbol}** için {analysis_type} veriler çekiliyor...")
-        
-        data = get_crypto_data(crypto_symbol, lookback_days, interval)
-        
-        if data is None or data.empty:
-            st.error("Veri çekilemedi.")
-            return
-        
-        st.success(f"✅ {len(data)} adet mum verisi çekildi")
-        
-        # Destek/direnç seviyelerini bul
-        support_levels, resistance_levels = find_support_resistance_levels(
-            data, sensitivity, min_touch_points, wick_analysis
+        # Ana grafik
+        fig = sp.make_subplots(
+            rows=2, cols=1,
+            shared_xaxes=True,
+            vertical_spacing=0.05,
+            subplot_titles=('Price Chart', 'Volume'),
+            row_width=[0.7, 0.3]
         )
         
-        # Pivot point hesapla
-        pivot, pivot_supports, pivot_resistances = calculate_pivot_points(data)
+        # Mum grafiği
+        fig.add_trace(go.Candlestick(
+            x=df['Date'],
+            open=df['Open'],
+            high=df['High'],
+            low=df['Low'],
+            close=df['Close'],
+            name='Price'
+        ), row=1, col=1)
         
-        # Mevcut fiyat
-        current_price = float(data['Close'].iloc[-1])
+        # EMA'lar
+        df['EMA_20'] = df['Close'].ewm(span=20).mean()
+        df['EMA_50'] = df['Close'].ewm(span=50).mean()
         
-        # Trading sinyalleri üret
-        signals = generate_trading_signals_with_levels(data, support_levels, resistance_levels)
+        fig.add_trace(go.Scatter(
+            x=df['Date'], y=df['EMA_20'],
+            name='EMA 20',
+            line=dict(color='#ff6b6b', width=1.5)
+        ), row=1, col=1)
         
-        # Ana panel
-        col1, col2 = st.columns([2, 1])
+        fig.add_trace(go.Scatter(
+            x=df['Date'], y=df['EMA_50'],
+            name='EMA 50',
+            line=dict(color='#4ecdc4', width=1.5)
+        ), row=1, col=1)
         
-        with col1:
-            st.subheader("📈 Destek/Direnç Grafik Analizi")
-            
-            fig = go.Figure()
-            
-            # Çizgi grafiği (kapanış fiyatları)
-            fig.add_trace(go.Scatter(
-                x=data.index,
-                y=data['Close'],
-                name='Kapanış Fiyatı',
-                line=dict(color='blue', width=2),
-                mode='lines'
-            ))
-            
-            # Mevcut fiyat çizgisi
-            fig.add_hline(y=current_price, line_dash="solid", line_color="black", line_width=2, 
-                         annotation_text=f"Mevcut Fiyat: ${current_price:.2f}")
-            
-            # Destek seviyeleri
-            for i, level in enumerate(support_levels):
-                fig.add_hline(y=level, line_dash="dash", line_color="green", line_width=2,
-                             annotation_text=f"Destek {i+1}: ${level:.2f}")
-            
-            # Direnç seviyeleri
-            for i, level in enumerate(resistance_levels):
-                fig.add_hline(y=level, line_dash="dash", line_color="red", line_width=2,
-                             annotation_text=f"Direnç {i+1}: ${level:.2f}")
-            
-            # Pivot point
-            if pivot:
-                fig.add_hline(y=pivot, line_dash="dot", line_color="orange", line_width=2,
-                             annotation_text=f"Pivot: ${pivot:.2f}")
-            
-            fig.update_layout(
-                height=600,
-                title=f"{crypto_symbol} - Destek/Direnç Analizi",
-                xaxis_title="Tarih",
-                yaxis_title="Fiyat (USD)",
-                showlegend=True
+        # Volume
+        colors = ['red' if df['Close'].iloc[i] < df['Open'].iloc[i] else 'green' 
+                 for i in range(len(df))]
+        
+        fig.add_trace(go.Bar(
+            x=df['Date'],
+            y=df['Volume'],
+            name='Volume',
+            marker_color=colors,
+            opacity=0.7
+        ), row=2, col=1)
+        
+        # Layout güncellemeleri
+        fig.update_layout(
+            height=600,
+            plot_bgcolor='#131722',
+            paper_bgcolor='#131722',
+            font=dict(color='#d1d4dc'),
+            xaxis=dict(
+                gridcolor='#2a2e39',
+                rangeslider=dict(visible=False)
+            ),
+            yaxis=dict(gridcolor='#2a2e39'),
+            xaxis2=dict(gridcolor='#2a2e39'),
+            yaxis2=dict(gridcolor='#2a2e39'),
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
             )
-            
-            st.plotly_chart(fig, use_container_width=True)
+        )
         
-        with col2:
-            st.subheader("🎯 TRADING SİNYALLERİ")
-            
-            if signals:
-                for signal in signals:
-                    if "ALIM" in signal or "KIRILDI" in signal and "DIRENÇ" in signal:
-                        st.success(f"✅ {signal}")
-                    elif "SATIM" in signal or "KIRILDI" in signal and "DESTEK" in signal:
-                        st.error(f"❌ {signal}")
-                    elif "TEST" in signal or "YAKIN" in signal:
-                        st.warning(f"⚠️ {signal}")
-                    else:
-                        st.info(f"📊 {signal}")
-            else:
-                st.info("📊 Net trading sinyali yok")
-            
-            st.subheader("📊 FİYAT ANALİZİ")
-            st.metric("Mevcut Fiyat", f"${current_price:.2f}")
-            
-            if support_levels:
-                nearest_support = max(support_levels)
-                distance_support = ((current_price - nearest_support) / current_price) * 100
-                st.metric("En Yakın Destek", f"${nearest_support:.2f}", f"%{distance_support:.1f}")
-            else:
-                st.metric("En Yakın Destek", "Bulunamadı")
-            
-            if resistance_levels:
-                nearest_resistance = min(resistance_levels)
-                distance_resistance = ((nearest_resistance - current_price) / current_price) * 100
-                st.metric("En Yakın Direnç", f"${nearest_resistance:.2f}", f"%{distance_resistance:.1f}")
-            else:
-                st.metric("En Yakın Direnç", "Bulunamadı")
-            
-            st.subheader("💎 DESTEK SEVİYELERİ")
-            if support_levels:
-                for i, level in enumerate(sorted(support_levels, reverse=True)):
-                    distance = ((current_price - level) / current_price) * 100
-                    st.write(f"🟢 D{i+1}: ${level:.2f} (%{distance:.1f} aşağıda)")
-            else:
-                st.write("Destek seviyesi bulunamadı")
-            
-            st.subheader("🚀 DİRENÇ SEVİYELERİ")
-            if resistance_levels:
-                for i, level in enumerate(sorted(resistance_levels)):
-                    distance = ((level - current_price) / current_price) * 100
-                    st.write(f"🔴 R{i+1}: ${level:.2f} (%{distance:.1f} yukarıda)")
-            else:
-                st.write("Direnç seviyesi bulunamadı")
-            
-            # Pivot Point bilgisi
-            if pivot:
-                st.subheader("⚖️ PIVOT POINT")
-                st.write(f"**Pivot:** ${pivot:.2f}")
-                st.write(f"**S1:** ${pivot_supports[0]:.2f}")
-                st.write(f"**R1:** ${pivot_resistances[0]:.2f}")
+        # Grafik stilleri
+        fig.update_xaxes(showline=True, linewidth=1, linecolor='#363c4e')
+        fig.update_yaxes(showline=True, linewidth=1, linecolor='#363c4e')
         
-        # Detaylı analiz
-        st.subheader("📋 DETAYLI ANALİZ RAPORU")
-        
-        col3, col4 = st.columns(2)
-        
-        with col3:
-            st.write("**📈 Teknik Özet:**")
-            st.write(f"- Analiz edilen mum sayısı: {len(data)}")
-            st.write(f"- Tespit edilen destek seviyesi: {len(support_levels)}")
-            st.write(f"- Tespit edilen direnç seviyesi: {len(resistance_levels)}")
-            st.write(f"- İğne analizi: {'Açık' if wick_analysis else 'Kapalı'}")
-            st.write(f"- Hassasiyet seviyesi: {sensitivity}/10")
-            
-        with col4:
-            st.write("**🎯 Trading Önerileri:**")
-            if not signals:
-                st.write("- Net sinyal yok - Piyasa gözlemi önerilir")
-            elif any("ALIM" in signal for signal in signals):
-                st.write("- 🟢 ALIM yönünde sinyaller mevcut")
-            elif any("SATIM" in signal for signal in signals):
-                st.write("- 🔴 SATIM yönünde sinyaller mevcut")
-            else:
-                st.write("- 🟡 NÖTR - Bekle ve gör")
-        
-        # Son 10 mumun detayları
-        with st.expander("📜 SON 10 MUM DETAYI"):
-            display_data = data.tail(10)[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
-            
-            # Formatlama
-            for col in ['Open', 'High', 'Low', 'Close']:
-                display_data[col] = display_data[col].map(lambda x: f"${x:.2f}" if not pd.isna(x) else "N/A")
-            display_data['Volume'] = display_data['Volume'].map(lambda x: f"{x:,.0f}" if not pd.isna(x) else "N/A")
-            
-            st.dataframe(display_data)
-            
-    except Exception as e:
-        st.error(f"❌ Hata oluştu: {str(e)}")
+        return fig
+    
+    # Grafiği göster
+    chart_fig = create_tradingview_chart()
+    st.plotly_chart(chart_fig, use_container_width=True, config={
+        'displayModeBar': True,
+        'displaylogo': False,
+        'modeBarButtonsToAdd': ['drawline', 'drawopenpath', 'drawcircle', 'drawrect', 'eraseshape'],
+        'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d']
+    })
 
-if __name__ == "__main__":
-    main()
+with side_col:
+    st.markdown("""
+    <div style="background: #1e222d; border-radius: 5px; padding: 15px; margin: 10px 0;">
+    """, unsafe_allow_html=True)
+    
+    # Göstergeler paneli
+    st.subheader("📊 Göstergeler")
+    
+    # RSI
+    st.markdown('<div class="indicator-panel">', unsafe_allow_html=True)
+    st.metric("RSI (14)", "56.7", "2.3")
+    st.progress(56.7/100)
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # MACD
+    st.markdown('<div class="indicator-panel">', unsafe_allow_html=True)
+    st.write("**MACD**")
+    st.write("Histogram: 12.5")
+    st.write("Signal: 8.2")
+    st.write("MACD: 4.3")
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Bollinger Bands
+    st.markdown('<div class="indicator-panel">', unsafe_allow_html=True)
+    st.write("**Bollinger Bands**")
+    st.write("Upper: $44,230")
+    st.write("Middle: $42,150")
+    st.write("Lower: $40,070")
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Trading Sinyalleri
+    st.markdown("""
+    <div style="background: #1e222d; border-radius: 5px; padding: 15px; margin: 10px 0;">
+        <h4>🎯 Sinyaller</h4>
+        <div style="color: #00b15d; margin: 5px 0;">✓ EMA 20 > EMA 50</div>
+        <div style="color: #ff5b5a; margin: 5px 0;">✗ RSI > 70 (Aşırı Alım)</div>
+        <div style="color: #00b15d; margin: 5px 0;">✓ Volume Artışı</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# Alt panel - Teknik analiz
+st.markdown("---")
+st.subheader("📈 Teknik Analiz")
+
+col1, col2, col3, col4 = st.columns(4)
+
+with col1:
+    st.markdown("""
+    <div style="background: #1e222d; padding: 15px; border-radius: 5px;">
+        <h4>Trend Analizi</h4>
+        <div>Kısa Vade: ↗️ Yükseliş</div>
+        <div>Orta Vade: ➡️ Yatay</div>
+        <div>Uzun Vade: ↗️ Yükseliş</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col2:
+    st.markdown("""
+    <div style="background: #1e222d; padding: 15px; border-radius: 5px;">
+        <h4>Destek/Direnç</h4>
+        <div>Destek 1: $41,200</div>
+        <div>Destek 2: $40,500</div>
+        <div>Direnç 1: $43,800</div>
+        <div>Direnç 2: $45,200</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col3:
+    st.markdown("""
+    <div style="background: #1e222d; padding: 15px; border-radius: 5px;">
+        <h4>Volatilite</h4>
+        <div>ATR: 850</div>
+        <div>Volatilite: Orta</div>
+        <div>Average Volume: 2.4M</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col4:
+    st.markdown("""
+    <div style="background: #1e222d; padding: 15px; border-radius: 5px;">
+        <h4>Öneriler</h4>
+        <div>Risk/Reward: 1:2.5</div>
+        <div>Stop Loss: $40,800</div>
+        <div>Take Profit: $45,500</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# Çizim araçları
+st.sidebar.markdown("---")
+st.sidebar.subheader("🛠️ Çizim Araçları")
+drawing_tools = st.sidebar.multiselect(
+    "Araçlar",
+    ["Yatay Çizgi", "Dikey Çizgi", "Trend Çizgi", "Fibonacci", Dikdörtgen", "Daire"],
+    default=["Yatay Çizgi", "Trend Çizgi"]
+)
+
+# TradingView benzeri kısayollar
+st.sidebar.markdown("---")
+st.sidebar.subheader("⌨️ Kısayollar")
+st.sidebar.write("**1-9** - Timeframe")
+st.sidebar.write("**Alt + 1-5** - Grafik tipi")
+st.sidebar.write("**Ctrl + Z** - Geri al")
+st.sidebar.write("**Space** - Hareket aracı")
