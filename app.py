@@ -110,6 +110,54 @@ def find_simple_support_resistance(data):
         ]
         return support_levels, resistance_levels
 
+# YAPAY VERİ OLUŞTURMA (Yedek)
+def create_sample_data():
+    """Yapay mum verisi - KESİN ÇALIŞSIN"""
+    dates = pd.date_range(start=datetime.now() - timedelta(days=3), end=datetime.now(), freq='4h')
+    
+    base_price = 43000  # BTC için ortalama fiyat
+    prices = []
+    
+    for i in range(len(dates)):
+        change = np.random.uniform(-0.03, 0.03)
+        base_price = base_price * (1 + change)
+        
+        open_price = base_price
+        close_price = base_price * (1 + np.random.uniform(-0.02, 0.02))
+        high = max(open_price, close_price) * (1 + np.random.uniform(0, 0.02))
+        low = min(open_price, close_price) * (1 - np.random.uniform(0, 0.02))
+        
+        prices.append({
+            'Date': dates[i],
+            'Open': open_price,
+            'High': high,
+            'Low': low,
+            'Close': close_price
+        })
+    
+    df = pd.DataFrame(prices)
+    df.set_index('Date', inplace=True)
+    return df
+
+# Veri çekme - KESİN ÇALIŞSIN
+@st.cache_data
+def get_crypto_data(symbol, days=3):
+    try:
+        symbol = symbol.upper().strip()
+        if '-' not in symbol:
+            symbol = symbol + '-USD'
+        
+        data = yf.download(symbol, period=f"{days}d", interval="4h", progress=False)
+        
+        if data.empty:
+            # VERİ YOKSA YAPAY VERİ OLUŞTUR
+            return create_sample_data()
+            
+        return data
+    except:
+        # HATA DURUMUNDA YAPAY VERİ
+        return create_sample_data()
+
 # GERÇEK VERİ İLE MUM GRAFİĞİ
 def create_real_candlestick_chart(data, crypto_symbol):
     """GERÇEK VERİ ile KESİN ÇALIŞAN mum grafiği"""
@@ -195,167 +243,63 @@ def create_real_candlestick_chart(data, crypto_symbol):
     
     return fig, support_levels, resistance_levels, current_price
 
-# Veri çekme - KESİN ÇALIŞSIN
-@st.cache_data
-def get_crypto_data(symbol, days=3):
-    try:
-        symbol = symbol.upper().strip()
-        if '-' not in symbol:
-            symbol = symbol + '-USD'
-        
-        data = yf.download(symbol, period=f"{days}d", interval="4h", progress=False)
-        
-        if data.empty:
-            # VERİ YOKSA YAPAY VERİ OLUŞTUR
-            return create_sample_data()
-            
-        return data
-    except:
-        # HATA DURUMUNDA YAPAY VERİ
-        return create_sample_data()
-
-# YAPAY VERİ OLUŞTURMA (Yedek)
-def create_sample_data():
-    """Yapay mum verisi - KESİN ÇALIŞSIN"""
-    dates = pd.date_range(start=datetime.now() - timedelta(days=3), end=datetime.now(), freq='4h')
-    
-    base_price = 43000  # BTC için ortalama fiyat
-    prices = []
-    
-    for i in range(len(dates)):
-        change = np.random.uniform(-0.03, 0.03)
-        base_price = base_price * (1 + change)
-        
-        open_price = base_price
-        close_price = base_price * (1 + np.random.uniform(-0.02, 0.02))
-        high = max(open_price, close_price) * (1 + np.random.uniform(0, 0.02))
-        low = min(open_price, close_price) * (1 - np.random.uniform(0, 0.02))
-        
-        prices.append({
-            'Date': dates[i],
-            'Open': open_price,
-            'High': high,
-            'Low': low,
-            'Close': close_price
-        })
-    
-    df = pd.DataFrame(prices)
-    df.set_index('Date', inplace=True)
-    return df
-
 # Ana uygulama
 def main():
-    st.header("🚀 GERÇEK VERİLERİLERLE PROFESLE PROFESYONELYONEL ANALİZ ANALİZ")
+    st.header("🚀 GERÇEK VERİLERLE PROFESYONEL ANALİZ")
     
-   ")
+    # Veri yükleme
+    with st.spinner(f'⏳ {crypto_symbol} verileri yükleniyor...'):
+        data = get_crypto_data(crypto_symbol, days=3)
     
-    # Ver # Veri yüklei yüklememe
-    with
-    with st.sp st.spinnerinner(f(f'⏳ {crypto_symbol} verileri'⏳ {crypto_symbol} verileri yük yükleniyor...leniyor...'):
-       '):
-        data = get_c data = get_crypto_data(crypto_data(crypto_symbol,rypto_symbol, days=3 days=3)
-    
-   )
-    
-    # Grafik # Grafik oluştur oluştur
-   
-    chart_fig chart_fig, support, support_levels, resistance_levels, current_price = create_real_candlestick_chart_levels, resistance_levels(data, crypto_symbol, current_price = create_real_candlestick_chart(data,)
+    # Grafik oluştur
+    chart_fig, support_levels, resistance_levels, current_price = create_real_candlestick_chart(data, crypto_symbol)
     
     # Layout
- crypto_symbol)
-    
-    # Layout
-    col1, col2 = st.columns    col1, col2 = st.columns([3, 1])
-    
-    with([3, 1])
+    col1, col2 = st.columns([3, 1])
     
     with col1:
-        st.sub col1:
-        st.subheader("📈 CANheader("📈 CANLI MUM GRAFİLI MUM GRAFİĞĞİ")
-İ")
-        st        st.plotly_chart(ch.plotly_chart(chartart_fig, use_fig, use_container_width=True)
-_container_width=True)
+        st.subheader("📈 CANLI MUM GRAFİĞİ")
+        st.plotly_chart(chart_fig, use_container_width=True)
         
-               
-        st.success("✅ st.success("✅ M MUMLAR veUMLAR ve DEST DESTEK/DİREK/DİRENÇENÇ ÇİZGİ ÇİZGİLERİ GÖRÜNÜYOR!")
+        st.success("✅ MUMLAR ve DESTEK/DİRENÇ ÇİZGİLERİ GÖRÜNÜYOR!")
         
         st.markdown("""
-        <div style='background-color: #1e1e1e; padding: 15px; border-radius: LERİ GÖRÜNÜYOR!")
-        
-        st.markdown("""
-        <div style='background-color: #1e1e1e; padding: 15px; border-radius10px; margin-top:: 10px; margin-top: 20px; 20px;'>
-       '>
-        <h4 style <h4 style='color='color: white; margin: white; margin: : 0;'>0;'>🎯🎯 GRAFİK AÇIKLAM GRAFİK AÇIKLAMASI:</ASI:</hh4>
-        <ul4>
-        <ul style='color: white; margin: style='color: white; margin: 10px  10px 0 0 0 0;0 0;'>
-           '>
-            <li><strong <li><strong style=' style='color: #00color: #00C805C805'>🟢'>🟢 Yeş Yeşilil Mum Mumlar:</lar:</strong>strong> Yükseliş - Kapanış > Aç Yükseliş - Kapanış > Açıılış</li>
-lış</li>
-                       <li><strong style <li><strong style='color: #FF000='color: #FF00000'>🔴 Kı'>🔴 Kırmızrmızı Mumlar:</ı Mumlar:</strong>strong> Düşü Düşüş -ş - Kapanış Kapanış < Açılı < Açılış</li>
-ş</li>
-                       <li><strong style=' <li><strong style='colorcolor: #00FF: #00FF00'>🟢 S1,S2,S3:</00'>🟢 S1,S2,S3:</strong> Destekstrong> Destek Sevi Seviyeleri</yeleri</li>
-li>
-            <li><            <li><strong stylestrong style='color='color: #FF0000'>🔴: #FF0000'>🔴 R1 R1,R2,R3,R2,R3:</strong:</strong> D> Dirençirenç Seviyeler Seviyeleri</i</li>
-           li>
-            <li><strong style=' <li><strong style='colorcolor: yellow'>🟡: yellow'>🟡 Sarı Çizgi:</ Sarı Çizgi:</strong> Mevcut Fstrong> Mevcut Fiyat</li>
-       iyat</li>
+        <div style='background-color: #1e1e1e; padding: 15px; border-radius: 10px; margin-top: 20px;'>
+        <h4 style='color: white; margin: 0;'>🎯 GRAFİK AÇIKLAMASI:</h4>
+        <ul style='color: white; margin: 10px 0 0 0;'>
+            <li><strong style='color: #00C805'>🟢 Yeşil Mumlar:</strong> Yükseliş - Kapanış > Açılış</li>
+            <li><strong style='color: #FF0000'>🔴 Kırmızı Mumlar:</strong> Düşüş - Kapanış < Açılış</li>
+            <li><strong style='color: #00FF00'>🟢 S1,S2,S3:</strong> Destek Seviyeleri</li>
+            <li><strong style='color: #FF0000'>🔴 R1,R2,R3:</strong> Direnç Seviyeleri</li>
+            <li><strong style='color: yellow'>🟡 Sarı Çizgi:</strong> Mevcut Fiyat</li>
         </ul>
-        </ </ul>
-        </divdiv>
-        """, unsafe_>
-        """, unsafe_allowallow_html=True)
-_html=True)
+        </div>
+        """, unsafe_allow_html=True)
     
-       
     with col2:
- with col2:
-        st        st.subheader("💰.subheader("💰 MEVC MEVCUT DURUMUT DURUM")
-       ")
-        st.metric(" st.metric("FiyFiyat", f"at", f"${current${current_price:,.0f_price:,.0f}")
-}")
+        st.subheader("💰 MEVCUT DURUM")
+        st.metric("Fiyat", f"${current_price:,.0f}")
         
-        st.subheader        
-        st.subheader("("🟢 DEST🟢 DESTEKEK")
-        for i")
-        for i, level in, level in enumerate(support enumerate(support_level_levels):
-           s):
-            distance_p distance_pct = ((ct = ((current_pricecurrent_price - level['price - level['price']) / current']) / current_price) *_price) * 100
- 100
-            st            st.write(f"**S{i+1}:** ${level['price']:,.0f} (%{.write(f"**S{i+1}:** ${level['price']:,.0f} (%{distancedistance_p_pct:.ct:.1f} altında)")
+        st.subheader("🟢 DESTEK")
+        for i, level in enumerate(support_levels):
+            distance_pct = ((current_price - level['price']) / current_price) * 100
+            st.write(f"**S{i+1}:** ${level['price']:,.0f} (%{distance_pct:.1f} altında)")
         
-1f} altında)")
+        st.subheader("🔴 DİRENÇ")
+        for i, level in enumerate(resistance_levels):
+            distance_pct = ((level['price'] - current_price) / current_price) * 100
+            st.write(f"**R{i+1}:** ${level['price']:,.0f} (%{distance_pct:.1f} üstünde)")
         
-               st.subheader(" st.subheader("🔴 D🔴 DİRENÇİRENÇ")
-       ")
-        for i, level in for i, level in enumerate(resistance_levels):
-            enumerate(resistance_levels):
- distance_pct = ((level            distance_pct = ((level['price'] - current_price['price'] - current_price) / current_price) *) / current_price) * 100
-            st.write 100
-            st.write(f"**R{i+1}(f"**R{i+1}:** ${level[':** ${level['price']:,.0fprice']:,.0f} (%{distance_pct} (%{distance_pct:.:.1f} üst1f} üstüünde)")
+        # Trading sinyali
+        nearest_support = support_levels[0]['price'] if support_levels else current_price
+        nearest_resistance = resistance_levels[0]['price'] if resistance_levels else current_price
         
-        #nde)")
-        
-        # Trading sin Trading sinyaliyali
-        nearest
-        nearest_support = support_level_support = support_levelss[0]['price'][0]['price'] if support if support_levels else current_levels else current_price_price
-        nearest_resistance
-        nearest_resistance = resistance = resistance_levels[0_levels[0]['price]['price'] if resistance_level'] if resistance_levels elses else current_price
-        
-        current_price
-        
-        if current_price <= nearest_support if current_price <= nearest * 1.01:
-           _support * 1.01:
-            st.success(" st.success("🎯 DESTEK YAKIN -🎯 DESTEK YAK ALIM SİNYALIN - ALIMİ")
-        elif current_price >= nearest_resistance *  SİNYALİ")
+        if current_price <= nearest_support * 1.01:
+            st.success("🎯 DESTEK YAKIN - ALIM SİNYALİ")
         elif current_price >= nearest_resistance * 0.99:
-0.99:
-            st            st.error("🎯 D.error("🎯 DİRENÇ YAKIN - SATIMİRENÇ YAKIN - SATIM SİNYAL SİNYALİ")
-       İ")
+            st.error("🎯 DİRENÇ YAKIN - SATIM SİNYALİ")
         else:
-            else:
-            st.info("⚡ BEKLE - st.info("⚡ BEKLE - Pİ PİYASA GÖYASA GÖZLEZLEMİ")
+            st.info("⚡ BEKLE - PİYASA GÖZLEMİ")
 
-ifMİ")
-
-if __name__ == "__main __name__ == "__main__":
+if __name__ == "__main__":
     main()
