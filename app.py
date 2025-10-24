@@ -3,348 +3,180 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
+from plotly.subplots import make_subplots # Alt grafikler için eklendi
 
-# Streamlit arayüzü
 st.set_page_config(page_title="Kripto Teknik Analiz", layout="wide")
-st.title("🎯 Kripto Teknik Analiz - Mum, Trend, Sinyal ve Yorum")
+st.title("🎯 Kripto Teknik Analiz")
+
+# --- GÖSTERGE AYARLARI ---
+# Önceki yanıtta konuştuğumuz 4 saatlik zaman dilimi için yaygın/etkili ayarları kullanıyoruz.
+# Bunları Streamlit sidebar'ına da taşıyabiliriz, ancak basitlik için şimdilik sabit tutalım.
+EMA_SHORT = 20
+EMA_LONG = 50
+RSI_PERIOD = 14
+BOLL_PERIOD = 20
+BOLL_STDDEV = 2
+MACD_FAST = 12
+MACD_SLOW = 26
+MACD_SIGNAL = 9
+# -------------------------
 
 # Sidebar
-st.sidebar.header("⚙️ Analiz Ayarları")
-crypto_symbol = st.sidebar.text_input("Kripto Sembolü (Örn: BTC-USD, ETH-USD):", "BTC-USD")
-lookback_days = st.sidebar.slider("Gün Sayısı", 30, 365, 90)
+crypto_symbol = st.sidebar.text_input("Kripto Sembolü:", "BTC-USD")
+# Not: yfinance 4h için maksimum 730 gün, 1h için 60 gün destekler. Ayarları buna göre optimize edelim.
+lookback_days = st.sidebar.slider("Gün Sayısı", 30, 365, 90) 
 analysis_type = st.sidebar.selectbox("Analiz Türü", ["4 Saatlik", "1 Günlük", "1 Saatlik"])
 
-# Analiz periyodu mapping
 interval_map = {"4 Saatlik": "4h", "1 Günlük": "1d", "1 Saatlik": "1h"}
 
 def get_crypto_data(symbol, days, interval):
-    """Kripto verilerini çek"""
+    """yfinance kullanarak kripto verilerini çeker."""
+    # Yfinance'ın zaman aralığı kısıtlamalarını dikkate alarak period'u ayarla
+    if interval == '1h' and days > 60:
+        days = 60
+        st.sidebar.caption("1 Saatlik veriler için maksimum 60 gün desteklenir.")
+    elif interval == '4h' and days > 730:
+        days = 730
+        st.sidebar.caption("4 Saatlik veriler için maksimum 730 gün desteklenir.")
+
     try:
         data = yf.download(symbol, period=f"{days}d", interval=interval, progress=False)
-        # None değerleri temizle
-        if data is not None and not data.empty:
-            data = data.dropna()
         return data
     except Exception as e:
         st.error(f"Veri çekilemedi: {e}")
         return None
 
-def calculate_technical_indicators(data):
-    """Teknik göstergeleri hesapla"""
-    df = data.copy()
-    
-    # Moving Average'lar
-    df['MA_20'] = df['Close'].rolling(window=20).mean()
-    df['MA_50'] = df['Close'].rolling(window=50).mean()
-    df['MA_200'] = df['Close'].rolling(window=200).mean()
-    
-    # RSI Hesaplama
-    def calculate_rsi(prices, period=14):
-        delta = prices.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
-        return rsi
-    
-    df['RSI'] = calculate_rsi(df['Close'])
-    
-    # MACD Hesaplama
-    def calculate_macd(prices, fast=12, slow=26, signal=9):
-        ema_fast = prices.ewm(span=fast).mean()
-        ema_slow = prices.ewm(span=slow).mean()
-        macd = ema_fast - ema_slow
-        macd_signal = macd.ewm(span=signal).mean()
-        macd_histogram = macd - macd_signal
-        return macd, macd_signal, macd_histogram
-    
-    df['MACD'], df['MACD_Signal'], df['MACD_Histogram'] = calculate_macd(df['Close'])
-    
-    return df
+def calculate_indicators(data):
+    """EMA, RSI, Bollinger Bantları ve MACD'yi hesaplar."""
+    if data.empty:
+        return data
 
-def identify_candlestick_patterns(data):
-    """Mum formasyonlarını tespit et"""
-    df = data.copy()
-    patterns = []
-    
-    if len(df) < 2:
-        return patterns
-    
-    # Tüm değerleri float'a çevir
-    curr_open, curr_high, curr_low, curr_close = float(df['Open'].iloc[-1]), float(df['High'].iloc[-1]), float(df['Low'].iloc[-1]), float(df['Close'].iloc[-1])
-    prev_open, prev_high, prev_low, prev_close = float(df['Open'].iloc[-2]), float(df['High'].iloc[-2]), float(df['Low'].iloc[-2]), float(df['Close'].iloc[-2])
-    
-    # Doji - Açılış ve kapanış çok yakın
-    body_size = abs(curr_close - curr_open)
-    total_range = curr_high - curr_low
-    if total_range > 0 and (body_size / total_range) < 0.1:
-        patterns.append("DOJI - Kararsızlık sinyali")
-    
-    # Bullish Engulfing
-    if (prev_close < prev_open and
-        curr_close > curr_open and
-        curr_open < prev_close and
-        curr_close > prev_open):
-        patterns.append("BULLISH ENGULFING - Güçlü yükseliş sinyali")
-    
-    # Bearish Engulfing
-    if (prev_close > prev_open and
-        curr_close < curr_open and
-        curr_open > prev_close and
-        curr_close < prev_open):
-        patterns.append("BEARISH ENGULFING - Güçlü düşüş sinyali")
-    
-    # Hammer
-    lower_shadow = min(curr_open, curr_close) - curr_low
-    upper_shadow = curr_high - max(curr_open, curr_close)
-    body = abs(curr_close - curr_open)
-    
-    if lower_shadow > 2 * body and upper_shadow < body and curr_close > curr_open:
-        patterns.append("HAMMER - Dip reversal sinyali")
-    
-    return patterns
+    # 1. EMA Hesaplama (Exponential Moving Average)
+    data['EMA_Short'] = data['Close'].ewm(span=EMA_SHORT, adjust=False).mean()
+    data['EMA_Long'] = data['Close'].ewm(span=EMA_LONG, adjust=False).mean()
 
-def calculate_trend_lines(data):
-    """Trend çizgilerini hesapla"""
-    try:
-        # Son 20 mumun kapanış fiyatlarını al
-        closes = data['Close'].tail(20).astype(float).values
-        
-        if len(closes) < 2:
-            return None, "YETERSİZ VERİ", 0
-        
-        # Basit lineer regresyon
-        x = np.arange(len(closes))
-        slope = np.polyfit(x, closes, 1)[0]
-        
-        # Trend yönü
-        if slope > 0:
-            trend_dir = "📈 YÜKSELİŞ"
-            strength = "GÜÇLÜ" if slope > np.std(closes) * 0.05 else "ZAYIF"
-        elif slope < 0:
-            trend_dir = "📉 DÜŞÜŞ"
-            strength = "GÜÇLÜ" if abs(slope) > np.std(closes) * 0.05 else "ZAYIF"
-        else:
-            trend_dir = "➡️ YATAY"
-            strength = "NÖTR"
-        
-        # Trend çizgisi oluştur
-        trend_line = np.poly1d([slope, closes[0]])(x)
-        
-        return trend_line, f"{trend_dir} TRENDİ ({strength})", slope
-        
-    except Exception:
-        return None, "TREND HESAPLANAMADI", 0
+    # 2. RSI Hesaplama (Relative Strength Index)
+    # Pandas kullanarak basit RSI hesaplaması
+    delta = data['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=RSI_PERIOD).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=RSI_PERIOD).mean()
+    rs = gain / loss
+    data['RSI'] = 100 - (100 / (1 + rs))
 
-def generate_trading_signals(data):
-    """Alım-satım sinyalleri üret"""
-    df = data.copy()
-    signals = []
-    
-    if len(df) < 2:
-        return signals
-    
-    # Tüm değerleri float'a çevir
-    rsi = float(df['RSI'].iloc[-1]) if not pd.isna(df['RSI'].iloc[-1]) else None
-    macd = float(df['MACD'].iloc[-1]) if not pd.isna(df['MACD'].iloc[-1]) else None
-    macd_signal = float(df['MACD_Signal'].iloc[-1]) if not pd.isna(df['MACD_Signal'].iloc[-1]) else None
-    
-    # RSI Sinyalleri
-    if rsi is not None:
-        if rsi < 30:
-            signals.append("🎯 RSI AŞIRI SATIM - Potansiyel ALIM fırsatı")
-        elif rsi > 70:
-            signals.append("⚠️ RSI AŞIRI ALIM - Potansiyel SATIM sinyali")
-    
-    # MACD Sinyalleri
-    if macd is not None and macd_signal is not None:
-        if macd > macd_signal:
-            signals.append("✅ MACD POZİTİF - ALIM eğilimi")
-        else:
-            signals.append("❌ MACD NEGATİF - SATIM eğilimi")
-    
-    return signals
+    # 3. Bollinger Bantları Hesaplama
+    data['BB_Middle'] = data['Close'].rolling(window=BOLL_PERIOD).mean()
+    std = data['Close'].rolling(window=BOLL_PERIOD).std()
+    data['BB_Upper'] = data['BB_Middle'] + (std * BOLL_STDDEV)
+    data['BB_Lower'] = data['BB_Middle'] - (std * BOLL_STDDEV)
 
-def calculate_support_resistance(data, window=10):
-    """Destek ve direnç seviyelerini hesapla"""
-    highs = data['High'].astype(float).values
-    lows = data['Low'].astype(float).values
-    
-    support_levels = []
-    resistance_levels = []
-    
-    for i in range(window, len(data)-window):
-        current_high = float(highs[i])
-        current_low = float(lows[i])
-        
-        # Direnç - yerel maksimum
-        is_resistance = True
-        for j in range(1, window+1):
-            if current_high <= float(highs[i-j]) or current_high <= float(highs[i+j]):
-                is_resistance = False
-                break
-        
-        if is_resistance:
-            resistance_levels.append(current_high)
-        
-        # Destek - yerel minimum
-        is_support = True
-        for j in range(1, window+1):
-            if current_low >= float(lows[i-j]) or current_low >= float(lows[i+j]):
-                is_support = False
-                break
-        
-        if is_support:
-            support_levels.append(current_low)
-    
-    return support_levels, resistance_levels
+    # 4. MACD Hesaplama (Moving Average Convergence Divergence)
+    data['MACD_Fast'] = data['Close'].ewm(span=MACD_FAST, adjust=False).mean()
+    data['MACD_Slow'] = data['Close'].ewm(span=MACD_SLOW, adjust=False).mean()
+    data['MACD'] = data['MACD_Fast'] - data['MACD_Slow']
+    data['MACD_Signal'] = data['MACD'].ewm(span=MACD_SIGNAL, adjust=False).mean()
+    data['MACD_Hist'] = data['MACD'] - data['MACD_Signal']
 
-def safe_float_format(value):
-    """Güvenli float formatlama"""
-    try:
-        if value is None or pd.isna(value):
-            return "N/A"
-        return float(value)
-    except (ValueError, TypeError):
-        return 0.0
+    return data.dropna() # Hesaplamadan sonra NaN değerleri düşür
 
 def main():
     try:
-        # Veri çekme
         interval = interval_map[analysis_type]
-        st.write(f"**{crypto_symbol}** için {analysis_type} veriler çekiliyor...")
+        st.write(f"**{crypto_symbol}** için **{analysis_type}** verileri çekiliyor...")
         
         data = get_crypto_data(crypto_symbol, lookback_days, interval)
         
         if data is None or data.empty:
-            st.error("Veri çekilemedi. Lütfen sembolü kontrol edin.")
+            st.error("Veri çekilemedi. Sembolü kontrol edin veya daha kısa bir gün aralığı seçin.")
             return
-        
-        st.success(f"✅ {len(data)} adet {analysis_type} mum verisi çekildi")
-        
-        # Teknik göstergeleri hesapla
-        data = calculate_technical_indicators(data)
-        
-        # Analizleri yap
-        patterns = identify_candlestick_patterns(data)
-        signals = generate_trading_signals(data)
-        trend_line, trend_direction, trend_slope = calculate_trend_lines(data)
-        support_levels, resistance_levels = calculate_support_resistance(data)
-        
-        # Seviyeleri filtrele
-        current_price = float(data['Close'].iloc[-1])
-        key_support = [level for level in support_levels if abs(level - current_price) / current_price * 100 <= 15]
-        key_resistance = [level for level in resistance_levels if abs(level - current_price) / current_price * 100 <= 15]
-        
-        # Benzersiz seviyeler
-        key_support = list(set(key_support))
-        key_resistance = list(set(key_resistance))
-        key_support.sort()
-        key_resistance.sort()
-        
-        # Analiz raporu
-        st.subheader("📊 Teknik Analiz Raporu")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.metric("Mevcut Fiyat", f"${current_price:.2f}")
-            st.metric("Trend", trend_direction)
             
-            st.write("**📈 Destek Seviyeleri:**")
-            if key_support:
-                for level in key_support[-3:]:
-                    st.write(f"🟢 ${level:.2f}")
-            else:
-                st.write("Destek bulunamadı")
+        data = calculate_indicators(data)
         
-        with col2:
-            price_change = ((current_price - float(data['Close'].iloc[-2])) / float(data['Close'].iloc[-2])) * 100
-            st.metric("24s Değişim", f"%{price_change:.2f}")
-            
-            st.write("**📉 Direnç Seviyeleri:**")
-            if key_resistance:
-                for level in key_resistance[-3:]:
-                    st.write(f"🔴 ${level:.2f}")
-            else:
-                st.write("Direnç bulunamadı")
+        if data.empty:
+            st.warning("Göstergeleri hesaplamak için yeterli veri yok. Lütfen gün sayısını artırın.")
+            return
+
+        st.success(f"✅ {len(data)} adet mum verisi çekildi ve teknik göstergeler hesaplandı.")
         
-        # Mum Formasyonları
-        if patterns:
-            st.write("**🕯️ Mum Formasyonları:**")
-            for pattern in patterns:
-                st.write(f"- {pattern}")
+        # --- GRAFİK OLUŞTURMA (Subplots ile) ---
         
-        # Trading Sinyalleri
-        if signals:
-            st.write("**🔔 Trading Sinyalleri:**")
-            for signal in signals:
-                st.write(f"- {signal}")
-        
-        # Grafikler
-        st.subheader("📈 Görsel Analiz")
-        
-        # Ana grafik
-        fig1 = go.Figure()
-        
-        # Mum grafiği
-        fig1.add_trace(go.Candlestick(
+        # 3 satır, 1 sütunlu alt grafikler oluştur (Fiyat, RSI, MACD)
+        fig = make_subplots(
+            rows=3, cols=1, 
+            shared_xaxes=True, 
+            vertical_spacing=0.05,
+            row_heights=[0.5, 0.25, 0.25], # Fiyat grafiğine daha fazla alan
+            subplot_titles=('Fiyat & Hareketli Ortalamalar & Bollinger Bantları', 'Göreceli Güç Endeksi (RSI)', 'MACD')
+        )
+
+        # 1. SATIR: Fiyat, EMA ve Bollinger
+        fig.add_trace(go.Candlestick(
             x=data.index,
             open=data['Open'],
             high=data['High'],
             low=data['Low'],
             close=data['Close'],
-            name='Price'
-        ))
+            name='Mum'
+        ), row=1, col=1)
+
+        # EMA'lar
+        fig.add_trace(go.Scatter(x=data.index, y=data['EMA_Short'], line=dict(color='orange', width=1), name=f'EMA {EMA_SHORT}'), row=1, col=1)
+        fig.add_trace(go.Scatter(x=data.index, y=data['EMA_Long'], line=dict(color='purple', width=1.5), name=f'EMA {EMA_LONG}'), row=1, col=1)
+
+        # Bollinger Bantları
+        fig.add_trace(go.Scatter(x=data.index, y=data['BB_Upper'], line=dict(color='blue', width=0.5), name='BB Üst'), row=1, col=1)
+        fig.add_trace(go.Scatter(x=data.index, y=data['BB_Lower'], line=dict(color='blue', width=0.5), name='BB Alt', fill='tonexty', fillcolor='rgba(0,100,80,0.1)'), row=1, col=1)
+        fig.add_trace(go.Scatter(x=data.index, y=data['BB_Middle'], line=dict(color='gray', width=0.5, dash='dash'), name='BB Orta'), row=1, col=1)
         
-        # Moving Average'lar
-        fig1.add_trace(go.Scatter(x=data.index, y=data['MA_20'], name='MA 20', line=dict(color='orange')))
-        fig1.add_trace(go.Scatter(x=data.index, y=data['MA_50'], name='MA 50', line=dict(color='red')))
+        # 2. SATIR: RSI
+        fig.add_trace(go.Scatter(x=data.index, y=data['RSI'], line=dict(color='green', width=1.5), name='RSI'), row=2, col=1)
+        fig.add_hline(y=70, line_dash="dash", line_color="red", row=2, col=1, annotation_text="Aşırı Alım (70)", annotation_position="top left")
+        fig.add_hline(y=30, line_dash="dash", line_color="green", row=2, col=1, annotation_text="Aşırı Satım (30)", annotation_position="bottom left")
+        fig.update_yaxes(range=[0, 100], row=2, col=1)
+
+        # 3. SATIR: MACD
+        # MACD Histogram
+        colors = ['red' if val < 0 else 'green' for val in data['MACD_Hist']]
+        fig.add_trace(go.Bar(x=data.index, y=data['MACD_Hist'], marker_color=colors, name='MACD Hist'), row=3, col=1)
+        # MACD ve Sinyal Çizgileri
+        fig.add_trace(go.Scatter(x=data.index, y=data['MACD'], line=dict(color='blue', width=1.5), name='MACD'), row=3, col=1)
+        fig.add_trace(go.Scatter(x=data.index, y=data['MACD_Signal'], line=dict(color='red', width=1), name='Sinyal'), row=3, col=1)
+        fig.add_hline(y=0, line_color="gray", line_width=1, row=3, col=1) # Sıfır çizgisi
+
+        # Layout Ayarları
+        fig.update_layout(
+            title_text=f"{crypto_symbol} {analysis_type} Teknik Analiz", 
+            xaxis_rangeslider_visible=False, # Alttaki kaydırıcıyı gizle
+            height=900, 
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
         
-        # Destek seviyeleri
-        for level in key_support[-3:]:
-            fig1.add_hline(y=level, line_dash="dash", line_color="green", annotation_text=f"D: ${level:.2f}")
+        st.plotly_chart(fig, use_container_width=True)
         
-        # Direnç seviyeleri
-        for level in key_resistance[-3:]:
-            fig1.add_hline(y=level, line_dash="dash", line_color="red", annotation_text=f"R: ${level:.2f}")
+        # --- Son Veriler Tablosu ---
+        st.subheader("📜 Son Mum Verileri ve Göstergeler")
         
-        fig1.update_layout(height=500, title=f"{crypto_symbol} {analysis_type} Grafik")
-        st.plotly_chart(fig1, use_container_width=True)
+        # Gösterge sütunlarını da ekleyelim
+        display_cols = ['Open', 'High', 'Low', 'Close', 'Volume', 'EMA_Short', 'EMA_Long', 'RSI', 'BB_Upper', 'BB_Lower', 'MACD', 'MACD_Signal']
+        display_data = data.tail(10)[display_cols].copy()
         
-        # Göstergeler
-        col3, col4 = st.columns(2)
+        # Formatlama (Fiyat ve Hacim)
+        # Sadece fiyat sütunlarını ($) ve hacim sütununu (virgül) formatla
+        for col in ['Open', 'High', 'Low', 'Close', 'EMA_Short', 'EMA_Long', 'BB_Upper', 'BB_Lower']:
+            if col in display_data.columns:
+                display_data[col] = display_data[col].map('${:.2f}'.format)
         
-        with col3:
-            # RSI Grafiği
-            fig2 = go.Figure()
-            fig2.add_trace(go.Scatter(x=data.index, y=data['RSI'], name='RSI', line=dict(color='purple')))
-            fig2.add_hline(y=70, line_dash="dash", line_color="red")
-            fig2.add_hline(y=30, line_dash="dash", line_color="green")
-            fig2.update_layout(height=300, title="RSI")
-            st.plotly_chart(fig2, use_container_width=True)
+        if 'RSI' in display_data.columns:
+            display_data['RSI'] = display_data['RSI'].map('{:.2f}'.format) + '%'
+
+        if 'MACD' in display_data.columns:
+             for col in ['MACD', 'MACD_Signal']:
+                display_data[col] = display_data[col].map('{:.4f}'.format)
         
-        with col4:
-            # MACD Grafiği
-            fig3 = go.Figure()
-            fig3.add_trace(go.Scatter(x=data.index, y=data['MACD'], name='MACD', line=dict(color='blue')))
-            fig3.add_trace(go.Scatter(x=data.index, y=data['MACD_Signal'], name='Sinyal', line=dict(color='red')))
-            fig3.update_layout(height=300, title="MACD")
-            st.plotly_chart(fig3, use_container_width=True)
-        
-        # Son mum verileri
-        with st.expander("📜 Son Mum Verileri"):
-            display_data = data.tail(10)[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
+        if 'Volume' in display_data.columns:
+            display_data['Volume'] = display_data['Volume'].map('{:,.0f}'.format)
             
-            # Güvenli formatlama
-            for col in ['Open', 'High', 'Low', 'Close']:
-                display_data[col] = display_data[col].apply(lambda x: f"${safe_float_format(x):.2f}")
-            
-            display_data['Volume'] = display_data['Volume'].apply(lambda x: f"{safe_float_format(x):,.0f}")
-            
-            st.dataframe(display_data)
-            
+        st.dataframe(display_data)
+        
     except Exception as e:
         st.error(f"❌ Hata oluştu: {str(e)}")
 
