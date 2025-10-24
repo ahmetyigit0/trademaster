@@ -302,7 +302,7 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("🛠️ Çizim Araçları")
 drawing_tools = st.sidebar.multiselect(
     "Araçlar",
-    ["Yatay Çizgi", "Dikey Çizgi", "Trend Çizgi", "Fibonacci", Dikdörtgen", "Daire"],
+    ["Yatay Çizgi", "Dikey Çizgi", "Trend Çizgi", "Fibonacci", "Dikdörtgen", "Daire"],
     default=["Yatay Çizgi", "Trend Çizgi"]
 )
 
@@ -313,3 +313,19 @@ st.sidebar.write("**1-9** - Timeframe")
 st.sidebar.write("**Alt + 1-5** - Grafik tipi")
 st.sidebar.write("**Ctrl + Z** - Geri al")
 st.sidebar.write("**Space** - Hareket aracı")
+
+# Gerçek veri ile çalışan fonksiyon
+def get_real_data(symbol="BTC-USD", period="1mo", interval="1d"):
+    try:
+        data = yf.download(symbol, period=period, interval=interval, progress=False)
+        return data
+    except Exception as e:
+        st.error(f"Veri çekilemedi: {e}")
+        return None
+
+# Gerçek veri butonu
+if st.sidebar.button("🔄 Gerçek Veri Yükle"):
+    real_data = get_real_data()
+    if real_data is not None:
+        st.success("Gerçek veri yüklendi!")
+        # Burada gerçek veri ile grafik güncellemesi yapılabilir
