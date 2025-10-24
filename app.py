@@ -3,7 +3,10 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import plotly.io as pio
 from datetime import datetime, timedelta
+from PIL import Image
+import io
 
 st.set_page_config(page_title="4Saatlik Profesyonel TA", layout="wide")
 
@@ -79,9 +82,9 @@ def format_price(price):
     else:
         return f"${price:.6f}"
 
-# Veri çekme
+# Veri çekme - SON 3 GÜN için
 @st.cache_data
-def get_4h_data(symbol, days):
+def get_4h_data(symbol, days=3):
     try:
         # Sembolü temizle ve kontrol et
         symbol = symbol.upper().strip()
@@ -386,142 +389,127 @@ def generate_trading_signals(data, support_zones, resistance_zones, ema_period=5
         st.error(f"Sinyal üretim hatası: {e}")
         return [], []
 
-# Grafikte destek/direnç gösterimi için optimize fonksiyon
-def add_zones_to_chart(fig, support_zones, resistance_zones):
-    """Grafiğe destek ve direnç bölgelerini ekle (optimize edilmiş)"""
+# Sabit boyutlu mum grafiği oluşturma (fotoğraf formatında)
+def create_fixed_size_candlestick_chart(data, crypto_symbol):
+    """Sabit boyutlu mum grafiği oluştur - fotoğraf formatında"""
     
-    # Destek bölgeleri - S1 (en yüksek), S2, S3 (en düşük)
-    for i, zone in enumerate(support_zones[:3]):
-        level_name = f"S{i+1}"
-        # Şeffaf yeşil alan
-        fig.add_hrect(
-            y0=zone['start'], y1=zone['end'],
-            fillcolor="green", opacity=0.15,
-            line_width=0,
-            annotation_text=level_name,
-            annotation_position="top left",
-            annotation_font_size=10,
-            annotation_font_color="darkgreen"
-        )
-        # İnce yeşil çizgi
-        fig.add_hline(
-            y=zone['price'],
-            line_dash="solid",
-            line_color="green",
-            line_width=2,
-            opacity=0.8
-        )
-    
-    # Direnç bölgeleri - R1 (en düşük), R2, R3 (en yüksek)
-    for i, zone in enumerate(resistance_zones[:3]):
-        level_name = f"R{i+1}"
-        # Şeffaf kırmızı alan
-        fig.add_hrect(
-            y0=zone['start'], y1=zone['end'],
-            fillcolor="red", opacity=0.15,
-            line_width=0,
-            annotation_text=level_name,
-            annotation_position="top right",
-            annotation_font_size=10,
-            annotation_font_color="darkred"
-        )
-        # İnce kırmızı çizgi
-        fig.add_hline(
-            y=zone['price'],
-            line_dash="solid",
-            line_color="red",
-            line_width=2,
-            opacity=0.8
-        )
-    
-    return fig
-
-# Mum çubuğu grafiği oluşturma
-def create_candlestick_chart(data, support_zones, resistance_zones, ema_period, crypto_symbol):
-    """Mum çubuğu grafiği oluştur"""
+    # Grafik oluştur
     fig = go.Figure()
     
-    # Mum çubukları
+    # Mum çubukları - net görünen iğnelerle
     fig.add_trace(go.Candlestick(
         x=data.index,
         open=data['Open'],
         high=data['High'],
         low=data['Low'],
         close=data['Close'],
-        name='Price',
-        increasing_line_color='#00ff00',  # Yeşil mumlar
-        decreasing_line_color='#ff0000',   # Kırmızı mumlar
-        increasing_fillcolor='#00ff00',
-        decreasing_fillcolor='#ff0000',
-        line=dict(width=1)
+        name=crypto_symbol,
+        increasing_line_color='#26a69a',  # Profesyonel yeşil
+        decreasing_line_color='#ef5350',   # Profesyonel kırmızı
+        increasing_fillcolor='#26a69a',
+        decreasing_fillcolor='#ef5350',
+        line=dict(width=1.2),
+        whiskerwidth=0.8  # İğnelerin genişliği
     ))
     
-    # EMA
-    fig.add_trace(go.Scatter(
-        x=data.index,
-        y=data['EMA'],
-        name=f'EMA {ema_period}',
-        line=dict(color='orange', width=2)
-    ))
-    
-    # Optimize edilmiş destek/direnç bölgeleri
-    fig = add_zones_to_chart(fig, support_zones, resistance_zones)
-    
-    # Grafik ayarları
+    # Grafik ayarları - SABİT BOYUT
     fig.update_layout(
-        height=600,
-        title=f"{crypto_symbol} - 4 Saatlik Mum Grafiği",
+        width=1200,  # Sabit genişlik
+        height=600,  # Sabit yükseklik
+        title={
+            'text': f"{crypto_symbol} - Son 3 Günlük 4 Saatlik Mum Grafiği",
+            'x': 0.5,
+            'xanchor': 'center',
+            'font': {'size': 20, 'color': 'white'}
+        },
         xaxis_title="Tarih",
         yaxis_title="Fiyat (USD)",
-        showlegend=True,
+        showlegend=False,
         xaxis_rangeslider_visible=False,
         plot_bgcolor='#1e1e1e',
         paper_bgcolor='#1e1e1e',
-        font=dict(color='white'),
-        xaxis=dict(gridcolor='#444'),
-        yaxis=dict(gridcolor='#444')
+        font=dict(color='white', size=12),
+        xaxis=dict(
+            gridcolor='#444',
+            tickfont=dict(size=11),
+            title_font=dict(size=14)
+        ),
+        yaxis=dict(
+            gridcolor='#444',
+            tickfont=dict(size=11),
+            title_font=dict(size=14)
+        ),
+        margin=dict(l=60, r=60, t=80, b=60)  # Sabit margin
+    )
+    
+    # X ekseni ayarları
+    fig.update_xaxes(
+        tickformat='%m/%d %H:%M',
+        tickangle=45
     )
     
     return fig
 
+# Grafiği resim olarak kaydetme
+def save_chart_as_image(fig):
+    """Grafiği resim olarak kaydet"""
+    # Yüksek kaliteli PNG olarak kaydet
+    img_bytes = fig.to_image(format="png", width=1200, height=600, scale=2)
+    return img_bytes
+
 # Ana uygulama
 def main():
-    # Veri yükleme
-    with st.spinner(f'⏳ {crypto_symbol} için 4 saatlik veriler yükleniyor...'):
-        data = get_4h_data(crypto_symbol, lookback_period)
+    # Veri yükleme - SON 3 GÜN
+    with st.spinner(f'⏳ {crypto_symbol} için son 3 günlük 4 saatlik veriler yükleniyor...'):
+        data_3days = get_4h_data(crypto_symbol, days=3)
+        data_full = get_4h_data(crypto_symbol, days=lookback_period)
     
-    if data is None or data.empty:
+    if data_3days is None or data_3days.empty or data_full is None or data_full.empty:
         st.error(f"❌ {crypto_symbol} için veri yüklenemedi!")
         st.info("💡 Lütfen geçerli bir kripto sembolü girin (Örnek: BTC-USD, ETH-USD, XRP-USD)")
         return
     
-    st.success(f"✅ {crypto_symbol} için {len(data)} adet 4 saatlik mum verisi yüklendi")
+    st.success(f"✅ {crypto_symbol} için {len(data_3days)} adet 4 saatlik mum verisi yüklendi (Son 3 gün)")
     
-    # Göstergeleri hesapla
-    data = calculate_indicators(data, ema_period, rsi_period)
+    # Göstergeleri hesapla (tüm veriyle)
+    data_full = calculate_indicators(data_full, ema_period, rsi_period)
     
     # Yoğunluk bölgelerini bul (SIRALI olarak)
-    support_zones, resistance_zones = find_congestion_zones(data, min_touch_points=min_touch_points)
+    support_zones, resistance_zones = find_congestion_zones(data_full, min_touch_points=min_touch_points)
     
     # Sinyal üret
     signals, analysis_details = generate_trading_signals(
-        data, support_zones, resistance_zones, ema_period, risk_reward_ratio
+        data_full, support_zones, resistance_zones, ema_period, risk_reward_ratio
     )
     
     # Mevcut durum
-    current_price = float(data['Close'].iloc[-1])
-    ema_value = float(data['EMA'].iloc[-1])
-    rsi_value = float(data['RSI'].iloc[-1])
+    current_price = float(data_full['Close'].iloc[-1])
+    ema_value = float(data_full['EMA'].iloc[-1])
+    rsi_value = float(data_full['RSI'].iloc[-1])
     
     # Layout
     col1, col2 = st.columns([3, 1])
     
     with col1:
-        st.subheader(f"📈 {crypto_symbol} - 4 Saatlik Mum Grafiği")
+        st.subheader(f"📈 {crypto_symbol} - Son 3 Günlük 4 Saatlik Mum Grafiği")
         
-        # Mum çubuğu grafiği oluştur
-        chart_fig = create_candlestick_chart(data, support_zones, resistance_zones, ema_period, crypto_symbol)
-        st.plotly_chart(chart_fig, use_container_width=True)
+        # Sabit boyutlu mum grafiği oluştur
+        chart_fig = create_fixed_size_candlestick_chart(data_3days, crypto_symbol)
+        
+        # Grafiği resim olarak göster (küçültme/büyütme olmadan)
+        st.plotly_chart(chart_fig, use_container_width=False, config={
+            'displayModeBar': False,  # Araç çubuğunu gizle
+            'staticPlot': True        # Statik grafik (etkileşim yok)
+        })
+        
+        # Grafiği indirme butonu
+        img_bytes = save_chart_as_image(chart_fig)
+        st.download_button(
+            label="📥 Grafiği İndir (PNG)",
+            data=img_bytes,
+            file_name=f"{crypto_symbol}_4h_chart.png",
+            mime="image/png"
+        )
     
     with col2:
         st.subheader("🎯 TRADING SİNYALLERİ")
