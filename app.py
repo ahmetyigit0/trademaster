@@ -1,85 +1,34 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
 
-# Streamlit arayüzü
-st.set_page_config(page_title="Kripto Teknik Analiz", layout="wide")
-st.title("🎯 Kripto Teknik Analiz")
+st.title("🔍 yFinance Test")
 
-# Sidebar
-st.sidebar.header("⚙️ Analiz Ayarları")
-crypto_symbol = st.sidebar.text_input("Kripto Sembolü:", "BTC-USD")
-lookback_days = st.sidebar.slider("Gün Sayısı", 30, 365, 90)
-analysis_type = st.sidebar.selectbox("Analiz Türü", ["4 Saatlik", "1 Günlük", "1 Saatlik"])
+crypto_symbol = st.text_input("Sembol:", "BTC-USD")
+period_days = st.slider("Gün:", 7, 90, 30)
+interval_type = st.selectbox("Interval:", ["1h", "4h", "1d"])
 
-# Analiz periyodu mapping
-interval_map = {"4 Saatlik": "4h", "1 Günlük": "1d", "1 Saatlik": "1h"}
-
-def get_crypto_data(symbol, days, interval):
-    """Kripto verilerini çek"""
+if st.button("Test Et"):
     try:
-        data = yf.download(symbol, period=f"{days}d", interval=interval, progress=False)
-        # None değerleri kontrol et ve temizle
-        if data is not None and not data.empty:
-            data = data.dropna()
-        return data
-    except Exception as e:
-        st.error(f"Veri çekilemedi: {e}")
-        return None
-
-def safe_float_format(value):
-    """Güvenli float formatlama - None değerleri handle et"""
-    try:
-        if value is None or pd.isna(value):
-            return "N/A"
-        return float(value)
-    except (ValueError, TypeError):
-        return 0.0
-
-def main():
-    try:
-        # Veri çekme
-        interval = interval_map[analysis_type]
-        st.write(f"**{crypto_symbol}** için {analysis_type} veriler çekiliyor...")
+        st.write("📡 Veri çekiliyor...")
         
-        data = get_crypto_data(crypto_symbol, lookback_days, interval)
+        # yfinance'dan veri çek
+        data = yf.download(crypto_symbol, period=f"{period_days}d", interval=interval_type, progress=False)
         
-        if data is None or data.empty:
-            st.error("Veri çekilemedi. Lütfen sembolü kontrol edin.")
-            return
+        st.write("📊 Veri Bilgisi:")
+        st.write(f"- DataFrame boyutu: {data.shape}")
+        st.write(f"- Boş mu: {data.empty}")
+        st.write(f"- Sütunlar: {list(data.columns)}")
         
-        st.success(f"✅ {len(data)} adet {analysis_type} mum verisi çekildi")
-        
-        # Basit veri gösterimi - NONE DEĞERLERİ HANDLE EDEN VERSİYON
-        with st.expander("📜 Son Mum Verileri"):
-            display_data = data.tail(10)[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
+        if not data.empty:
+            st.write("✅ İlk 5 satır:")
+            st.dataframe(data.head())
             
-            # Tüm değerleri float'a çevir ve formatla - NONE kontrolü ile
-            for col in ['Open', 'High', 'Low', 'Close']:
-                display_data[col] = display_data[col].apply(
-                    lambda x: f"${safe_float_format(x):.2f}" if safe_float_format(x) != "N/A" else "N/A"
-                )
-            
-            # Volume için özel format
-            display_data['Volume'] = display_data['Volume'].apply(
-                lambda x: f"{safe_float_format(x):,.0f}" if safe_float_format(x) != "N/A" else "N/A"
-            )
-            
-            st.dataframe(display_data)
-            
-        # Mevcut fiyat bilgisi
-        current_price = safe_float_format(data['Close'].iloc[-1])
-        if current_price != "N/A":
-            st.metric("Mevcut Fiyat", f"${current_price:.2f}")
+            st.write("💰 Son fiyat bilgisi:")
+            st.write(f"- Son kapanış: {data['Close'].iloc[-1]}")
+            st.write(f"- Veri tipi: {type(data['Close'].iloc[-1])}")
         else:
-            st.metric("Mevcut Fiyat", "N/A")
-        
+            st.error("❌ DataFrame boş!")
+            
     except Exception as e:
-        st.error(f"❌ Hata oluştu: {str(e)}")
-        import traceback
-        st.error(f"Detay: {traceback.format_exc()}")
-
-if __name__ == "__main__":
-    main()
+        st.error(f"❌ Hata: {e}")
