@@ -1055,7 +1055,7 @@ if run_bt:
             )
                 # KPI'lar
                 col1, col2, col3, col4 = st.columns(4)
-                
+            
                 with col1:
                     st.metric("İşlem Sayısı", report["trades"])
                     st.metric("Win Rate", f"{report['win_rate']:.1f}%")
