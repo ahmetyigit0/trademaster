@@ -34,7 +34,29 @@ st.title("🎯 4 Saatlik Profesyonel Teknik Analiz Stratejisi")
 # Sidebar
 with st.sidebar:
     st.header("⚙️ Strateji Ayarları")
-    crypto_symbol = st.selectbox("Sembol", ["BTC-USD", "ETH-USD", "ADA-USD", "DOT-USD", "LINK-USD"])
+    
+    # Kripto sembolü için text input
+    crypto_symbol = st.text_input("Kripto Sembolü", "BTC-USD", 
+                                 help="Örnek: BTC-USD, ETH-USD, ADA-USD, XRP-USD vb.")
+    
+    # Popüler kripto seçenekleri (hızlı erişim için)
+    st.caption("Hızlı Seçim:")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("BTC-USD", use_container_width=True):
+            st.session_state.crypto_symbol = "BTC-USD"
+        if st.button("ETH-USD", use_container_width=True):
+            st.session_state.crypto_symbol = "ETH-USD"
+    with col2:
+        if st.button("ADA-USD", use_container_width=True):
+            st.session_state.crypto_symbol = "ADA-USD"
+        if st.button("XRP-USD", use_container_width=True):
+            st.session_state.crypto_symbol = "XRP-USD"
+    
+    # Session state'ten sembolü al
+    if 'crypto_symbol' in st.session_state:
+        crypto_symbol = st.session_state.crypto_symbol
+    
     lookback_period = st.slider("Analiz Periyodu (Gün)", 30, 200, 100)
     
     st.subheader("📊 Parametreler")
@@ -47,10 +69,20 @@ with st.sidebar:
 @st.cache_data
 def get_4h_data(symbol, days):
     try:
+        # Sembolü temizle ve kontrol et
+        symbol = symbol.upper().strip()
+        if '-' not in symbol:
+            symbol = symbol + '-USD'  # Varsayılan USD pair ekle
+        
         data = yf.download(symbol, period=f"{days}d", interval="4h", progress=False)
+        
+        if data.empty:
+            st.error(f"❌ {symbol} için veri bulunamadı!")
+            return None
+            
         return data
     except Exception as e:
-        st.error(f"Veri çekilemedi: {e}")
+        st.error(f"❌ {symbol} veri çekilemedi: {e}")
         return None
 
 # Teknik göstergeler
@@ -341,11 +373,15 @@ def generate_trading_signals(data, support_zones, resistance_zones, ema_period=5
 # Ana uygulama
 def main():
     # Veri yükleme
-    data = get_4h_data(crypto_symbol, lookback_period)
+    with st.spinner(f'⏳ {crypto_symbol} için 4 saatlik veriler yükleniyor...'):
+        data = get_4h_data(crypto_symbol, lookback_period)
     
     if data is None or data.empty:
-        st.error("Veri yüklenemedi!")
+        st.error(f"❌ {crypto_symbol} için veri yüklenemedi!")
+        st.info("💡 Lütfen geçerli bir kripto sembolü girin (Örnek: BTC-USD, ETH-USD, XRP-USD)")
         return
+    
+    st.success(f"✅ {crypto_symbol} için {len(data)} adet 4 saatlik mum verisi yüklendi")
     
     # Göstergeleri hesapla
     data = calculate_indicators(data, ema_period, rsi_period)
@@ -367,7 +403,7 @@ def main():
     col1, col2 = st.columns([3, 1])
     
     with col1:
-        st.subheader("📈 4 Saatlik Grafik Analizi")
+        st.subheader(f"📈 {crypto_symbol} - 4 Saatlik Grafik Analizi")
         
         # Grafik oluştur
         fig = go.Figure()
@@ -432,32 +468,59 @@ def main():
                     """)
         else:
             st.info("""
-            **🎭 NET SİNYAL YOK**
-            - Piyasa gözlemi önerilir
-            - Koşullar uygun değil
-            - BEKLE stratejisi uygula
+            ** **🎭 NET S🎭 NET SİNYAL YOK**
+İNYAL YOK**
+            -            - Piyasa gö Piyasa gözlezlemi önerilmi önerilir
+ir
+            - Koş            - Koşullarullar uygun de uygun değilğil
+            - BEKLE stratejisi
+            - BEKLE stratejisi uyg uygula
+            ""ula
             """)
         
-        st.subheader("📊 MEVCUT DURUM")
-        st.metric("Fiyat", f"${current_price:.2f}")
-        st.metric(f"EMA {ema_period}", f"${ema_value:.2f}")
-        st.metric("RSI", f"{rsi_value:.1f}")
+        st.subheader")
         
-        trend = "YÜKSELİŞ" if current_price > ema_value else "DÜŞÜŞ"
-        st.metric("TREND", trend)
+        st.subheader("📊 MEVCUT("📊 MEVCUT DURUM")
+        st.metric DURUM")
+        st.m("Fiyat", f"${current_priceetric("Fiyat", f"${current_price:.2f}")
+        st:.2f}")
+        st.metric(f"EMA {.metric(f"EMA {ema_period}", fema_period}", f""${ema_value:.${ema_value:.2f}")
+        st.metric("2f}")
+        st.metric("RSI", f"{rRSI", f"{rsi_value:.1f}")
+si_value:.1f}")
+        
+        trend = "Y        
+        trend = "YÜKSELİÜKSELİŞ" if current_price >Ş" if current_price > ema_value else "D ema_value else "DÜŞÜŞ"
+       ÜŞÜŞ"
+        st st.metric("TR.metric("TRENDEND", trend)
+", trend)
     
     # Detaylı analiz
-    st.subheader("🔍 DETAYLI ANALİZ RAPORU")
-    with st.expander("Analiz Detayları", expanded=True):
-        for detail in analysis_details:
-            if "✅" in detail:
-                st.success(detail)
-            elif "❌" in detail or "⚠️" in detail:
-                st.error(detail)
-            elif "🎯" in detail or "🎪" in detail:
+    
+    # Detaylı analiz    st.subheader("🔍
+    st.subheader("🔍 DETAYLI DETAYLI ANAL ANALİZ RAPORİZ RAPORU")
+U")
+    with st.exp    with st.expander("Analiz Detayander("Analiz Detayları", expanded=True):
+       ları", expanded=True):
+        for detail in analysis for detail in analysis_details:
+            if_details:
+            if "✅ "✅" in detail:
+" in detail:
+                st                st.success(detail)
+            elif "❌" in detail or.success(detail)
+            elif "❌" in detail or "⚠️" in "⚠️" in detail:
+ detail:
+                st.error(d                st.error(detail)
+etail)
+            elif "🎯" in detail or "            elif "🎯" in detail or "🎪" in🎪" in detail:
                 st.warning(detail)
             else:
                 st.info(detail)
 
-if __name__ == "__main__":
+if __name detail:
+                st.warning(detail)
+            else:
+                st.info(detail)
+
+if __name__ == "____ == "__mainmain__":
     main()
