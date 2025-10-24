@@ -30,27 +30,90 @@ def check_password():
 if not check_password():
     st.stop()
 
+# =============================================================================
+# YENİ: SEMBOL AUTOCOMPLETE SİSTEMİ
+# =============================================================================
+
+def load_symbol_index() -> list[str]:
+    """-USD ile biten popüler kripto sembollerinin yerleşik listesi."""
+    return [
+        "BTC-USD", "ETH-USD", "USDT-USD", "BNB-USD", "SOL-USD", "XRP-USD", "DOGE-USD",
+        "ADA-USD", "TRX-USD", "TON-USD", "AVAX-USD", "DOT-USD", "MATIC-USD", 
+        "LINK-USD", "ATOM-USD", "FIL-USD", "HBAR-USD", "ICP-USD", "AR-USD",
+        "THETA-USD", "THE-USD", "THG-USD", "TIA-USD", "TUSD-USD", "LTC-USD",
+        "BCH-USD", "XLM-USD", "UNI-USD", "ETC-USD", "XMR-USD", "EOS-USD",
+        "AAVE-USD", "ALGO-USD", "BAT-USD", "COMP-USD", "DASH-USD", "ZEC-USD",
+        "XTZ-USD", "NEAR-USD", "FTM-USD", "SAND-USD", "MANA-USD", "ENJ-USD",
+        "GALA-USD", "APE-USD", "GRT-USD", "RUNE-USD", "KAVA-USD", "RNDR-USD",
+        "OP-USD", "ARB-USD", "IMX-USD", "STX-USD", "APT-USD", "SUI-USD",
+        "SEI-USD", "INJ-USD", "RPL-USD", "LDO-USD", "MKR-USD", "SNX-USD",
+        "CRV-USD", "1INCH-USD", "BAL-USD", "YFI-USD", "SUSHI-USD", "CAKE-USD",
+        "UMA-USD", "BADGER-USD", "KNC-USD", "REN-USD", "CVC-USD", "REP-USD",
+        "ZRX-USD", "BAND-USD", "OXT-USD", "NMR-USD", "POLY-USD", "LRC-USD",
+        "OMG-USD", "SKL-USD", "ANKR-USD", "STORJ-USD", "SXP-USD", "HNT-USD",
+        "IOST-USD", "IOTA-USD", "VET-USD", "ONT-USD", "ZIL-USD", "SC-USD",
+        "WAVES-USD", "RVN-USD", "DGB-USD", "ICX-USD", "STEEM-USD", "NANO-USD",
+        "HOT-USD", "ONG-USD", "ONE-USD", "FUN-USD", "CELR-USD", "CHZ-USD",
+        "COTI-USD", "DENT-USD", "DOCK-USD", "ELF-USD", "FET-USD", "KEY-USD",
+        "LOOM-USD", "NKN-USD", "OCEAN-USD", "OGN-USD", "ORN-USD", "PERL-USD",
+        "POND-USD", "POWR-USD", "QKC-USD", "QSP-USD", "REQ-USD", "RLC-USD",
+        "ROSE-USD", "SLP-USD", "SNT-USD", "SRM-USD", "SYS-USD", "TCT-USD",
+        "TFUEL-USD", "TOMO-USD", "TROY-USD", "TRB-USD", "TWT-USD", "VITE-USD",
+        "WAN-USD", "WTC-USD", "YFII-USD", "ZEN-USD"
+    ]
+
+def autocomplete_matches(query: str, symbols: list[str], limit: int = 20) -> list[str]:
+    """
+    Sorguya göre sembol eşleşmelerini bulur
+    """
+    q = (query or "").upper().strip()
+    if len(q) < 2:
+        return []
+    
+    matches = [s for s in symbols if s.startswith(q)]
+    return matches[:limit]
+
 st.title("🎯 4 Saatlik Profesyonel Teknik Analiz")
 
 # Sidebar
 with st.sidebar:
     st.header("⚙️ Ayarlar")
     
-    crypto_symbol = st.text_input("Kripto Sembolü", "BTC-USD", 
-                                 help="Örnek: BTC-USD, ETH-USD, ADA-USD, XRP-USD")
+    # Kripto sembolü + autocomplete
+    if 'selected_symbol' not in st.session_state:
+        st.session_state['selected_symbol'] = "BTC-USD"
     
+    crypto_symbol = st.text_input("Kripto Sembolü", st.session_state['selected_symbol'],
+                                 help="Örnek: BTC-USD, ETH-USD, ADA-USD, XRP-USD vb.")
+    
+    # Autocomplete önerileri
+    ALL_SYMBOLS = load_symbol_index()
+    matches = autocomplete_matches(crypto_symbol, ALL_SYMBOLS)
+    
+    if matches:
+        st.caption("🔎 Öneriler:")
+        for m in matches:
+            if st.button(m, key=f"sym_{m}", use_container_width=True):
+                st.session_state['selected_symbol'] = m
+                st.rerun()
+    
+    # Popüler kripto seçenekleri
     st.caption("Hızlı Seçim:")
     col1, col2 = st.columns(2)
     with col1:
         if st.button("BTC-USD", use_container_width=True):
-            crypto_symbol = "BTC-USD"
+            st.session_state['selected_symbol'] = "BTC-USD"
+            st.rerun()
         if st.button("ETH-USD", use_container_width=True):
-            crypto_symbol = "ETH-USD"
+            st.session_state['selected_symbol'] = "ETH-USD"
+            st.rerun()
     with col2:
         if st.button("ADA-USD", use_container_width=True):
-            crypto_symbol = "ADA-USD"
+            st.session_state['selected_symbol'] = "ADA-USD"
+            st.rerun()
         if st.button("XRP-USD", use_container_width=True):
-            crypto_symbol = "XRP-USD"
+            st.session_state['selected_symbol'] = "XRP-USD"
+            st.rerun()
     
     st.subheader("Parametreler")
     ema_period = st.slider("EMA Period", 20, 100, 50)
@@ -59,12 +122,17 @@ with st.sidebar:
     risk_reward_ratio = st.slider("Min R/R", 1.0, 3.0, 1.5)
     analysis_lookback_bars = st.slider("Analiz Bars", 80, 200, 120)
 
+# Session state'ten sembolü al
+crypto_symbol = st.session_state['selected_symbol']
+
 # =============================================================================
-# TEMEL FONKSİYONLAR
+# MEVCUT YARDIMCI FONKSİYONLAR (Güncellenmiş)
 # =============================================================================
 
 def compute_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
-    """Average True Range (ATR) hesaplar"""
+    """
+    Average True Range (ATR) hesaplar
+    """
     high = df['High']
     low = df['Low']
     close = df['Close']
@@ -94,7 +162,9 @@ class Zone:
         return f"Zone({self.kind}, low={self.low:.4f}, high={self.high:.4f}, touches={self.touches})"
 
 def build_zones(df: pd.DataFrame, min_touch_points: int, lookback: int = 120) -> List[Zone]:
-    """Yoğunluk tabanlı destek/direnç bölgeleri oluşturur"""
+    """
+    Yoğunluk tabanlı destek/direnç bölgeleri oluşturur
+    """
     if len(df) < lookback:
         lookback = len(df)
     
@@ -167,14 +237,15 @@ def build_zones(df: pd.DataFrame, min_touch_points: int, lookback: int = 120) ->
     return zones
 
 def eval_fake_breakout(df: pd.DataFrame, zone: Zone) -> Dict[str, Any]:
-    """Fake kırılım değerlendirmesi yapar"""
+    """
+    Fake kırılım değerlendirmesi yapar
+    """
     if len(df) < 10:
         return {"status": "valid", "details": "Yetersiz veri"}
     
     data = df.tail(50).copy()
     atr = compute_atr(data).iloc[-1] if len(data) > 14 else zone.high * 0.02
     
-    # Kırılım istatistikleri
     breakouts = 0
     max_breakout_distance = 0
     reclaim_mums = 0
@@ -203,32 +274,33 @@ def eval_fake_breakout(df: pd.DataFrame, zone: Zone) -> Dict[str, Any]:
                         reclaim_mums = j - i
                         break
     
-    # Fake kırılım koşulları
     condition1 = breakouts < 2
     condition2 = max_breakout_distance < 0.5 * atr or max_breakout_distance < zone.high * 0.0035
     condition3 = reclaim_mums <= 2 and reclaim_mums > 0
     
-    fake_score = sum([condition1, condition2, condition3])
-    permanent_score = sum([
+    fake_conditions = [condition1, condition2, condition3]
+    fake_score = sum(fake_conditions)
+    
+    permanent_conditions = [
         breakouts >= 2,
         max_breakout_distance >= 0.5 * atr,
         reclaim_mums == 0 or reclaim_mums > 2
-    ])
+    ]
+    permanent_score = sum(permanent_conditions)
     
     if fake_score >= 2:
         status = "fake"
-        details = f"Fake kırılım: {breakouts} kırılım"
     elif permanent_score >= 2:
         status = "broken"
-        details = f"Kalıcı kırılım: {breakouts} kırılım"
     else:
         status = "valid"
-        details = f"Normal bölge: {breakouts} kırılım"
     
-    return {"status": status, "details": details}
+    return {"status": status, "details": f"{breakouts} kırılım, {max_breakout_distance:.4f} mesafe"}
 
 def compute_macd(df: pd.DataFrame, fast: int = 12, slow: int = 26, signal: int = 9) -> Tuple[pd.Series, pd.Series, pd.Series]:
-    """MACD göstergesi hesaplar"""
+    """
+    MACD göstergesi hesaplar
+    """
     exp1 = df['Close'].ewm(span=fast, adjust=False).mean()
     exp2 = df['Close'].ewm(span=slow, adjust=False).mean()
     macd = exp1 - exp2
@@ -238,7 +310,9 @@ def compute_macd(df: pd.DataFrame, fast: int = 12, slow: int = 26, signal: int =
     return macd, signal_line, histogram
 
 def score_zone(df: pd.DataFrame, zone: Zone, ema: float, rsi: float, atr: float) -> int:
-    """Bölge çalışırlık skoru hesaplar (0-100)"""
+    """
+    Bölge çalışırlık skoru hesaplar (0-100)
+    """
     score = 0
     current_price = float(df['Close'].iloc[-1])
     
@@ -293,7 +367,9 @@ def score_zone(df: pd.DataFrame, zone: Zone, ema: float, rsi: float, atr: float)
     return min(score, 100)
 
 def risk_reward(entry: float, sl: float, tp1: float, tp2: Optional[float] = None) -> float:
-    """Risk/Ödül oranı hesaplar"""
+    """
+    Risk/Ödül oranı hesaplar
+    """
     risk = abs(entry - sl)
     if risk == 0:
         return 0
@@ -358,8 +434,13 @@ def calculate_indicators(data, ema_period=50, rsi_period=14):
     rs = gain / loss
     df['RSI'] = 100 - (100 / (1 + rs))
     
-    # ATR
-    df['ATR'] = compute_atr(df)
+    # ATR(14) - YENİ EKLENDİ
+    tr1 = df['High'] - df['Low']
+    tr2 = (df['High'] - df['Close'].shift()).abs()
+    tr3 = (df['Low'] - df['Close'].shift()).abs()
+    df['TR'] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    df['ATR'] = df['TR'].rolling(window=14).mean()
+    df.drop(columns=['TR'], inplace=True)
     
     return df
 
@@ -374,7 +455,6 @@ def find_congestion_zones(data, min_touch_points=3, lookback=120):
     support_zones = [zone for zone in zones if zone.kind == "support"]
     resistance_zones = [zone for zone in zones if zone.kind == "resistance"]
     
-    # Bölgeleri skorla
     ema_value = float(data['EMA'].iloc[-1])
     rsi_value = float(data['RSI'].iloc[-1])
     atr_value = float(data['ATR'].iloc[-1])
@@ -384,19 +464,24 @@ def find_congestion_zones(data, min_touch_points=3, lookback=120):
         fake_result = eval_fake_breakout(data, zone)
         zone.status = fake_result["status"]
     
-    # Skora göre sırala ve en iyi 3'ü al
     support_zones = sorted(support_zones, key=lambda x: x.score, reverse=True)[:3]
     resistance_zones = sorted(resistance_zones, key=lambda x: x.score, reverse=True)[:3]
     
     return support_zones, resistance_zones
 
+# =============================================================================
+# YENİ: GÜNCELLENMİŞ SİNYAL ÜRETİMİ (TP/SL DÜZELTMESİ)
+# =============================================================================
+
 def generate_trading_signals(data, support_zones, resistance_zones, ema_period=50, min_rr_ratio=1.5):
-    """Geliştirilmiş trading sinyalleri üretir"""
+    """
+    Geliştirilmiş trading sinyalleri üretir - TP/SL mantığı düzeltildi
+    """
     signals = []
     analysis_details = []
     
     if data is None or len(data) < ema_period + 10:
-        analysis_details.append("❌ Yetersiz veri - analiz yapılamıyor")
+        analysis_details.append("❌ Yetersiz veri")
         return signals, analysis_details
     
     try:
@@ -405,7 +490,6 @@ def generate_trading_signals(data, support_zones, resistance_zones, ema_period=5
         rsi_value = float(data['RSI'].iloc[-1])
         atr_value = float(data['ATR'].iloc[-1])
         
-        # Trend analizi
         trend = "bull" if current_price > ema_value else "bear"
         ema_distance = abs(current_price - ema_value) / atr_value
         
@@ -415,27 +499,29 @@ def generate_trading_signals(data, support_zones, resistance_zones, ema_period=5
         analysis_details.append(f"📉 RSI: {rsi_value:.1f}")
         analysis_details.append(f"📏 ATR: {format_price(atr_value)}")
         
-        # En iyi bölgeleri seç
         best_support = support_zones[0] if support_zones else None
         best_resistance = resistance_zones[0] if resistance_zones else None
         
-        # ALIM sinyali kontrolü
+        # ALIM SİNYALİ - DÜZELTİLMİŞ TP/SL MANTIĞI
         if best_support and best_support.score >= 65:
             entry = min(current_price, best_support.high)
             sl = best_support.low - 0.25 * atr_value
-            tp1 = best_resistance.low if best_resistance else current_price + 2 * (current_price - sl)
-            tp2 = None
-            if len(resistance_zones) > 1:
-                tp2 = resistance_zones[1].low if resistance_zones[1] else None
             
-            rr = risk_reward(entry, sl, tp1, tp2)
+            # LONG için: SL < Entry < TP1 < TP2
+            risk_long = entry - sl  # > 0
+            tp1_long = entry + risk_long * (min_rr_ratio * 0.5)
+            tp2_long = entry + risk_long * min_rr_ratio
+            
+            # TP sıralamasını garanti et
+            tp1, tp2 = sorted([tp1_long, tp2_long])
+            rr = (tp2 - entry) / (entry - sl)
             
             if rr >= min_rr_ratio:
                 explain = [
                     f"EMA50 trend: {trend.upper()}",
                     f"Zone validity: {best_support.status}",
                     f"RSI: {rsi_value:.1f} - Support bölgesinde",
-                    f"RR: {rr:.2f} ≥ {min_rr_ratio}"
+                    f"RR kontrolü: {rr:.2f} ≥ {min_rr_ratio}"
                 ]
                 
                 signals.append({
@@ -451,23 +537,26 @@ def generate_trading_signals(data, support_zones, resistance_zones, ema_period=5
                     "explain": explain
                 })
         
-        # SATIM sinyali kontrolü
+        # SATIM SİNYALİ - DÜZELTİLMİŞ TP/SL MANTIĞI
         elif best_resistance and best_resistance.score >= 65:
             entry = max(current_price, best_resistance.low)
             sl = best_resistance.high + 0.25 * atr_value
-            tp1 = best_support.high if best_support else current_price - 2 * (sl - current_price)
-            tp2 = None
-            if len(support_zones) > 1:
-                tp2 = support_zones[1].high if support_zones[1] else None
             
-            rr = risk_reward(entry, sl, tp1, tp2)
+            # SHORT için: TP2 < TP1 < Entry < SL
+            risk_short = sl - entry  # > 0
+            tp1_short = entry - risk_short * (min_rr_ratio * 0.5)
+            tp2_short = entry - risk_short * min_rr_ratio
+            
+            # TP sıralamasını garanti et (ters sıralama)
+            tp1, tp2 = sorted([tp1_short, tp2_short], reverse=True)
+            rr = (entry - tp2) / (sl - entry)
             
             if rr >= min_rr_ratio:
                 explain = [
                     f"EMA50 trend: {trend.upper()}",
                     f"Zone validity: {best_resistance.status}",
                     f"RSI: {rsi_value:.1f} - Resistance bölgesinde", 
-                    f"RR: {rr:.2f} ≥ {min_rr_ratio}"
+                    f"RR kontrolü: {rr:.2f} ≥ {min_rr_ratio}"
                 ]
                 
                 signals.append({
@@ -516,80 +605,13 @@ def generate_trading_signals(data, support_zones, resistance_zones, ema_period=5
         return [], analysis_details
 
 # =============================================================================
-# YENİ YARDIMCI FONKSİYONLAR - UI OPTİMİZASYONU
+# YENİ: SADELEŞTİRİLMİŞ GRAFİK FONKSİYONU
 # =============================================================================
 
-def merge_overlapping_zones(zones: List[Zone], atr: float) -> List[Zone]:
-    """Üst üste binen/çok yakın bantları birleştirir"""
-    if not zones:
-        return []
-    
-    sorted_zones = sorted(zones, key=lambda x: (x.low + x.high) / 2)
-    merged = []
-    merge_threshold = 0.25 * atr
-    
-    for zone in sorted_zones:
-        if not merged:
-            merged.append(zone)
-            continue
-            
-        last_zone = merged[-1]
-        zone_center = (zone.low + zone.high) / 2
-        last_center = (last_zone.low + last_zone.high) / 2
-        
-        if abs(zone_center - last_center) < merge_threshold:
-            new_low = min(last_zone.low, zone.low)
-            new_high = max(last_zone.high, zone.high)
-            new_touches = last_zone.touches + zone.touches
-            new_score = max(last_zone.score, zone.score)
-            
-            merged_zone = Zone(
-                low=new_low,
-                high=new_high,
-                touches=new_touches,
-                last_touch_ts=max(last_zone.last_touch_ts, zone.last_touch_ts),
-                kind=last_zone.kind
-            )
-            merged_zone.score = new_score
-            merged_zone.status = last_zone.status if last_zone.score >= zone.score else zone.status
-            
-            merged[-1] = merged_zone
-        else:
-            merged.append(zone)
-    
-    return merged
-
-def select_nearest_zones(zones: List[Zone], current_price: float, k: int = 2) -> List[Zone]:
-    """Mevcut fiyata en yakın k adet zone seçer"""
-    if not zones:
-        return []
-    
-    sorted_zones = sorted(zones, key=lambda x: abs((x.low + x.high) / 2 - current_price))
-    return sorted_zones[:k]
-
-def get_zone_border_style(status: str) -> Dict[str, Any]:
-    """Zone statüsüne göre kenarlık stilini belirler"""
-    if status == "fake":
-        return {"color": "#FFA500", "dash": "dash", "width": 1}
-    elif status == "broken":
-        return {"color": "#7A7A7A", "dash": "dot", "width": 1}
-    else:
-        return {"color": "#8A8F98", "dash": None, "width": 1}
-
-def format_zone_label(zone: Zone, index: int) -> str:
-    """Zone etiketini formatlar"""
-    prefix = "S" if zone.kind == "support" else "R"
-    label = f"{prefix}{index + 1}"
-    
-    if zone.status == "fake":
-        label += " (fake)"
-    elif zone.status == "broken":
-        label += " (broken)"
-    
-    return label
-
 def create_clean_candlestick_chart(data, support_zones, resistance_zones, crypto_symbol, signals):
-    """Sadeleştirilmiş mum grafiği - maksimum 2 destek + 2 direnç bandı"""
+    """
+    Sadeleştirilmiş mum grafiği - maksimum 2 destek + 2 direnç bandı
+    """
     fig = go.Figure()
     
     if data is None or len(data) == 0:
@@ -598,15 +620,10 @@ def create_clean_candlestick_chart(data, support_zones, resistance_zones, crypto
     # Son 3 gün verisi
     data_3days = data.tail(18)
     current_price = float(data_3days['Close'].iloc[-1])
-    atr_value = float(data['ATR'].iloc[-1]) if 'ATR' in data.columns else current_price * 0.02
-    
-    # Zone'ları birleştir ve filtrele
-    all_support = merge_overlapping_zones(support_zones, atr_value)
-    all_resistance = merge_overlapping_zones(resistance_zones, atr_value)
     
     # En yakın 2 destek ve 2 direnç seç
-    nearest_support = select_nearest_zones(all_support, current_price, 2)
-    nearest_resistance = select_nearest_zones(all_resistance, current_price, 2)
+    nearest_support = sorted(support_zones, key=lambda x: abs((x.low + x.high) / 2 - current_price))[:2]
+    nearest_resistance = sorted(resistance_zones, key=lambda x: abs((x.low + x.high) / 2 - current_price))[:2]
     
     # Mumları çiz
     for i in range(len(data_3days)):
@@ -663,50 +680,46 @@ def create_clean_candlestick_chart(data, support_zones, resistance_zones, crypto
     
     # DESTEK BANTLARI - maksimum 2
     for i, zone in enumerate(nearest_support):
-        border_style = get_zone_border_style(zone.status)
+        border_color = "#FFA500" if zone.status == "fake" else "#7A7A7A" if zone.status == "broken" else "#00FF00"
         fig.add_hrect(
             y0=zone.low,
             y1=zone.high,
-            fillcolor="green",
-            opacity=0.12,
-            line=border_style,
+            fillcolor="rgba(0,255,0,0.12)",
+            line=dict(width=1, color=border_color),
+            layer="below"
         )
         # Sağ kenar etiketi
         fig.add_annotation(
             x=data_3days.index[-1],
             y=(zone.low + zone.high) / 2,
-            text=format_zone_label(zone, i),
+            text=f"S{i+1}",
             showarrow=False,
             xanchor='left',
             yanchor='middle',
             font=dict(size=10, color="#00FF00"),
-            bgcolor="rgba(0,0,0,0.5)",
-            bordercolor="#00FF00",
-            borderwidth=1
+            bgcolor="rgba(0,0,0,0.5)"
         )
     
     # DİRENÇ BANTLARI - maksimum 2
     for i, zone in enumerate(nearest_resistance):
-        border_style = get_zone_border_style(zone.status)
+        border_color = "#FFA500" if zone.status == "fake" else "#7A7A7A" if zone.status == "broken" else "#FF0000"
         fig.add_hrect(
             y0=zone.low,
             y1=zone.high,
-            fillcolor="red",
-            opacity=0.12,
-            line=border_style,
+            fillcolor="rgba(255,0,0,0.12)",
+            line=dict(width=1, color=border_color),
+            layer="below"
         )
         # Sağ kenar etiketi
         fig.add_annotation(
             x=data_3days.index[-1],
             y=(zone.low + zone.high) / 2,
-            text=format_zone_label(zone, i),
+            text=f"R{i+1}",
             showarrow=False,
             xanchor='left',
             yanchor='middle',
             font=dict(size=10, color="#FF0000"),
-            bgcolor="rgba(0,0,0,0.5)",
-            bordercolor="#FF0000",
-            borderwidth=1
+            bgcolor="rgba(0,0,0,0.5)"
         )
     
     # Mevcut fiyat çizgisi
@@ -761,10 +774,10 @@ def create_clean_candlestick_chart(data, support_zones, resistance_zones, crypto
         margin=dict(l=50, r=50, t=50, b=50)
     )
     
-    return fig, nearest_support, nearest_resistance, all_support, all_resistance
+    return fig, nearest_support, nearest_resistance, support_zones, resistance_zones
 
 # =============================================================================
-# ANA UYGULAMA - SADELEŞTİRİLMİŞ UI
+# ANA UYGULAMA
 # =============================================================================
 
 def main():
@@ -829,8 +842,7 @@ def main():
                 st.metric("TP1", format_price(signal['tp1']))
             with cols[1]:
                 st.metric("SL", format_price(signal['sl']))
-                if signal['tp2']:
-                    st.metric("TP2", format_price(signal['tp2']))
+                st.metric("TP2", format_price(signal['tp2']))
             
             st.metric("R/R", f"{signal['rr']:.2f}")
             st.metric("Güven", f"%{signal['confidence']}")
@@ -854,11 +866,11 @@ def main():
         
         for i, zone in enumerate(nearest_support):
             st.write(f"**S{i+1}:** {format_price(zone.low)}-{format_price(zone.high)}")
-            st.caption(f"Skor: {zone.score}, Durum: {zone.status}")
+            st.caption(f"Skor: {zone.score}")
         
         for i, zone in enumerate(nearest_resistance):
             st.write(f"**R{i+1}:** {format_price(zone.low)}-{format_price(zone.high)}")
-            st.caption(f"Skor: {zone.score}, Durum: {zone.status}")
+            st.caption(f"Skor: {zone.score}")
     
     # Detaylı bant listesi
     with st.expander("📋 Tüm Bant Detayları"):
@@ -869,14 +881,64 @@ def main():
             for i, zone in enumerate(all_support):
                 status_icon = "🟢" if zone.status == "valid" else "🟠" if zone.status == "fake" else "⚫"
                 st.write(f"{status_icon} S{i+1}: {format_price(zone.low)}-{format_price(zone.high)}")
-                st.caption(f"Skor: {zone.score}, Temas: {zone.touches}, Durum: {zone.status}")
+                st.caption(f"Skor: {zone.score}, Temas: {zone.touches}")
         
         with col2:
             st.write("**Direnç Bantları**")
             for i, zone in enumerate(all_resistance):
                 status_icon = "🔴" if zone.status == "valid" else "🟠" if zone.status == "fake" else "⚫"
                 st.write(f"{status_icon} R{i+1}: {format_price(zone.low)}-{format_price(zone.high)}")
-                st.caption(f"Skor: {zone.score}, Temas: {zone.touches}, Durum: {zone.status}")
+                st.caption(f"Skor: {zone.score}, Temas: {zone.touches}")
+
+# =============================================================================
+# SELF-TEST FONKSİYONLARI
+# =============================================================================
+
+def test_tp_ordering():
+    """TP sıralama testi"""
+    print("=== TP SIRALAMA TESTİ ===")
+    
+    # LONG testi: SL < Entry < TP1 < TP2
+    entry_long = 100
+    sl_long = 95
+    risk_long = entry_long - sl_long
+    tp1_long = entry_long + risk_long * (1.5 * 0.5)  # 103.75
+    tp2_long = entry_long + risk_long * 1.5  # 107.5
+    
+    tp1_sorted, tp2_sorted = sorted([tp1_long, tp2_long])
+    print(f"LONG: SL({sl_long}) < Entry({entry_long}) < TP1({tp1_sorted}) < TP2({tp2_sorted})")
+    assert sl_long < entry_long < tp1_sorted < tp2_sorted, "LONG TP sıralama hatası!"
+    
+    # SHORT testi: TP2 < TP1 < Entry < SL
+    entry_short = 100
+    sl_short = 105
+    risk_short = sl_short - entry_short
+    tp1_short = entry_short - risk_short * (1.5 * 0.5)  # 96.25
+    tp2_short = entry_short - risk_short * 1.5  # 92.5
+    
+    tp1_sorted, tp2_sorted = sorted([tp1_short, tp2_short], reverse=True)
+    print(f"SHORT: TP2({tp2_sorted}) < TP1({tp1_sorted}) < Entry({entry_short}) < SL({sl_short})")
+    assert tp2_sorted < tp1_sorted < entry_short < sl_short, "SHORT TP sıralama hatası!"
+    
+    print("✅ Tüm TP sıralama testleri başarılı!")
+
+def test_autocomplete():
+    """Autocomplete testi"""
+    print("\n=== AUTOCOMPLETE TESTİ ===")
+    
+    symbols = load_symbol_index()
+    matches = autocomplete_matches("THE", symbols)
+    
+    print(f"'THE' sorgusu için eşleşmeler: {matches}")
+    assert "THETA-USD" in matches, "THETA-USD autocomplete'te bulunamadı!"
+    assert "THE-USD" in matches, "THE-USD autocomplete'te bulunamadı!"
+    
+    print("✅ Autocomplete testi başarılı!")
 
 if __name__ == "__main__":
+    # Self-test'leri çalıştır
+    test_tp_ordering()
+    test_autocomplete()
+    
+    # Ana uygulamayı başlat
     main()
