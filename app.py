@@ -44,18 +44,14 @@ with st.sidebar:
     col1, col2 = st.columns(2)
     with col1:
         if st.button("BTC-USD", use_container_width=True):
-            st.session_state.crypto_symbol = "BTC-USD"
+            crypto_symbol = "BTC-USD"
         if st.button("ETH-USD", use_container_width=True):
-            st.session_state.crypto_symbol = "ETH-USD"
+            crypto_symbol = "ETH-USD"
     with col2:
         if st.button("ADA-USD", use_container_width=True):
-            st.session_state.crypto_symbol = "ADA-USD"
+            crypto_symbol = "ADA-USD"
         if st.button("XRP-USD", use_container_width=True):
-            st.session_state.crypto_symbol = "XRP-USD"
-    
-    # Session state'ten sembolü al
-    if 'crypto_symbol' in st.session_state:
-        crypto_symbol = st.session_state.crypto_symbol
+            crypto_symbol = "XRP-USD"
     
     lookback_period = st.slider("Analiz Periyodu (Gün)", 30, 200, 100)
     
@@ -68,18 +64,25 @@ with st.sidebar:
 # Fiyat formatlama fonksiyonu
 def format_price(price):
     """Fiyatı uygun formatta göster"""
-    if price >= 1000:
-        return f"${price:,.2f}"
-    elif price >= 1:
-        return f"${price:.3f}"
-    elif price >= 0.1:
-        return f"${price:.4f}"
-    elif price >= 0.01:
-        return f"${price:.5f}"
-    else:
-        return f"${price:.6f}"
+    if price is None or np.isnan(price):
+        return "N/A"
+    
+    try:
+        price = float(price)
+        if price >= 1000:
+            return f"${price:,.2f}"
+        elif price >= 1:
+            return f"${price:.3f}"
+        elif price >= 0.1:
+            return f"${price:.4f}"
+        elif price >= 0.01:
+            return f"${price:.5f}"
+        else:
+            return f"${price:.6f}"
+    except (ValueError, TypeError):
+        return "N/A"
 
-# Veri çekme - SON 3 GÜN için
+# Veri çekme
 @st.cache_data
 def get_4h_data(symbol, days):
     try:
@@ -90,7 +93,7 @@ def get_4h_data(symbol, days):
         
         data = yf.download(symbol, period=f"{days}d", interval="4h", progress=False)
         
-        if data.empty:
+        if data.empty or len(data) == 0:
             st.error(f"❌ {symbol} için veri bulunamadı!")
             return None
             
@@ -101,6 +104,9 @@ def get_4h_data(symbol, days):
 
 # Teknik göstergeler
 def calculate_indicators(data, ema_period=50, rsi_period=14):
+    if data is None or len(data) == 0:
+        return data
+        
     df = data.copy()
     
     # EMA
@@ -119,23 +125,36 @@ def calculate_indicators(data, ema_period=50, rsi_period=14):
 def find_congestion_zones(data, lookback=80, min_touch_points=3):
     """Fiyatın en çok zaman geçirdiği yoğunluk alanlarını bul"""
     try:
+        if data is None or len(data) == 0:
+            return [], []
+            
         df = data.tail(lookback).copy()
+        
+        if len(df) == 0:
+            return [], []
         
         # Tüm önemli fiyat noktaları (kapanış, high, low)
         price_levels = []
         for i in range(len(df)):
-            price_levels.extend([
-                float(df['Close'].iloc[i]),
-                float(df['High'].iloc[i]),
-                float(df['Low'].iloc[i])
-            ])
+            try:
+                price_levels.extend([
+                    float(df['Close'].iloc[i]),
+                    float(df['High'].iloc[i]),
+                    float(df['Low'].iloc[i])
+                ])
+            except (ValueError, IndexError):
+                continue
         
-        price_levels = sorted(price_levels)
         if not price_levels:
             return [], []
+            
+        price_levels = sorted(price_levels)
         
         # Yoğunluk analizi
         price_range = max(price_levels) - min(price_levels)
+        if price_range == 0:
+            return [], []
+            
         bin_size = price_range * 0.01  # %1'lik bölgeler
         
         bins = {}
@@ -161,9 +180,12 @@ def find_congestion_zones(data, lookback=80, min_touch_points=3):
                 })
         
         # Destek ve direnç olarak ayır
-        current_price = float(df['Close'].iloc[-1])
-        support_zones = [zone for zone in congestion_zones if zone['price'] < current_price]
-        resistance_zones = [zone for zone in congestion_zones if zone['price'] > current_price]
+        try:
+            current_price = float(df['Close'].iloc[-1])
+            support_zones = [zone for zone in congestion_zones if zone['price'] < current_price]
+            resistance_zones = [zone for zone in congestion_zones if zone['price'] > current_price]
+        except (ValueError, IndexError):
+            return [], []
         
         # Güçlü olanları seç ve SIRALI olarak düzenle
         support_zones = sorted(support_zones, key=lambda x: x['price'], reverse=True)[:5]  # Yüksekten düşüğe
@@ -179,6 +201,9 @@ def find_congestion_zones(data, lookback=80, min_touch_points=3):
 def analyze_wicks(data, zone_price, tolerance_percent=1.0):
     """Belirli bir fiyat bölgesindeki fitil tepkilerini analiz et"""
     try:
+        if data is None or len(data) == 0:
+            return 0, 0
+            
         df = data.tail(50).copy()  # Son 50 mum
         tolerance = zone_price * (tolerance_percent / 100)
         
@@ -186,122 +211,143 @@ def analyze_wicks(data, zone_price, tolerance_percent=1.0):
         strong_rejections = 0
         
         for i in range(len(df)):
-            high = float(df['High'].iloc[i])
-            low = float(df['Low'].iloc[i])
-            close = float(df['Close'].iloc[i])
-            open_price = float(df['Open'].iloc[i])
-            
-            # Bölgeye yakın mı?
-            if abs(high - zone_price) <= tolerance or abs(low - zone_price) <= tolerance:
-                reactions += 1
+            try:
+                high = float(df['High'].iloc[i])
+                low = float(df['Low'].iloc[i])
+                close = float(df['Close'].iloc[i])
+                open_price = float(df['Open'].iloc[i])
                 
-                # Güçlü reddetme sinyali kontrolü
-                # Uzun üst fitil (direnç reddi)
-                if high > zone_price and (high - max(open_price, close)) > (abs(open_price - close)) * 1.5:
-                    strong_rejections += 1
-                # Uzun alt fitil (destek reddi)
-                elif low < zone_price and (min(open_price, close) - low) > (abs(open_price - close)) * 1.5:
-                    strong_rejections += 1
+                # Bölgeye yakın mı?
+                if abs(high - zone_price) <= tolerance or abs(low - zone_price) <= tolerance:
+                    reactions += 1
+                    
+                    # Güçlü reddetme sinyali kontrolü
+                    # Uzun üst fitil (direnç reddi)
+                    if high > zone_price and (high - max(open_price, close)) > (abs(open_price - close)) * 1.5:
+                        strong_rejections += 1
+                    # Uzun alt fitil (destek reddi)
+                    elif low < zone_price and (min(open_price, close) - low) > (abs(open_price - close)) * 1.5:
+                        strong_rejections += 1
+            except (ValueError, IndexError):
+                continue
         
         return reactions, strong_rejections
         
     except Exception as e:
         return 0, 0
 
-# YENİ MUM GRAFİĞİ - KESİN ÇALIŞAN
+# Mum grafiği oluşturma
 def create_candlestick_chart_manual(data, support_zones, resistance_zones, crypto_symbol):
-    """MANUEL MUM ÇİZİMİ - KESİN ÇALIŞIR"""
+    """MANUEL MUM ÇİZİMİ"""
     
     fig = go.Figure()
     
+    if data is None or len(data) == 0:
+        return fig
+    
     # HER MUMU AYRI AYRI ÇİZ
     for i in range(len(data)):
-        row = data.iloc[i]
-        open_price = float(row['Open'])
-        high = float(row['High'])
-        low = float(row['Low'])
-        close_price = float(row['Close'])
-        
-        # Renk belirle: Kapanış > Açılış ise yeşil, değilse kırmızı
-        color = '#00C805' if close_price > open_price else '#FF0000'
-        
-        # MUM GÖVDESİ (kalın dikdörtgen)
-        fig.add_trace(go.Scatter(
-            x=[data.index[i], data.index[i]],
-            y=[open_price, close_price],
-            mode='lines',
-            line=dict(color=color, width=10),
-            showlegend=False
-        ))
-        
-        # ÜST İĞNE (High)
-        fig.add_trace(go.Scatter(
-            x=[data.index[i], data.index[i]],
-            y=[max(open_price, close_price), high],
-            mode='lines',
-            line=dict(color=color, width=2),
-            showlegend=False
-        ))
-        
-        # ALT İĞNE (Low)
-        fig.add_trace(go.Scatter(
-            x=[data.index[i], data.index[i]],
-            y=[min(open_price, close_price), low],
-            mode='lines',
-            line=dict(color=color, width=2),
-            showlegend=False
-        ))
+        try:
+            row = data.iloc[i]
+            open_price = float(row['Open'])
+            high = float(row['High'])
+            low = float(row['Low'])
+            close_price = float(row['Close'])
+            
+            # Renk belirle: Kapanış > Açılış ise yeşil, değilse kırmızı
+            color = '#00C805' if close_price > open_price else '#FF0000'
+            
+            # MUM GÖVDESİ (kalın dikdörtgen)
+            fig.add_trace(go.Scatter(
+                x=[data.index[i], data.index[i]],
+                y=[open_price, close_price],
+                mode='lines',
+                line=dict(color=color, width=10),
+                showlegend=False
+            ))
+            
+            # ÜST İĞNE (High)
+            fig.add_trace(go.Scatter(
+                x=[data.index[i], data.index[i]],
+                y=[max(open_price, close_price), high],
+                mode='lines',
+                line=dict(color=color, width=2),
+                showlegend=False
+            ))
+            
+            # ALT İĞNE (Low)
+            fig.add_trace(go.Scatter(
+                x=[data.index[i], data.index[i]],
+                y=[min(open_price, close_price), low],
+                mode='lines',
+                line=dict(color=color, width=2),
+                showlegend=False
+            ))
+        except (ValueError, IndexError):
+            continue
     
     # EMA çizgisi
     if 'EMA' in data.columns:
-        fig.add_trace(go.Scatter(
-            x=data.index,
-            y=data['EMA'],
-            name=f'EMA {ema_period}',
-            line=dict(color='orange', width=2)
-        ))
+        try:
+            fig.add_trace(go.Scatter(
+                x=data.index,
+                y=data['EMA'],
+                name=f'EMA {ema_period}',
+                line=dict(color='orange', width=2)
+            ))
+        except Exception:
+            pass
+    
+    # Mevcut fiyat çizgisi
+    try:
+        current_price = float(data['Close'].iloc[-1])
+        fig.add_hline(
+            y=current_price,
+            line_dash="dot",
+            line_color="yellow",
+            line_width=2,
+            opacity=0.7,
+            annotation_text=f"Şimdi: {format_price(current_price)}",
+            annotation_position="left",
+            annotation_font_size=12,
+            annotation_font_color="yellow"
+        )
+    except (ValueError, IndexError):
+        pass
     
     # DESTEK çizgileri
     for i, zone in enumerate(support_zones[:3]):
-        fig.add_hline(
-            y=zone['price'],
-            line_dash="solid",
-            line_color="#00FF00",
-            line_width=3,
-            opacity=0.8,
-            annotation_text=f"S{i+1}",
-            annotation_position="left",
-            annotation_font_size=14,
-            annotation_font_color="#00FF00"
-        )
+        try:
+            fig.add_hline(
+                y=zone['price'],
+                line_dash="solid",
+                line_color="#00FF00",
+                line_width=3,
+                opacity=0.8,
+                annotation_text=f"S{i+1}",
+                annotation_position="left",
+                annotation_font_size=14,
+                annotation_font_color="#00FF00"
+            )
+        except Exception:
+            continue
     
     # DİRENÇ çizgileri
     for i, zone in enumerate(resistance_zones[:3]):
-        fig.add_hline(
-            y=zone['price'],
-            line_dash="solid",
-            line_color="#FF0000",
-            line_width=3,
-            opacity=0.8,
-            annotation_text=f"R{i+1}",
-            annotation_position="right",
-            annotation_font_size=14,
-            annotation_font_color="#FF0000"
-        )
-    
-    # Mevcut fiyat çizgisi
-    current_price = float(data['Close'].iloc[-1])
-    fig.add_hline(
-        y=current_price,
-        line_dash="dot",
-        line_color="yellow",
-        line_width=2,
-        opacity=0.7,
-        annotation_text=f"Şimdi: {format_price(current_price)}",
-        annotation_position="left",
-        annotation_font_size=12,
-        annotation_font_color="yellow"
-    )
+        try:
+            fig.add_hline(
+                y=zone['price'],
+                line_dash="solid",
+                line_color="#FF0000",
+                line_width=3,
+                opacity=0.8,
+                annotation_text=f"R{i+1}",
+                annotation_position="right",
+                annotation_font_size=14,
+                annotation_font_color="#FF0000"
+            )
+        except Exception:
+            continue
     
     # Grafik ayarları
     fig.update_layout(
@@ -326,7 +372,8 @@ def generate_trading_signals(data, support_zones, resistance_zones, ema_period=5
     signals = []
     analysis_details = []
     
-    if len(data) < ema_period + 10:
+    if data is None or len(data) < ema_period + 10:
+        analysis_details.append("❌ Yetersiz veri - analiz yapılamıyor")
         return signals, analysis_details
     
     try:
@@ -496,25 +543,24 @@ def generate_trading_signals(data, support_zones, resistance_zones, ema_period=5
         
     except Exception as e:
         st.error(f"Sinyal üretim hatası: {e}")
-        return [], []
+        analysis_details.append(f"❌ Sinyal üretim hatası: {e}")
+        return [], analysis_details
 
 # Ana uygulama
 def main():
-    # Veri yükleme - SON 3 GÜN
+    # Veri yükleme
     with st.spinner(f'⏳ {crypto_symbol} için 4 saatlik veriler yükleniyor...'):
-        data_3days = get_4h_data(crypto_symbol, days=3)
         data_full = get_4h_data(crypto_symbol, days=lookback_period)
     
-    if data_3days is None or data_3days.empty or data_full is None or data_full.empty:
+    if data_full is None or data_full.empty:
         st.error(f"❌ {crypto_symbol} için veri yüklenemedi!")
         st.info("💡 Lütfen geçerli bir kripto sembolü girin (Örnek: BTC-USD, ETH-USD, XRP-USD)")
         return
     
-    st.success(f"✅ {crypto_symbol} için {len(data_3days)} adet 4 saatlik mum verisi yüklendi")
+    st.success(f"✅ {crypto_symbol} için {len(data_full)} adet 4 saatlik mum verisi yüklendi")
     
     # Göstergeleri hesapla
     data_full = calculate_indicators(data_full, ema_period, rsi_period)
-    data_3days = calculate_indicators(data_3days, ema_period, rsi_period)
     
     # Yoğunluk bölgelerini bul (SIRALI olarak)
     support_zones, resistance_zones = find_congestion_zones(data_full, min_touch_points=min_touch_points)
@@ -525,9 +571,14 @@ def main():
     )
     
     # Mevcut durum
-    current_price = float(data_full['Close'].iloc[-1])
-    ema_value = float(data_full['EMA'].iloc[-1])
-    rsi_value = float(data_full['RSI'].iloc[-1])
+    try:
+        current_price = float(data_full['Close'].iloc[-1])
+        ema_value = float(data_full['EMA'].iloc[-1])
+        rsi_value = float(data_full['RSI'].iloc[-1])
+    except (ValueError, IndexError):
+        current_price = 0
+        ema_value = 0
+        rsi_value = 0
     
     # Layout
     col1, col2 = st.columns([3, 1])
@@ -535,8 +586,8 @@ def main():
     with col1:
         st.subheader(f"📈 {crypto_symbol} - 4 Saatlik Profesyonel Mum Analizi")
         
-        # YENİ MUM GRAFİĞİNİ GÖSTER - KESİN ÇALIŞAN
-        chart_fig = create_candlestick_chart_manual(data_3days, support_zones, resistance_zones, crypto_symbol)
+        # MUM GRAFİĞİNİ GÖSTER
+        chart_fig = create_candlestick_chart_manual(data_full.tail(100), support_zones, resistance_zones, crypto_symbol)
         st.plotly_chart(chart_fig, use_container_width=True)
         
         st.info("""
