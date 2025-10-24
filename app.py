@@ -4,6 +4,8 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
+import base64
+from io import BytesIO
 
 st.set_page_config(page_title="4Saatlik Profesyonel TA", layout="wide")
 
@@ -166,8 +168,8 @@ def find_congestion_zones(data, lookback=80, min_touch_points=3):
         resistance_zones = [zone for zone in congestion_zones if zone['price'] > current_price]
         
         # Güçlü olanları seç ve SIRALI olarak düzenle
-        support_zones = sorted(support_zones, key=lambda x: x['price'], reverse=True)[:5]  # Yüksekten düşüğe
-        resistance_zones = sorted(resistance_zones, key=lambda x: x['price'])[:5]  # Düşükten yükseğe
+        support_zones = sorted(support_zones, key=lambda x: x['price'], reverse=True)[:3]  # Yüksekten düşüğe
+        resistance_zones = sorted(resistance_zones, key=lambda x: x['price'])[:3]  # Düşükten yükseğe
         
         return support_zones, resistance_zones
         
@@ -386,9 +388,9 @@ def generate_trading_signals(data, support_zones, resistance_zones, ema_period=5
         st.error(f"Sinyal üretim hatası: {e}")
         return [], []
 
-# Sabit boyutlu mum grafiği oluşturma
-def create_fixed_size_candlestick_chart(data, crypto_symbol):
-    """Sabit boyutlu mum grafiği oluştur"""
+# Fotoğraf formatında mum grafiği oluşturma (destek/direnç çizgileriyle)
+def create_candlestick_chart_with_levels(data, support_zones, resistance_zones, crypto_symbol):
+    """Fotoğraf formatında mum grafiği oluştur - destek/direnç çizgileriyle"""
     
     # Grafik oluştur
     fig = go.Figure()
@@ -400,43 +402,73 @@ def create_fixed_size_candlestick_chart(data, crypto_symbol):
         high=data['High'],
         low=data['Low'],
         close=data['Close'],
-        name=crypto_symbol,
-        increasing_line_color='#26a69a',  # Profesyonel yeşil
-        decreasing_line_color='#ef5350',   # Profesyonel kırmızı
-        increasing_fillcolor='#26a69a',
-        decreasing_fillcolor='#ef5350',
-        line=dict(width=1.2),
-        whiskerwidth=0.8  # İğnelerin genişliği
+        name='Price',
+        increasing_line_color='#00C805',  # Canlı yeşil
+        decreasing_line_color='#FF0000',   # Canlı kırmızı
+        increasing_fillcolor='#00C805',
+        decreasing_fillcolor='#FF0000',
+        line=dict(width=1.5),
+        whiskerwidth=0.8
     ))
     
-    # Grafik ayarları - SABİT BOYUT
+    # DESTEK çizgileri - KALIN yeşil çizgiler
+    for i, zone in enumerate(support_zones):
+        level_name = f"S{i+1}"
+        fig.add_hline(
+            y=zone['price'],
+            line_dash="solid",
+            line_color="#00FF00",  # Parlak yeşil
+            line_width=3,  # Kalın çizgi
+            opacity=0.9,
+            annotation_text=level_name,
+            annotation_position="left",
+            annotation_font_size=14,
+            annotation_font_color="#00FF00"
+        )
+    
+    # DİRENÇ çizgileri - KALIN kırmızı çizgiler
+    for i, zone in enumerate(resistance_zones):
+        level_name = f"R{i+1}"
+        fig.add_hline(
+            y=zone['price'],
+            line_dash="solid",
+            line_color="#FF0000",  # Parlak kırmızı
+            line_width=3,  # Kalın çizgi
+            opacity=0.9,
+            annotation_text=level_name,
+            annotation_position="right",
+            annotation_font_size=14,
+            annotation_font_color="#FF0000"
+        )
+    
+    # Grafik ayarları - FOTOĞRAF FORMATI
     fig.update_layout(
-        width=1000,  # Sabit genişlik
-        height=500,  # Sabit yükseklik
+        width=1200,  # Sabit genişlik
+        height=700,  # Sabit yükseklik
         title={
             'text': f"{crypto_symbol} - Son 3 Günlük 4 Saatlik Mum Grafiği",
             'x': 0.5,
             'xanchor': 'center',
-            'font': {'size': 20, 'color': 'white'}
+            'font': {'size': 24, 'color': 'white', 'family': 'Arial Black'}
         },
-        xaxis_title="Tarih",
+        xaxis_title="",
         yaxis_title="Fiyat (USD)",
         showlegend=False,
         xaxis_rangeslider_visible=False,
-        plot_bgcolor='#1e1e1e',
-        paper_bgcolor='#1e1e1e',
-        font=dict(color='white', size=12),
+        plot_bgcolor='#0E1117',  # Streamlit arka plan rengi
+        paper_bgcolor='#0E1117',
+        font=dict(color='white', size=12, family='Arial'),
         xaxis=dict(
             gridcolor='#444',
-            tickfont=dict(size=11),
-            title_font=dict(size=14)
+            tickfont=dict(size=12),
+            showgrid=True
         ),
         yaxis=dict(
             gridcolor='#444',
-            tickfont=dict(size=11),
-            title_font=dict(size=14)
+            tickfont=dict(size=12),
+            showgrid=True
         ),
-        margin=dict(l=60, r=60, t=80, b=60)  # Sabit margin
+        margin=dict(l=80, r=80, t=100, b=80)
     )
     
     # X ekseni ayarları
@@ -477,30 +509,35 @@ def main():
     ema_value = float(data_full['EMA'].iloc[-1])
     rsi_value = float(data_full['RSI'].iloc[-1])
     
-    # Layout
+    # Ana içerik
     col1, col2 = st.columns([3, 1])
     
     with col1:
         st.subheader(f"📈 {crypto_symbol} - Son 3 Günlük 4 Saatlik Mum Grafiği")
         
-        # Sabit boyutlu mum grafiği oluştur
-        chart_fig = create_fixed_size_candlestick_chart(data_3days, crypto_symbol)
+        # Fotoğraf formatında mum grafiği oluştur (DESTEK/DİRENÇ çizgileriyle)
+        chart_fig = create_candlestick_chart_with_levels(data_3days, support_zones, resistance_zones, crypto_symbol)
         
-        # Grafiği sabit boyutlu ve etkileşimsiz göster
+        # Grafiği FOTOĞRAF gibi göster - sabit boyutlu ve etkileşimsiz
         st.plotly_chart(chart_fig, use_container_width=False, config={
-            'displayModeBar': False,  # Araç çubuğunu gizle
-            'staticPlot': False,      # Küçük etkileşimlere izin ver
+            'displayModeBar': False,  # Araç çubuğunu tamamen gizle
+            'staticPlot': True,       # Tamamen statik - fotoğraf gibi
             'responsive': False       # Responsive özelliği kapat
         })
         
-        # Grafik bilgisi
-        st.info("""
-        **📊 Grafik Özellikleri:**
-        - Son 3 günlük 4 saatlik mumlar
-        - Sabit boyut (küçültme/büyütme yok)
-        - Net yeşil/kırmızı iğneler
-        - Profesyonel trading görünümü
-        """)
+        # Grafik açıklaması
+        st.markdown("""
+        <div style='background-color: #1e1e1e; padding: 15px; border-radius: 10px; border-left: 4px solid #00C805;'>
+        <h4 style='color: white; margin: 0;'>📊 Grafik Açıklaması:</h4>
+        <ul style='color: white; margin: 10px 0 0 0;'>
+            <li><strong style='color: #00C805'>🟢 Yeşil Mumlar:</strong> Yükseliş - Kapanış > Açılış</li>
+            <li><strong style='color: #FF0000'>🔴 Kırmızı Mumlar:</strong> Düşüş - Kapanış < Açılış</li>
+            <li><strong style='color: #00FF00'>🟢 S1, S2, S3:</strong> Destek Seviyeleri (Yeşil Çizgiler)</li>
+            <li><strong style='color: #FF0000'>🔴 R1, R2, R3:</strong> Direnç Seviyeleri (Kırmızı Çizgiler)</li>
+            <li><strong>📈 İğneler (Wicks):</strong> Fiyatın hareket alanını gösterir</li>
+        </ul>
+        </div>
+        """, unsafe_allow_html=True)
     
     with col2:
         st.subheader("🎯 TRADING SİNYALLERİ")
@@ -543,14 +580,14 @@ def main():
         st.subheader("💎 SEVİYELER")
         
         st.write("**🟢 DESTEK (S1→S3):**")
-        for i, zone in enumerate(support_zones[:3]):
+        for i, zone in enumerate(support_zones):
             level_name = f"S{i+1}"
-            st.write(f"{level_name}: {format_price(zone['price'])}")
+            st.write(f"**{level_name}:** {format_price(zone['price'])}")
         
         st.write("**🔴 DİRENÇ (R1→R3):**")
-        for i, zone in enumerate(resistance_zones[:3]):
+        for i, zone in enumerate(resistance_zones):
             level_name = f"R{i+1}"
-            st.write(f"{level_name}: {format_price(zone['price'])}")
+            st.write(f"**{level_name}:** {format_price(zone['price'])}")
     
     # Detaylı analiz
     st.subheader("🔍 DETAYLI ANALİZ RAPORU")
