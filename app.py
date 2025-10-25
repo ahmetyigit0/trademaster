@@ -275,7 +275,7 @@ def generate_max_winrate_signals(d: pd.DataFrame,
                         "Overbought + Resistance reject",
                         f"RSI {rsi:.1f} (overbought)",
                         f"EMA50 hedef: {format_price(ema50)}",
-"Risk/Reward: {                        f"Risk/Reward: {rr:.22f}:1f}:1",
+"Risk/Reward: {                        f"Risk/Reward: {rr:.2f}:1",
                         "",
                         "Range market optimizRange market optimizasyonu"
 asyonu"
