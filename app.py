@@ -5,7 +5,6 @@ import numpy as np
 import plotly.graph_objects as go
 import datetime
 import time
-from typing import Dict, List
 
 # Sayfa ayarı
 st.set_page_config(
@@ -24,12 +23,12 @@ class CryptoStrategy:
         self.initial_capital = initial_capital
         self.results = {}
         
-    def calculate_simple_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Basit teknik göstergeleri hesapla"""
+    def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Teknik göstergeleri hesapla"""
         try:
             df = df.copy()
             
-            # Basit RSI hesaplama
+            # RSI hesaplama
             delta = df['Close'].diff()
             gain = delta.where(delta > 0, 0)
             loss = -delta.where(delta < 0, 0)
@@ -38,7 +37,7 @@ class CryptoStrategy:
             rs = avg_gain / avg_loss
             df['RSI'] = 100 - (100 / (1 + rs))
             
-            # Basit EMA'lar
+            # EMA'lar
             df['EMA_9'] = df['Close'].ewm(span=9, adjust=False).mean()
             df['EMA_21'] = df['Close'].ewm(span=21, adjust=False).mean()
             
@@ -47,31 +46,28 @@ class CryptoStrategy:
             st.error(f"Göstergeler hesaplanırken hata: {e}")
             return df
     
-    def generate_simple_signals(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Basit alım-satım sinyalleri oluştur"""
+    def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Alım-satım sinyalleri oluştur"""
         try:
             df = df.copy()
             df['Signal'] = 0  # 0: Bekle, 1: Long, -1: Short
             
-            # NaN değerleri temizle
-            df = df.fillna(0)
-            
             # Her satır için tek tek kontrol et
             for i in range(len(df)):
                 try:
-                    rsi = df['RSI'].iloc[i]
-                    ema_9 = df['EMA_9'].iloc[i]
-                    ema_21 = df['EMA_21'].iloc[i]
+                    rsi = float(df['RSI'].iloc[i])
+                    ema_9 = float(df['EMA_9'].iloc[i])
+                    ema_21 = float(df['EMA_21'].iloc[i])
                     
                     # Long koşulu: RSI < 40 ve EMA9 > EMA21
                     if rsi < 40 and ema_9 > ema_21:
-                        df.iloc[i, df.columns.get_loc('Signal')] = 1
+                        df.loc[df.index[i], 'Signal'] = 1
                     
                     # Short koşulu: RSI > 60 ve EMA9 < EMA21
                     elif rsi > 60 and ema_9 < ema_21:
-                        df.iloc[i, df.columns.get_loc('Signal')] = -1
+                        df.loc[df.index[i], 'Signal'] = -1
                         
-                except:
+                except Exception:
                     continue
                     
             return df
@@ -80,8 +76,8 @@ class CryptoStrategy:
             df['Signal'] = 0
             return df
     
-    def backtest_simple_strategy(self, df: pd.DataFrame, progress_bar) -> Dict:
-        """Basit stratejiyi backtest et"""
+    def backtest_strategy(self, df: pd.DataFrame, progress_bar) -> dict:
+        """Stratejiyi backtest et"""
         try:
             capital = self.initial_capital
             position = 0  # 0: Pozisyon yok, 1: Long, -1: Short
@@ -90,7 +86,6 @@ class CryptoStrategy:
             total_trades = 0
             winning_trades = 0
             
-            # İlerleme çubuğu için
             total_rows = len(df)
             
             for i in range(len(df)):
@@ -98,17 +93,15 @@ class CryptoStrategy:
                 if i % 10 == 0 and total_rows > 0:
                     progress_bar.progress(min(i / total_rows, 1.0))
                 
-                row = df.iloc[i]
-                current_price = row['Close']
-                signal = row['Signal']
                 current_date = df.index[i]
+                current_price = float(df['Close'].iloc[i])
+                signal = int(df['Signal'].iloc[i])
                 
-                # Pozisyon açma/kapama
+                # Pozisyon açma
                 if position == 0 and signal != 0:
-                    # Yeni pozisyon aç
                     position = signal
                     entry_price = current_price
-                    trade_size = min(capital * 0.1, capital)  # %10 risk
+                    trade_size = min(capital * 0.1, capital)
                     entry_capital = trade_size
                     total_trades += 1
                     
@@ -123,33 +116,22 @@ class CryptoStrategy:
                         'status': 'OPEN',
                         'pnl_percent': 0
                     })
-                    
-                elif position != 0 and len(trades) > 0:
+                
+                # Pozisyon kapatma
+                elif position != 0:
                     current_trade = trades[-1]
                     
-                    # Kar alma/zarar kesme
                     if position == 1:  # Long pozisyon
                         pnl_percent = (current_price - entry_price) / entry_price
-                        stop_loss = -0.05  # %5 stop loss
-                        take_profit = 0.08  # %8 take profit
                         
-                        # Pozisyon kapatma koşulları - tek tek kontrol
-                        should_close = False
-                        if pnl_percent <= stop_loss:
-                            should_close = True
-                        elif pnl_percent >= take_profit:
-                            should_close = True
-                        elif signal == -1:
-                            should_close = True
-                        
-                        if should_close:
-                            # Pozisyonu kapat
-                            pnl_amount = current_trade['entry_capital'] * pnl_percent
+                        # Kapatma koşulları
+                        if pnl_percent <= -0.05 or pnl_percent >= 0.08 or signal == -1:
+                            pnl_amount = entry_capital * pnl_percent
                             capital += pnl_amount
                             
                             if pnl_amount > 0:
                                 winning_trades += 1
-                                
+                            
                             trades[-1].update({
                                 'exit_time': current_date,
                                 'exit_price': current_price,
@@ -159,29 +141,18 @@ class CryptoStrategy:
                             })
                             position = 0
                             entry_price = 0
-                            
+                    
                     elif position == -1:  # Short pozisyon
                         pnl_percent = (entry_price - current_price) / entry_price
-                        stop_loss = -0.05  # %5 stop loss
-                        take_profit = 0.08  # %8 take profit
                         
-                        # Pozisyon kapatma koşulları - tek tek kontrol
-                        should_close = False
-                        if pnl_percent <= stop_loss:
-                            should_close = True
-                        elif pnl_percent >= take_profit:
-                            should_close = True
-                        elif signal == 1:
-                            should_close = True
-                        
-                        if should_close:
-                            # Pozisyonu kapat
-                            pnl_amount = current_trade['entry_capital'] * pnl_percent
+                        # Kapatma koşulları
+                        if pnl_percent <= -0.05 or pnl_percent >= 0.08 or signal == 1:
+                            pnl_amount = entry_capital * pnl_percent
                             capital += pnl_amount
                             
                             if pnl_amount > 0:
                                 winning_trades += 1
-                                
+                            
                             trades[-1].update({
                                 'exit_time': current_date,
                                 'exit_price': current_price,
@@ -192,32 +163,32 @@ class CryptoStrategy:
                             position = 0
                             entry_price = 0
             
-            # Son işlemde açık pozisyon varsa kapat
-            if position != 0 and len(trades) > 0:
+            # Açık pozisyonları kapat
+            if position != 0 and trades:
                 current_trade = trades[-1]
-                if current_trade['status'] == 'OPEN':
-                    last_price = df['Close'].iloc[-1]
-                    if position == 1:
-                        pnl_percent = (last_price - entry_price) / entry_price
-                    else:
-                        pnl_percent = (entry_price - last_price) / entry_price
-                    
-                    pnl_amount = current_trade['entry_capital'] * pnl_percent
-                    capital += pnl_amount
-                    
-                    if pnl_amount > 0:
-                        winning_trades += 1
-                    
-                    trades[-1].update({
-                        'exit_time': df.index[-1],
-                        'exit_price': last_price,
-                        'pnl': pnl_amount,
-                        'status': 'CLOSED',
-                        'pnl_percent': pnl_percent * 100
-                    })
+                last_price = float(df['Close'].iloc[-1])
+                
+                if position == 1:
+                    pnl_percent = (last_price - entry_price) / entry_price
+                else:
+                    pnl_percent = (entry_price - last_price) / entry_price
+                
+                pnl_amount = current_trade['entry_capital'] * pnl_percent
+                capital += pnl_amount
+                
+                if pnl_amount > 0:
+                    winning_trades += 1
+                
+                trades[-1].update({
+                    'exit_time': df.index[-1],
+                    'exit_price': last_price,
+                    'pnl': pnl_amount,
+                    'status': 'CLOSED',
+                    'pnl_percent': pnl_percent * 100
+                })
             
             # Sonuçları hesapla
-            final_capital = max(capital, 0)  # Sermaye negatif olamaz
+            final_capital = max(capital, 0)
             total_return = ((final_capital - self.initial_capital) / self.initial_capital) * 100
             win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
             
@@ -225,6 +196,9 @@ class CryptoStrategy:
             total_profit = sum(trade['pnl'] for trade in trades if trade['pnl'] > 0)
             total_loss = abs(sum(trade['pnl'] for trade in trades if trade['pnl'] < 0))
             profit_factor = total_profit / total_loss if total_loss > 0 else float('inf')
+            
+            # Equity curve
+            equity_curve = self.calculate_equity_curve(trades)
             
             self.results = {
                 'initial_capital': self.initial_capital,
@@ -235,13 +209,13 @@ class CryptoStrategy:
                 'win_rate': win_rate,
                 'profit_factor': profit_factor,
                 'trades': trades,
-                'equity_curve': self.calculate_equity_curve(trades)
+                'equity_curve': equity_curve
             }
             
             return self.results
             
         except Exception as e:
-            st.error(f"Backtest sırasında hata: {e}")
+            st.error(f"Backtest sırasında hata: {str(e)}")
             return {
                 'initial_capital': self.initial_capital,
                 'final_capital': self.initial_capital,
@@ -254,14 +228,14 @@ class CryptoStrategy:
                 'equity_curve': pd.DataFrame({'Date': [], 'Equity': []})
             }
     
-    def calculate_equity_curve(self, trades: List[Dict]) -> pd.DataFrame:
+    def calculate_equity_curve(self, trades: list) -> pd.DataFrame:
         """Equity curve hesapla"""
         try:
             if not trades:
                 return pd.DataFrame({'Date': [], 'Equity': []})
-                
+            
             equity = [self.initial_capital]
-            dates = [trades[0]['entry_time']]  # İlk işlem tarihi
+            dates = [trades[0]['entry_time']]
             
             current_capital = self.initial_capital
             
@@ -395,15 +369,15 @@ if st.button("🎯 Backtest Simülasyonunu Başlat", type="primary", use_contain
                 
                 # Göstergeleri hesapla
                 status_text.text("Teknik göstergeler hesaplanıyor...")
-                data_with_indicators = strategy.calculate_simple_indicators(data)
+                data_with_indicators = strategy.calculate_indicators(data)
                 
                 # Sinyalleri oluştur
                 status_text.text("Alım-satım sinyalleri oluşturuluyor...")
-                data_with_signals = strategy.generate_simple_signals(data_with_indicators)
+                data_with_signals = strategy.generate_signals(data_with_indicators)
                 
                 # Backtest yap
                 status_text.text("Strateji backtest ediliyor...")
-                results = strategy.backtest_simple_strategy(data_with_signals, progress_bar)
+                results = strategy.backtest_strategy(data_with_signals, progress_bar)
                 
                 end_time = time.time()
                 calculation_time = end_time - start_time
