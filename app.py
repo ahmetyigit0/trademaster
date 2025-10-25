@@ -535,67 +535,35 @@ if st.button("🎯 Backtest Simülasyonunu Başlat", type="primary", use_contain
                         max_loss = trades_df['pnl'].min()
                         total_pnl = trades_df['pnl'].sum()
                         
-                        stat_col1, stat_col2, stat_col3, stat_col_col2, stat_col3, stat_col4 = st.columns4 = st.columns(4)
-                        with stat_col(4)
+                        stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
                         with stat_col1:
-1:
-                            st.metric("Ortal                            st.metric("Ortalama Kar/Zama Kar/Zarar", farar", f"${"${avg_profitavg_profit:.2f:.2f}")
-                        with stat_col}")
+                            st.metric("Ortalama Kar/Zarar", f"${avg_profit:.2f}")
                         with stat_col2:
-2:
-                            st.metric("                            st.metric("MaksMaksimum Kar", fimum Kar", f"${max"${max_profit:.2_profit:.2f}")
-                       f}")
-                        with stat_col3 with stat_col3:
-                            st.m:
-                            st.metric("Maksimum Zarar", f"${max_loss:.2fetric("Maksimum Zarar", f"${max_loss:.2f}")
-}")
-                        with stat_col4                        with stat_col4:
-:
-                            st.metric("                            st.metric("Toplam Kar/Zarar",Toplam Kar/Zarar", f"${total_pnl f"${total_pnl:.:.2f}")
+                            st.metric("Maksimum Kar", f"${max_profit:.2f}")
+                        with stat_col3:
+                            st.metric("Maksimum Zarar", f"${max_loss:.2f}")
+                        with stat_col4:
+                            st.metric("Toplam Kar/Zarar", f"${total_pnl:.2f}")
                         
                     else:
-                        st.info("K2f}")
-                        
-                    else:
-                        st.infoapanan işlem bul("Kapanan işlem bulunamadıunamadı.")
-                else.")
+                        st.info("Kapanan işlem bulunamadı.")
                 else:
-                    st.info(":
-                    st.info("Hiç işHiç işlem ylem yapılmadapılmadı.")
+                    st.info("Hiç işlem yapılmadı.")
                     
-ı.")
-                    
-            except Exception            except Exception as as e e:
-               :
-                st.error(f st.error(f"Simülasyon sırasında h"Simülasyon sırasında hata oluata oluştu: {str(e)}ştu: {str(e)}")
-   ")
+            except Exception as e:
+                st.error(f"Simülasyon sırasında hata oluştu: {str(e)}")
     else:
-        st.error else:
-        st.error("Veri("Veri yüklenemed yüklenemedi.i. Lütfen önce Lütfen önce kript kripto para ve tariho para ve tarih seç seçin.")
-
-# Bilgiin.")
+        st.error("Veri yüklenemedi. Lütfen önce kripto para ve tarih seçin.")
 
 # Bilgi
-
 st.markdown("---")
-st.markdown("---")
-st.infost.info(""("""
-**⚠️ Uyarı:** Bu sim"
-**⚠️ Uyarı:** Bu simülasyon sadece eülğitim amaçlıdır. Gerçek trading için kasyonullanmayın. 
-Ge sadece eğitim amaçlıdır. Gerçek trading için kullanmayın. 
-Geçmişçmiş performans gelecek son performans gelecek sonuuçlarçların garantisi değildir.
-
-**📊 Stın garantisi değildir.
+st.info("""
+**⚠️ Uyarı:** Bu simülasyon sadece eğitim amaçlıdır. Gerçek trading için kullanmayın. 
+Geçmiş performans gelecek sonuçların garantisi değildir.
 
 **📊 Strateji Notları:**
-rateji Notları:**
--- Basit RSI + Basit RSI + EMA str EMA stratejisi kullanatejisi kullanılmılmaktaktadır
-- Heradır
-- Her iş işlemde maksimum %10 risk
-lemde maksimum %10 risk
+- Basit RSI + EMA stratejisi kullanılmaktadır
+- Her işlemde maksimum %10 risk
 - Otomatik stop loss ve take profit
-- Trend- Otomatik stop loss ve take profit
 - Trend takip sistemi
-""")
- takip sistemi
 """)
