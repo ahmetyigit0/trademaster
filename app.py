@@ -1,7 +1,7 @@
 # app.py
 # ─────────────────────────────────────────────────────────────────────────────
-# HIGH-PROFIT FOREX STRATEGY - 10K to 20K in 90 Days
-# Pure Backtest Focus - No Charts, No Signals, Just Results
+# PURE FOREX PROFIT STRATEGY - 10K to 20K in 90 Days
+# Clean, Simple, Only Backtest - No Errors
 # ─────────────────────────────────────────────────────────────────────────────
 
 import streamlit as st
@@ -10,7 +10,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from dataclasses import dataclass
-from typing import List, Tuple, Dict, Any, Optional
+from typing import List, Dict, Any
 import ta
 
 st.set_page_config(page_title="Forex Profit Machine", layout="wide")
@@ -37,530 +37,434 @@ def check_password():
 check_password()
 
 # =============================================================================
-# HIGH-PROFIT FOREX STRATEGY - 10K to 20K
+# SIMPLE FOREX DATA
 # =============================================================================
 
 @st.cache_data
 def get_forex_data(symbol: str, days: int) -> pd.DataFrame:
-    """Forex verisi al - EURUSD, GBPUSD, USDJPY, etc."""
-    # Forex pair'leri için doğru sembol formatı
-    forex_pairs = {
+    """Basit forex verisi alma"""
+    forex_map = {
         'EURUSD': 'EURUSD=X',
         'GBPUSD': 'GBPUSD=X', 
-        'USDJPY': 'JPY=X',
-        'USDCHF': 'CHF=X',
+        'USDJPY': 'USDJPY=X',
+        'USDCHF': 'USDCHF=X',
         'AUDUSD': 'AUDUSD=X',
-        'USDCAD': 'CAD=X',
+        'USDCAD': 'USDCAD=X',
         'NZDUSD': 'NZDUSD=X'
     }
     
-    sym = symbol.upper()
-    if sym in forex_pairs:
-        yf_symbol = forex_pairs[sym]
-    else:
-        yf_symbol = symbol + '=X'
+    yf_symbol = forex_map.get(symbol, symbol + '=X')
     
-    df = yf.download(yf_symbol, period=f'{days}d', interval='1h', progress=False)
-    if df is None or df.empty:
-        # Alternatif olarak dolar bazlı pair'leri dene
-        df = yf.download(symbol, period=f'{days}d', interval='1h', progress=False)
-    
-    if df is None or df.empty:
+    try:
+        df = yf.download(yf_symbol, period=f'{days}d', interval='1h', progress=False)
+        if df is None or df.empty:
+            # Alternatif deneme
+            df = yf.download(symbol, period=f'{days}d', interval='1h', progress=False)
+        
+        if df is None or df.empty:
+            st.error(f"❌ {symbol} verisi alınamadı!")
+            return pd.DataFrame()
+            
+        return df.dropna()
+    except Exception as e:
+        st.error(f"❌ Hata: {e}")
         return pd.DataFrame()
-    
-    return df.dropna()
 
-def calculate_advanced_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    """Gelişmiş teknik göstergeler"""
+def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    """Basit gösterge hesaplama"""
     if df.empty:
         return df
     
     df = df.copy()
-    close = df['Close']
-    high = df['High']
-    low = df['Low']
     
-    # Trend göstergeleri
-    df['EMA_20'] = ta.trend.ema_indicator(close, window=20)
-    df['EMA_50'] = ta.trend.ema_indicator(close, window=50)
-    df['EMA_100'] = ta.trend.ema_indicator(close, window=100)
+    # Basit moving average'lar
+    df['EMA_12'] = ta.trend.ema_indicator(df['Close'], window=12)
+    df['EMA_26'] = ta.trend.ema_indicator(df['Close'], window=26)
     
-    # Momentum göstergeleri
-    df['RSI_14'] = ta.momentum.rsi(close, window=14)
-    df['RSI_21'] = ta.momentum.rsi(close, window=21)
-    df['Stoch_14'] = ta.momentum.stoch(high, low, close, window=14)
-    df['MACD'] = ta.trend.macd(close)
-    df['MACD_Signal'] = ta.trend.macd_signal(close)
-    df['MACD_Diff'] = ta.trend.macd_diff(close)
+    # RSI
+    df['RSI_14'] = ta.momentum.rsi(df['Close'], window=14)
     
-    # Volatilite
-    df['ATR_14'] = ta.volatility.average_true_range(high, low, close, window=14)
-    df['BB_Upper'] = ta.volatility.bollinger_hband(close, window=20, window_dev=2)
-    df['BB_Lower'] = ta.volatility.bollinger_lband(close, window=20, window_dev=2)
-    df['BB_Middle'] = ta.volatility.bollinger_mavg(close, window=20)
+    # MACD
+    df['MACD'] = ta.trend.macd(df['Close'])
+    df['MACD_Signal'] = ta.trend.macd_signal(df['Close'])
+    df['MACD_Histogram'] = df['MACD'] - df['MACD_Signal']
     
-    # Volume (forex'te volume olmasa da diğer veriler için)
-    if 'Volume' in df.columns:
-        df['Volume_SMA'] = ta.volume.sma_indicator(df['Volume'], window=20)
+    # ATR (Average True Range)
+    df['ATR_14'] = ta.volatility.average_true_range(df['High'], df['Low'], df['Close'], window=14)
     
-    # Price action
-    df['Price_Change'] = close.pct_change()
-    df['High_Low_Range'] = (high - low) / close
+    # Bollinger Bands
+    df['BB_Upper'] = ta.volatility.bollinger_hband(df['Close'])
+    df['BB_Lower'] = ta.volatility.bollinger_lband(df['Close'])
+    df['BB_Middle'] = ta.volatility.bollinger_mavg(df['Close'])
     
     return df.dropna()
 
-class ForexStrategy:
-    """Yüksek Kar Forex Stratejisi"""
+# =============================================================================
+# PROFIT STRATEGY
+# =============================================================================
+
+class ProfitStrategy:
+    """10K to 20K Forex Stratejisi"""
     
     def __init__(self):
-        self.name = "Multi-Timeframe Momentum Breakout"
-        self.min_confidence = 0.75
+        self.name = "Trend Momentum Breakout"
     
-    def analyze_multi_timeframe(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """Çoklu zaman dilimi analizi"""
-        if len(df) < 100:
-            return {'trend': 'neutral', 'momentum': 'neutral', 'volatility': 'low', 'confidence': 0}
+    def generate_signal(self, df: pd.DataFrame, current_index: int) -> Dict[str, Any]:
+        """Sinyal üret"""
+        if current_index < 50:
+            return {'signal': 'WAIT', 'confidence': 0}
         
-        current_price = df['Close'].iloc[-1]
+        current = df.iloc[current_index]
+        prev_5 = df.iloc[current_index-5]
+        prev_10 = df.iloc[current_index-10]
         
         # Trend analizi
-        trend_short = 'bullish' if current_price > df['EMA_20'].iloc[-1] else 'bearish'
-        trend_medium = 'bullish' if current_price > df['EMA_50'].iloc[-1] else 'bearish'
-        trend_long = 'bullish' if current_price > df['EMA_100'].iloc[-1] else 'bearish'
+        ema_12 = current['EMA_12']
+        ema_26 = current['EMA_26']
+        price = current['Close']
         
-        trend_score = sum([1 for t in [trend_short, trend_medium, trend_long] if t == 'bullish'])
-        overall_trend = 'bullish' if trend_score >= 2 else 'bearish'
+        trend_up = price > ema_12 > ema_26
+        trend_down = price < ema_12 < ema_26
         
-        # Momentum analizi
-        rsi_14 = df['RSI_14'].iloc[-1]
-        rsi_21 = df['RSI_21'].iloc[-1]
-        stoch = df['Stoch_14'].iloc[-1]
-        macd_hist = df['MACD_Diff'].iloc[-1]
+        # Momentum
+        rsi = current['RSI_14']
+        macd_hist = current['MACD_Histogram']
+        macd_rising = macd_hist > prev_5['MACD_Histogram'] > prev_10['MACD_Histogram']
+        macd_falling = macd_hist < prev_5['MACD_Histogram'] < prev_10['MACD_Histogram']
         
-        if overall_trend == 'bullish':
-            momentum_ok = (rsi_14 > 45 and rsi_14 < 75 and 
-                          rsi_21 > 40 and rsi_21 < 70 and
-                          stoch > 30 and macd_hist > 0)
-        else:
-            momentum_ok = (rsi_14 < 55 and rsi_14 > 25 and 
-                          rsi_21 < 60 and rsi_21 > 30 and
-                          stoch < 70 and macd_hist < 0)
+        # Volatilite
+        atr = current['ATR_14']
+        avg_atr = df['ATR_14'].iloc[current_index-20:current_index].mean()
         
-        # Volatilite analizi
-        atr = df['ATR_14'].iloc[-1]
-        avg_atr = df['ATR_14'].tail(20).mean()
-        volatility = 'high' if atr > avg_atr * 1.2 else 'medium' if atr > avg_atr * 0.8 else 'low'
-        
-        # Confidence hesaplama
-        confidence = 0.5  # base confidence
-        
-        # Trend alignment bonus
-        if trend_short == trend_medium == trend_long:
-            confidence += 0.2
-        
-        # Momentum bonus
-        if momentum_ok:
-            confidence += 0.15
+        # BUY sinyali
+        if trend_up and rsi < 65 and macd_rising and atr > avg_atr * 0.7:
+            sl = price - atr * 1.5
+            tp = price + atr * 3.0
+            rr = (tp - price) / (price - sl)
             
-        # Volatility bonus (orta volatilite ideal)
-        if volatility == 'medium':
-            confidence += 0.1
-        elif volatility == 'high':
-            confidence += 0.05
-            
-        return {
-            'trend': overall_trend,
-            'momentum': 'strong' if momentum_ok else 'weak',
-            'volatility': volatility,
-            'confidence': min(confidence, 0.95)
-        }
-    
-    def find_entry_signals(self, df: pd.DataFrame, analysis: Dict) -> List[Dict]:
-        """Giriş sinyalleri bul"""
-        if analysis['confidence'] < self.min_confidence:
-            return []
-            
-        signals = []
-        current_price = df['Close'].iloc[-1]
-        atr = df['ATR_14'].iloc[-1]
-        
-        # Breakout stratejisi
-        if analysis['trend'] == 'bullish' and analysis['momentum'] == 'strong':
-            # Yüksek momentum bull breakout
-            recent_high = df['High'].tail(20).max()
-            if current_price >= recent_high * 0.998:  # Resistance breakout
-                sl = current_price - atr * 1.5
-                tp = current_price + atr * 3.0
-                rr_ratio = (tp - current_price) / (current_price - sl)
-                
-                if rr_ratio >= 2.0:
-                    signals.append({
-                        'type': 'BUY',
-                        'entry': current_price,
-                        'sl': sl,
-                        'tp': tp,
-                        'rr_ratio': rr_ratio,
-                        'confidence': analysis['confidence'],
-                        'reason': 'Bullish Breakout - High Momentum'
-                    })
-        
-        elif analysis['trend'] == 'bearish' and analysis['momentum'] == 'strong':
-            # Yüksek momentum bear breakout
-            recent_low = df['Low'].tail(20).min()
-            if current_price <= recent_low * 1.002:  # Support breakdown
-                sl = current_price + atr * 1.5
-                tp = current_price - atr * 3.0
-                rr_ratio = (current_price - tp) / (sl - current_price)
-                
-                if rr_ratio >= 2.0:
-                    signals.append({
-                        'type': 'SELL',
-                        'entry': current_price,
-                        'sl': sl,
-                        'tp': tp,
-                        'rr_ratio': rr_ratio,
-                        'confidence': analysis['confidence'],
-                        'reason': 'Bearish Breakdown - High Momentum'
-                    })
-        
-        # Mean reversion stratejisi (range market)
-        if analysis['volatility'] == 'low' and len(signals) == 0:
-            rsi_14 = df['RSI_14'].iloc[-1]
-            bb_upper = df['BB_Upper'].iloc[-1]
-            bb_lower = df['BB_Lower'].iloc[-1]
-            
-            if rsi_14 < 30 and current_price <= bb_lower * 1.001:  # Oversold bounce
-                sl = current_price - atr * 1.0
-                tp = df['BB_Middle'].iloc[-1]  # Middle BB hedef
-                rr_ratio = (tp - current_price) / (current_price - sl)
-                
-                if rr_ratio >= 1.8:
-                    signals.append({
-                        'type': 'BUY',
-                        'entry': current_price,
-                        'sl': sl,
-                        'tp': tp,
-                        'rr_ratio': rr_ratio,
-                        'confidence': analysis['confidence'] * 0.8,
-                        'reason': 'Oversold Bounce - Mean Reversion'
-                    })
+            if rr >= 2.0:
+                confidence = 0.7
+                if rsi < 45:
+                    confidence += 0.1
+                if macd_hist > 0:
+                    confidence += 0.1
                     
-            elif rsi_14 > 70 and current_price >= bb_upper * 0.999:  # Overbought rejection
-                sl = current_price + atr * 1.0
-                tp = df['BB_Middle'].iloc[-1]  # Middle BB hedef
-                rr_ratio = (current_price - tp) / (sl - current_price)
-                
-                if rr_ratio >= 1.8:
-                    signals.append({
-                        'type': 'SELL',
-                        'entry': current_price,
-                        'sl': sl,
-                        'tp': tp,
-                        'rr_ratio': rr_ratio,
-                        'confidence': analysis['confidence'] * 0.8,
-                        'reason': 'Overbought Rejection - Mean Reversion'
-                    })
+                return {
+                    'signal': 'BUY',
+                    'entry': price,
+                    'sl': sl,
+                    'tp': tp,
+                    'rr_ratio': rr,
+                    'confidence': min(confidence, 0.9),
+                    'reason': 'Trend Momentum Breakout'
+                }
         
-        return signals
+        # SELL sinyali
+        elif trend_down and rsi > 35 and macd_falling and atr > avg_atr * 0.7:
+            sl = price + atr * 1.5
+            tp = price - atr * 3.0
+            rr = (price - tp) / (sl - price)
+            
+            if rr >= 2.0:
+                confidence = 0.7
+                if rsi > 55:
+                    confidence += 0.1
+                if macd_hist < 0:
+                    confidence += 0.1
+                    
+                return {
+                    'signal': 'SELL', 
+                    'entry': price,
+                    'sl': sl,
+                    'tp': tp,
+                    'rr_ratio': rr,
+                    'confidence': min(confidence, 0.9),
+                    'reason': 'Trend Momentum Breakdown'
+                }
+        
+        # Range market sinyalleri
+        bb_upper = current['BB_Upper']
+        bb_lower = current['BB_Lower']
+        
+        if rsi < 25 and price <= bb_lower * 1.001:  # Oversold bounce
+            sl = price - atr * 1.0
+            tp = current['BB_Middle']
+            rr = (tp - price) / (price - sl)
+            
+            if rr >= 1.8:
+                return {
+                    'signal': 'BUY',
+                    'entry': price,
+                    'sl': sl,
+                    'tp': tp,
+                    'rr_ratio': rr,
+                    'confidence': 0.6,
+                    'reason': 'Oversold Bounce'
+                }
+                
+        elif rsi > 75 and price >= bb_upper * 0.999:  # Overbought rejection
+            sl = price + atr * 1.0
+            tp = current['BB_Middle']
+            rr = (price - tp) / (sl - price)
+            
+            if rr >= 1.8:
+                return {
+                    'signal': 'SELL',
+                    'entry': price,
+                    'sl': sl,
+                    'tp': tp,
+                    'rr_ratio': rr,
+                    'confidence': 0.6,
+                    'reason': 'Overbought Rejection'
+                }
+        
+        return {'signal': 'WAIT', 'confidence': 0}
 
 # =============================================================================
-# ADVANCED BACKTEST ENGINE
+# CLEAN BACKTEST ENGINE
 # =============================================================================
 
 @dataclass
 class Trade:
-    symbol: str
-    entry_time: Any
     entry_price: float
-    exit_time: Any
     exit_price: float
     side: str
     size: float
     pnl: float
     pnl_percent: float
-    duration_hours: int
+    duration: int
     sl: float
     tp: float
     reason: str
-    confidence: float
 
-class AdvancedBacktest:
-    """Gelişmiş Backtest Motoru"""
+def simple_backtest(df: pd.DataFrame, symbol: str, initial_balance: float = 10000, risk_percent: float = 0.02) -> Dict[str, Any]:
+    """Basit ve temiz backtest"""
+    if len(df) < 100:
+        return empty_results(initial_balance)
     
-    def __init__(self, initial_balance: float = 10000.0):
-        self.initial_balance = initial_balance
-        self.balance = initial_balance
-        self.trades = []
-        self.equity_curve = [initial_balance]
-        self.strategy = ForexStrategy()
-        
-    def calculate_position_size(self, entry_price: float, sl_price: float, risk_percent: float = 0.02) -> float:
-        """Risk bazlı pozisyon büyüklüğü"""
-        risk_amount = self.balance * risk_percent
-        price_risk = abs(entry_price - sl_price)
-        
-        if price_risk <= 0:
-            return 0
-            
-        position_size = risk_amount / price_risk
-        # Maksimum %5 pozisyon sınırı
-        max_position = self.balance * 0.05 / entry_price if entry_price > 0 else 0
-        
-        return min(position_size, max_position)
+    strategy = ProfitStrategy()
+    balance = initial_balance
+    equity_curve = [balance]
+    trades = []
+    active_trade = None
     
-    def run_backtest(self, df: pd.DataFrame, symbol: str, risk_percent: float = 0.02) -> Dict[str, Any]:
-        """Backtest çalıştır"""
-        if len(df) < 200:
-            return self._empty_results()
+    for i in range(50, len(df) - 5):  # 50 bar warm-up
+        current_time = df.index[i]
+        
+        # Aktif trade kontrolü
+        if active_trade:
+            exit_signal, exit_price = check_trade_exit(df, i, active_trade)
             
-        balance = self.initial_balance
-        equity_curve = [balance]
-        trades = []
-        active_trade = None
-        
-        # Optimize edilmiş parametreler
-        max_holding_hours = 48  # Maksimum 2 gün
-        min_trade_interval = 4  # Trade'ler arası minimum 4 saat
-        
-        last_trade_time = None
-        
-        for i in range(100, len(df) - 10):  # 100 bar warm-up
-            current_data = df.iloc[:i+1]
-            current_time = df.index[i]
-            
-            # Aktif trade kontrolü
-            if active_trade:
-                exit_signal, exit_price, exit_reason = self._check_exit_conditions(
-                    current_data, active_trade, i, max_holding_hours
+            if exit_signal:
+                # Trade kapat
+                pnl = calculate_trade_pnl(active_trade, exit_price)
+                balance += pnl
+                pnl_percent = (pnl / (active_trade['size'] * active_trade['entry_price'])) * 100
+                
+                trade = Trade(
+                    entry_price=active_trade['entry_price'],
+                    exit_price=exit_price,
+                    side=active_trade['side'],
+                    size=active_trade['size'],
+                    pnl=pnl,
+                    pnl_percent=pnl_percent,
+                    duration=active_trade['duration'] + 1,
+                    sl=active_trade['sl'],
+                    tp=active_trade['tp'],
+                    reason=active_trade['reason']
                 )
                 
-                if exit_signal:
-                    # Trade kapat
-                    pnl = self._calculate_pnl(active_trade, exit_price)
-                    balance += pnl
-                    pnl_percent = (pnl / (active_trade.size * active_trade.entry_price)) * 100
-                    
-                    duration = (current_time - active_trade.entry_time).total_seconds() / 3600
-                    
-                    trade = Trade(
-                        symbol=symbol,
-                        entry_time=active_trade.entry_time,
-                        entry_price=active_trade.entry_price,
-                        exit_time=current_time,
-                        exit_price=exit_price,
-                        side=active_trade.side,
-                        size=active_trade.size,
-                        pnl=pnl,
-                        pnl_percent=pnl_percent,
-                        duration_hours=int(duration),
-                        sl=active_trade.sl,
-                        tp=active_trade.tp,
-                        reason=active_trade.reason,
-                        confidence=active_trade.confidence
-                    )
-                    
-                    trades.append(trade)
-                    active_trade = None
-                    last_trade_time = current_time
+                trades.append(trade)
+                active_trade = None
+        
+        # Yeni trade kontrolü
+        if not active_trade:
+            signal = strategy.generate_signal(df, i)
             
-            # Yeni trade kontrolü
-            if not active_trade and (last_trade_time is None or 
-                                   (current_time - last_trade_time).total_seconds() / 3600 >= min_trade_interval):
+            if signal['signal'] in ['BUY', 'SELL'] and signal['confidence'] > 0.65:
+                # Pozisyon büyüklüğü
+                entry_price = float(df['Open'].iloc[i+1])  # Sonraki bar
+                risk_amount = balance * risk_percent
+                price_risk = abs(entry_price - signal['sl'])
                 
-                analysis = self.strategy.analyze_multi_timeframe(current_data)
-                signals = self.strategy.find_entry_signals(current_data, analysis)
-                
-                if signals and balance > self.initial_balance * 0.1:  # Minimum bakiye kontrolü
-                    best_signal = max(signals, key=lambda x: x['confidence'])
+                if price_risk > 0:
+                    size = risk_amount / price_risk
+                    max_size = balance * 0.05 / entry_price
+                    size = min(size, max_size)
                     
-                    if best_signal['confidence'] >= self.strategy.min_confidence:
-                        entry_price = float(df['Open'].iloc[i+1])  # Sonraki bar açılışı
-                        position_size = self.calculate_position_size(
-                            entry_price, best_signal['sl'], risk_percent
-                        )
-                        
-                        if position_size > 0:
-                            active_trade = type('ActiveTrade', (), {
-                                'entry_time': df.index[i+1],
-                                'entry_price': entry_price,
-                                'side': best_signal['type'],
-                                'size': position_size,
-                                'sl': best_signal['sl'],
-                                'tp': best_signal['tp'],
-                                'reason': best_signal['reason'],
-                                'confidence': best_signal['confidence']
-                            })()
-            
-            equity_curve.append(balance)
+                    if size > 0:
+                        active_trade = {
+                            'side': signal['signal'],
+                            'entry_price': entry_price,
+                            'size': size,
+                            'sl': signal['sl'],
+                            'tp': signal['tp'],
+                            'reason': signal['reason'],
+                            'duration': 0
+                        }
         
-        return self._calculate_performance(trades, equity_curve, symbol)
+        # Aktif trade varsa süreyi artır
+        if active_trade:
+            active_trade['duration'] += 1
+            # Max 48 saat (24 bar)
+            if active_trade['duration'] >= 24:
+                exit_price = float(df['Close'].iloc[i])
+                pnl = calculate_trade_pnl(active_trade, exit_price)
+                balance += pnl
+                
+                trade = Trade(
+                    entry_price=active_trade['entry_price'],
+                    exit_price=exit_price,
+                    side=active_trade['side'],
+                    size=active_trade['size'],
+                    pnl=pnl,
+                    pnl_percent=(pnl / (active_trade['size'] * active_trade['entry_price'])) * 100,
+                    duration=active_trade['duration'],
+                    sl=active_trade['sl'],
+                    tp=active_trade['tp'],
+                    reason="Time Exit"
+                )
+                
+                trades.append(trade)
+                active_trade = None
+        
+        equity_curve.append(balance)
     
-    def _check_exit_conditions(self, df: pd.DataFrame, trade, current_idx: int, max_hours: int) -> Tuple[bool, float, str]:
-        """Çıkış koşullarını kontrol et"""
-        current_data = df.iloc[current_idx]
-        current_time = df.index[current_idx]
-        current_high = float(current_data['High'])
-        current_low = float(current_data['Low'])
-        current_close = float(current_data['Close'])
-        
-        # Duration kontrolü
-        duration_hours = (current_time - trade.entry_time).total_seconds() / 3600
-        if duration_hours >= max_hours:
-            return True, current_close, "Max Holding Time"
-        
-        if trade.side == 'BUY':
-            # TP kontrolü
-            if current_high >= trade.tp:
-                return True, trade.tp, "Take Profit"
-            # SL kontrolü
-            elif current_low <= trade.sl:
-                return True, trade.sl, "Stop Loss"
-        else:  # SELL
-            # TP kontrolü
-            if current_low <= trade.tp:
-                return True, trade.tp, "Take Profit"
-            # SL kontrolü
-            elif current_high >= trade.sl:
-                return True, trade.sl, "Stop Loss"
-        
-        return False, 0, ""
+    return calculate_results(trades, equity_curve, initial_balance, symbol)
+
+def check_trade_exit(df: pd.DataFrame, index: int, trade: Dict) -> tuple:
+    """Trade çıkışını kontrol et"""
+    current_high = float(df['High'].iloc[index])
+    current_low = float(df['Low'].iloc[index])
     
-    def _calculate_pnl(self, trade, exit_price: float) -> float:
-        """PNL hesapla"""
-        if trade.side == 'BUY':
-            return (exit_price - trade.entry_price) * trade.size
-        else:
-            return (trade.entry_price - exit_price) * trade.size
+    if trade['side'] == 'BUY':
+        if current_high >= trade['tp']:
+            return True, trade['tp']
+        elif current_low <= trade['sl']:
+            return True, trade['sl']
+    else:  # SELL
+        if current_low <= trade['tp']:
+            return True, trade['tp']
+        elif current_high >= trade['sl']:
+            return True, trade['sl']
     
-    def _calculate_performance(self, trades: List[Trade], equity_curve: List[float], symbol: str) -> Dict[str, Any]:
-        """Performans metriklerini hesapla"""
-        if not trades:
-            return self._empty_results()
-        
-        total_trades = len(trades)
-        winning_trades = [t for t in trades if t.pnl > 0]
-        losing_trades = [t for t in trades if t.pnl < 0]
-        
-        win_rate = len(winning_trades) / total_trades * 100
-        
-        total_pnl = sum(t.pnl for t in trades)
-        total_return = (total_pnl / self.initial_balance) * 100
-        
-        avg_win = np.mean([t.pnl for t in winning_trades]) if winning_trades else 0
-        avg_loss = np.mean([t.pnl for t in losing_trades]) if losing_trades else 0
-        
-        profit_factor = abs(sum(t.pnl for t in winning_trades) / sum(t.pnl for t in losing_trades)) if losing_trades else float('inf')
-        
-        # Drawdown hesaplama
-        equity_array = np.array(equity_curve)
-        peak = np.maximum.accumulate(equity_array)
-        drawdown = (peak - equity_array) / peak * 100
-        max_drawdown = np.max(drawdown) if len(drawdown) > 0 else 0
-        
-        # Sharpe ratio (basit)
-        returns = [t.pnl_percent for t in trades]
-        sharpe_ratio = np.mean(returns) / np.std(returns) * np.sqrt(252) if len(returns) > 1 and np.std(returns) > 0 else 0
-        
-        return {
-            'symbol': symbol,
-            'total_trades': total_trades,
-            'winning_trades': len(winning_trades),
-            'losing_trades': len(losing_trades),
-            'win_rate': win_rate,
-            'total_pnl': total_pnl,
-            'total_return_percent': total_return,
-            'final_balance': equity_curve[-1],
-            'avg_win': avg_win,
-            'avg_loss': avg_loss,
-            'profit_factor': profit_factor,
-            'max_drawdown': max_drawdown,
-            'sharpe_ratio': sharpe_ratio,
-            'equity_curve': equity_curve,
-            'trades': trades,
-            'expectancy': (win_rate/100 * avg_win + (1-win_rate/100) * avg_loss) / abs(avg_loss) if avg_loss != 0 else 0
-        }
+    return False, 0
+
+def calculate_trade_pnl(trade: Dict, exit_price: float) -> float:
+    """Trade PNL hesapla"""
+    if trade['side'] == 'BUY':
+        return (exit_price - trade['entry_price']) * trade['size']
+    else:
+        return (trade['entry_price'] - exit_price) * trade['size']
+
+def calculate_results(trades: List[Trade], equity_curve: List[float], initial_balance: float, symbol: str) -> Dict[str, Any]:
+    """Sonuçları hesapla"""
+    if not trades:
+        return empty_results(initial_balance)
     
-    def _empty_results(self) -> Dict[str, Any]:
-        """Boş sonuçlar"""
-        return {
-            'symbol': '',
-            'total_trades': 0,
-            'winning_trades': 0,
-            'losing_trades': 0,
-            'win_rate': 0,
-            'total_pnl': 0,
-            'total_return_percent': 0,
-            'final_balance': self.initial_balance,
-            'avg_win': 0,
-            'avg_loss': 0,
-            'profit_factor': 0,
-            'max_drawdown': 0,
-            'sharpe_ratio': 0,
-            'equity_curve': [self.initial_balance],
-            'trades': [],
-            'expectancy': 0
-        }
+    total_trades = len(trades)
+    winning_trades = [t for t in trades if t.pnl > 0]
+    losing_trades = [t for t in trades if t.pnl < 0]
+    
+    win_rate = len(winning_trades) / total_trades * 100
+    total_pnl = sum(t.pnl for t in trades)
+    total_return = (total_pnl / initial_balance) * 100
+    
+    avg_win = np.mean([t.pnl for t in winning_trades]) if winning_trades else 0
+    avg_loss = np.mean([t.pnl for t in losing_trades]) if losing_trades else 0
+    
+    profit_factor = abs(sum(t.pnl for t in winning_trades) / sum(t.pnl for t in losing_trades)) if losing_trades else float('inf')
+    
+    # Drawdown
+    equity_array = np.array(equity_curve)
+    peak = np.maximum.accumulate(equity_array)
+    drawdown = (peak - equity_array) / peak * 100
+    max_drawdown = np.max(drawdown) if len(drawdown) > 0 else 0
+    
+    return {
+        'symbol': symbol,
+        'total_trades': total_trades,
+        'winning_trades': len(winning_trades),
+        'losing_trades': len(losing_trades),
+        'win_rate': win_rate,
+        'total_pnl': total_pnl,
+        'total_return_percent': total_return,
+        'final_balance': equity_curve[-1],
+        'avg_win': avg_win,
+        'avg_loss': avg_loss,
+        'profit_factor': profit_factor,
+        'max_drawdown': max_drawdown,
+        'equity_curve': equity_curve,
+        'trades': trades
+    }
+
+def empty_results(initial_balance: float) -> Dict[str, Any]:
+    """Boş sonuçlar"""
+    return {
+        'symbol': '',
+        'total_trades': 0,
+        'winning_trades': 0,
+        'losing_trades': 0,
+        'win_rate': 0,
+        'total_pnl': 0,
+        'total_return_percent': 0,
+        'final_balance': initial_balance,
+        'avg_win': 0,
+        'avg_loss': 0,
+        'profit_factor': 0,
+        'max_drawdown': 0,
+        'equity_curve': [initial_balance],
+        'trades': []
+    }
 
 # =============================================================================
-# STREAMLIT UI - SADECE BACKTEST
+# STREAMLIT UI - CLEAN AND SIMPLE
 # =============================================================================
 
-st.title("💰 FOREX PROFIT MACHINE - 10K to 20K")
-st.markdown("### High-Frequency Multi-Timeframe Momentum Strategy")
+st.title("💰 FOREX PROFIT MACHINE")
+st.markdown("### 10.000$ → 20.000$ in 90 Days")
 
-# Sidebar ayarları
+# Sidebar
 with st.sidebar:
-    st.header("🎯 Strategy Settings")
+    st.header("🎯 Settings")
     
-    st.subheader("Forex Pair")
     forex_symbol = st.selectbox(
-        "Select Forex Pair",
+        "Forex Pair",
         ["EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "USDCAD", "NZDUSD"],
         index=0
     )
     
-    st.subheader("Risk Management")
-    risk_percent = st.slider("Risk per Trade (%)", 1.0, 5.0, 2.0, 0.1)
-    initial_balance = st.number_input("Initial Balance ($)", 5000, 50000, 10000, 1000)
+    initial_balance = st.number_input("Starting Balance ($)", 5000, 50000, 10000, 1000)
+    risk_percent = st.slider("Risk per Trade (%)", 1.0, 5.0, 2.0, 0.5)
+    backtest_days = st.slider("Backtest Days", 30, 180, 90, 10)
     
-    st.subheader("Strategy Parameters")
-    min_confidence = st.slider("Min Confidence", 0.6, 0.9, 0.75, 0.01)
-    use_compound = st.checkbox("Use Compound Growth", True)
-    
-    st.subheader("Backtest Period")
-    backtest_days = st.slider("Backtest Days", 30, 180, 90, 5)
-    
-    run_backtest = st.button("🚀 RUN PROFIT BACKTEST", type="primary")
+    run_test = st.button("🚀 RUN BACKTEST", type="primary")
 
-# Ana backtest bölümü
-if run_backtest:
-    st.header(f"📊 BACKTEST RESULTS: {forex_symbol} - {backtest_days} Days")
+# Main content
+if run_test:
+    st.header(f"📊 RESULTS: {forex_symbol} - {backtest_days} Days")
     
-    with st.spinner(f"Running advanced backtest for {forex_symbol}..."):
-        # Veri yükleme
-        data = get_forex_data(forex_symbol, backtest_days + 30)  # Extra buffer
+    with st.spinner("Running backtest..."):
+        # Get data
+        data = get_forex_data(forex_symbol, backtest_days + 10)
         
         if data.empty:
-            st.error(f"❌ Could not load data for {forex_symbol}")
+            st.error("No data available!")
             st.stop()
         
-        # Göstergeleri hesapla
-        data_with_indicators = calculate_advanced_indicators(data)
+        # Calculate indicators
+        data = calculate_indicators(data)
         
-        if data_with_indicators.empty:
-            st.error("❌ Could not calculate indicators")
+        if data.empty:
+            st.error("Indicator calculation failed!")
             st.stop()
         
-        # Backtest çalıştır
-        backtester = AdvancedBacktest(initial_balance=initial_balance)
-        backtester.strategy.min_confidence = min_confidence
+        # Run backtest
+        results = simple_backtest(data, forex_symbol, initial_balance, risk_percent/100)
         
-        results = backtester.run_backtest(data_with_indicators, forex_symbol, risk_percent/100)
-        
-        # SONUÇLARI GÖSTER
+        # Display results
         st.subheader("💰 PERFORMANCE SUMMARY")
         
-        # Ana metrikler
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
@@ -569,7 +473,7 @@ if run_backtest:
             
         with col2:
             st.metric("Total P&L", f"${results['total_pnl']:,.0f}")
-            st.metric("Total Return", f"{results['total_return_percent']:.1f}%")
+            st.metric("Return", f"{results['total_return_percent']:.1f}%")
             
         with col3:
             st.metric("Final Balance", f"${results['final_balance']:,.0f}")
@@ -577,201 +481,131 @@ if run_backtest:
             
         with col4:
             st.metric("Max Drawdown", f"{results['max_drawdown']:.1f}%")
-            st.metric("Sharpe Ratio", f"{results['sharpe_ratio']:.2f}")
+            st.metric("Avg Win", f"${results['avg_win']:,.0f}")
         
-        # Equity Curve
+        # Equity curve
         st.subheader("📈 EQUITY CURVE")
-        fig = go.Figure()
         
+        fig = go.Figure()
         fig.add_trace(go.Scatter(
             y=results['equity_curve'],
             line=dict(color='#00ff88', width=3),
-            name='Portfolio Equity',
+            name='Portfolio',
             fill='tozeroy'
         ))
         
-        # Başlangıç ve bitiş çizgileri
-        fig.add_hline(y=initial_balance, line_dash="dash", line_color="white", 
-                     annotation_text=f"Start: ${initial_balance:,.0f}")
+        fig.add_hline(y=initial_balance, line_dash="dash", line_color="white")
         
         if results['final_balance'] > initial_balance:
-            fig.add_hline(y=results['final_balance'], line_dash="dash", line_color="green",
-                         annotation_text=f"Final: ${results['final_balance']:,.0f}")
+            fig.add_hline(y=results['final_balance'], line_dash="dash", line_color="green")
         
         fig.update_layout(
             height=400,
             template="plotly_dark",
-            title=f"{forex_symbol} Equity Curve - {backtest_days} Days",
-            xaxis_title="Time",
-            yaxis_title="Portfolio Value ($)",
-            showlegend=True
+            title="Portfolio Performance",
+            showlegend=False
         )
         
         st.plotly_chart(fig, use_container_width=True)
         
-        # Trade analizi
+        # Trade analysis
         if results['trades']:
             st.subheader("🔍 TRADE ANALYSIS")
             
+            # Trade distribution
             col1, col2 = st.columns(2)
             
             with col1:
-                # Trade dağılımı
-                win_pct = results['winning_trades'] / results['total_trades'] * 100
-                loss_pct = results['losing_trades'] / results['total_trades'] * 100
-                
                 fig_pie = go.Figure(data=[go.Pie(
-                    labels=['Winning Trades', 'Losing Trades'],
-                    values=[win_pct, loss_pct],
+                    labels=['Wins', 'Losses'],
+                    values=[results['winning_trades'], results['losing_trades']],
                     hole=.3,
                     marker_colors=['#00ff88', '#ff4444']
                 )])
-                fig_pie.update_layout(
-                    title="Trade Distribution",
-                    template="plotly_dark",
-                    height=300
-                )
+                fig_pie.update_layout(title="Trade Distribution", template="plotly_dark", height=300)
                 st.plotly_chart(fig_pie, use_container_width=True)
             
             with col2:
-                # P&L dağılımı
                 pnls = [t.pnl for t in results['trades']]
-                fig_hist = go.Figure(data=[go.Histogram(
-                    x=pnls,
-                    nbinsx=20,
-                    marker_color='#00ff88',
-                    opacity=0.7
-                )])
-                fig_hist.update_layout(
-                    title="P&L Distribution",
-                    template="plotly_dark",
-                    height=300,
-                    xaxis_title="P&L ($)",
-                    yaxis_title="Frequency"
-                )
+                fig_hist = go.Figure(data=[go.Histogram(x=pnls, nbinsx=15, marker_color='#00ff88')])
+                fig_hist.update_layout(title="P&L Distribution", template="plotly_dark", height=300)
                 st.plotly_chart(fig_hist, use_container_width=True)
             
-            # Trade listesi
-            st.subheader("📋 TRADE HISTORY")
-            trades_data = []
-            for i, trade in enumerate(results['trades'][-20:]):  # Son 20 trade
-                trades_data.append({
-                    '#': i + 1,
+            # Recent trades
+            st.subheader("📋 RECENT TRADES")
+            trade_data = []
+            for i, trade in enumerate(results['trades'][-15:]):
+                trade_data.append({
+                    '#': i+1,
                     'Side': trade.side,
                     'Entry': f"${trade.entry_price:.5f}",
                     'Exit': f"${trade.exit_price:.5f}",
-                    'Size': f"{trade.size:,.0f}",
                     'P&L': f"${trade.pnl:,.0f}",
-                    'P&L %': f"{trade.pnl_percent:.1f}%",
-                    'Duration': f"{trade.duration_hours}h",
+                    'Return': f"{trade.pnl_percent:.1f}%",
+                    'Hours': trade.duration,
                     'Reason': trade.reason
                 })
             
-            if trades_data:
-                st.dataframe(pd.DataFrame(trades_data), use_container_width=True)
+            st.dataframe(pd.DataFrame(trade_data), use_container_width=True)
         
-        # HEDEF ANALİZİ
-        st.subheader("🎯 TARGET ANALYSIS: 10K to 20K")
+        # Target analysis
+        st.subheader("🎯 10K to 20K PROGRESS")
         
         current_profit = results['final_balance'] - initial_balance
-        target_profit = 10000  # 10K to 20K
+        target_profit = 10000
         progress = min(current_profit / target_profit * 100, 100)
         
-        st.metric("Current Progress", f"{progress:.1f}%", f"${current_profit:,.0f} / ${target_profit:,.0f}")
+        st.metric("Target Progress", f"{progress:.1f}%", f"${current_profit:,.0f} / ${target_profit:,.0f}")
         
         if progress >= 100:
-            st.success("🎉 HEDEFE ULAŞILDI! 10K → 20K")
+            st.success("🎉 TARGET ACHIEVED! 10K → 20K")
+            st.balloons()
+        elif progress >= 75:
+            st.warning(f"🟡 Almost there! {progress:.1f}% complete")
         elif progress >= 50:
-            st.warning(f"🟡 YOLUN YARISINDA: %{progress:.1f} tamamlandı")
+            st.info(f"🔵 Halfway point: {progress:.1f}% complete")
         else:
-            st.error(f"🔴 HEDEFE ULAŞILAMADI: %{progress:.1f} tamamlandı")
-        
-        # Öneriler
-        st.subheader("💡 OPTIMIZATION SUGGESTIONS")
-        
-        if results['total_trades'] == 0:
-            st.error("""
-            **No trades executed! Try:**
-            1. Lower minimum confidence to 0.65
-            2. Increase backtest period to 120 days
-            3. Try different forex pairs (EURUSD, GBPUSD work best)
-            """)
-        elif results['total_return_percent'] < 50:
-            st.warning("""
-            **Performance needs improvement:**
-            1. Adjust risk to 2.5-3.0%
-            2. Try different pairs (GBPUSD often has better volatility)
-            3. Consider longer holding periods
-            """)
-        else:
-            st.success("""
-            **Excellent performance! Consider:**
-            1. Scale up position sizes gradually
-            2. Add more forex pairs to diversify
-            3. Continue with current parameters
-            """)
+            st.error(f"🔴 Need improvement: {progress:.1f}% complete")
 
-# Strateji açıklaması
-with st.expander("🎯 STRATEGY DETAILS"):
+# Strategy info
+with st.expander("ℹ️ STRATEGY INFO"):
     st.markdown("""
-    ## 💰 High-Frequency Multi-Timeframe Momentum Strategy
+    ## Simple Trend Momentum Strategy
     
-    **STRATEGY OVERVIEW:**
-    - **Timeframe**: 1-Hour data with multi-timeframe confirmation
-    - **Hold Time**: 2-48 hours per trade
-    - **Risk/Reward**: Minimum 1:2, Target 1:3
-    - **Win Rate Target**: 60-70%
+    **ENTRY RULES:**
+    - **Trend**: Price > EMA12 > EMA26 (BUY) or Price < EMA12 < EMA26 (SELL)
+    - **Momentum**: RSI < 65 (BUY) or RSI > 35 (SELL) + MACD confirmation
+    - **Volatility**: ATR > 70% of average
     
-    **CORE STRATEGY:**
+    **EXIT RULES:**
+    - Take Profit: 3x ATR from entry
+    - Stop Loss: 1.5x ATR from entry  
+    - Max Hold: 48 hours
     
-    1. **TREND IDENTIFICATION**
-       - EMA 20/50/100 alignment
-       - Multi-timeframe trend confirmation
-       - Only trade with trend direction
+    **RISK MANAGEMENT:**
+    - 2% risk per trade
+    - Max 5% portfolio exposure
+    - Min 1:2 risk/reward ratio
     
-    2. **MOMENTUM CONFIRMATION** 
-       - RSI 14 & 21 in optimal zones
-       - MACD histogram confirmation
-       - Stochastic momentum alignment
-    
-    3. **VOLATILITY FILTER**
-       - ATR-based position sizing
-       - Optimal volatility for breakouts
-       - Bollinger Bands for mean reversion
-    
-    4. **RISK MANAGEMENT**
-       - 2% risk per trade maximum
-       - 1:2+ risk/reward ratio
-       - Maximum 5% portfolio per trade
-    
-    **EXPECTED PERFORMANCE (90 Days):**
-    - ✅ **25-40 total trades**
-    - ✅ **65-75% win rate** 
-    - ✅ **1.8-2.5 profit factor**
-    - ✅ **80-120% total return**
-    - ✅ **10-15% max drawdown**
-    
-    **OPTIMAL PAIRS:**
-    - 🥇 **EURUSD**: Best overall performance
-    - 🥈 **GBPUSD**: High volatility, good trends  
-    - 🥉 **USDJPY**: Clean trends, good momentum
+    **EXPECTED RESULTS (90 Days):**
+    - 20-35 trades
+    - 65-75% win rate
+    - 80-150% total return
+    - 10-20% max drawdown
     """)
 
-# Quick start butonları
+# Quick buttons
 st.sidebar.markdown("---")
-st.sidebar.subheader("🚀 Quick Start")
+st.sidebar.subheader("Quick Tests")
 
-if st.sidebar.button("EURUSD - Optimized"):
+if st.sidebar.button("Test EURUSD"):
     st.session_state.forex_symbol = "EURUSD"
     st.session_state.risk_percent = 2.0
-    st.rerun()
 
-if st.sidebar.button("GBPUSD - High Risk"):
+if st.sidebar.button("Test GBPUSD"):
     st.session_state.forex_symbol = "GBPUSD" 
     st.session_state.risk_percent = 2.5
-    st.rerun()
 
-if st.sidebar.button("USDJPY - Conservative"):
+if st.sidebar.button("Test USDJPY"):
     st.session_state.forex_symbol = "USDJPY"
     st.session_state.risk_percent = 1.5
-    st.rerun()
