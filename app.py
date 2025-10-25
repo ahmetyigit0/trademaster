@@ -501,6 +501,7 @@ def backtest_90d_optimized(df_90d, risk_perc=1.0, fee=0.001, slip=0.0002, partia
         "final_balance": start_balance, "total_return_pct": 0
     }
     return empty_report, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
 # =============================================================================
 # SEMBOL AUTOCOMPLETE SİSTEMİ (Önceki koddan)
 # =============================================================================
@@ -1032,141 +1033,151 @@ def main():
             st.caption(f"Skor: {zone.score}")
     
     # YENİ: BACKTEST SONUÇLARI
-    # Backtest kısmını değiştirin:
-if run_bt:
-    st.divider()
-    st.header("📊 Backtest Sonuçları (90 Gün)")
-    
-    with st.spinner("Backtest çalışıyor..."):
-        df_90d = get_4h_data(crypto_symbol, days=90)
-        if df_90d is not None and not df_90d.empty:
-            df_90d = calculate_indicators(df_90d, ema_period, rsi_period)
-            
-            # Optimize edilmiş fonksiyonu kullan
-            report, trades_df, eq_df, dd_df = backtest_90d_optimized(
-                df_90d, 
-                risk_perc=risk_perc, 
-                fee=fee, 
-                slip=slip, 
-                partial=partial,
-                ema_period=ema_period, 
-                min_rr_ratio=risk_reward_ratio, 
-                start_balance=10000.0
-            )
-            
-            # KPI'lar
-            col1, col2, col3, col4 = st.columns(4)
+    # Backtest butonu kontrolü main fonksiyonu içine taşındı
+    if 'run_bt' in st.session_state and st.session_state.run_bt:
+        st.divider()
+        st.header("📊 Backtest Sonuçları (90 Gün)")
         
-            with col1:
-                st.metric("İşlem Sayısı", report["trades"])
-                st.metric("Win Rate", f"{report['win_rate']:.1f}%")
-            
-            with col2:
-                st.metric("Profit Factor", f"{report['profit_factor']:.2f}")
-                st.metric("Expectancy (R)", f"{report['expectancy_r']:.2f}")
-            
-            with col3:
-                st.metric("Max Drawdown", f"{report['max_drawdown_pct']:.1f}%")
-                st.metric("Sharpe Ratio", f"{report['sharpe']:.2f}")
-            
-            with col4:
-                st.metric("Final Balance", f"${report['final_balance']:,.0f}")
-                st.metric("Toplam Getiri", f"{report['total_return_pct']:.1f}%")
-            
-            # Grafikler
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                if not eq_df.empty:
-                    st.subheader("Equity Curve")
-                    fig_equity = go.Figure()
-                    fig_equity.add_trace(go.Scatter(
-                        x=eq_df["time"], 
-                        y=eq_df["equity"],
-                        line=dict(color="#00FF00", width=2),
-                        fill='tozeroy',
-                        fillcolor="rgba(0,255,0,0.1)"
-                    ))
-                    fig_equity.update_layout(
-                        height=300,
-                        showlegend=False,
-                        plot_bgcolor='#0E1117',
-                        paper_bgcolor='#0E1117',
-                        font=dict(color='white'),
-                        margin=dict(l=20, r=20, t=30, b=20)
-                    )
-                    st.plotly_chart(fig_equity, use_container_width=True)
-            
-            with col2:
-                if not dd_df.empty:
-                    st.subheader("Drawdown")
-                    fig_dd = go.Figure()
-                    fig_dd.add_trace(go.Scatter(
-                        x=dd_df["time"], 
-                        y=dd_df["drawdown"],
-                        line=dict(color="#FF4444", width=2),
-                        fill='tozeroy',
-                        fillcolor="rgba(255,0,0,0.3)"
-                    ))
-                    fig_dd.update_layout(
-                        height=300,
-                        showlegend=False,
-                        plot_bgcolor='#0E1117',
-                        paper_bgcolor='#0E1117',
-                        font=dict(color='white'),
-                        margin=dict(l=20, r=20, t=30, b=20)
-                    )
-                    st.plotly_chart(fig_dd, use_container_width=True)
-            
-            # İşlem listesi
-            if not trades_df.empty:
-                st.subheader("İşlem Listesi")
-                display_cols = ["open_time", "side", "entry", "sl", "tp1", "tp2", "exit_price", "exit_reason", "r_multiple", "pnl"]
-                display_df = trades_df[display_cols].copy()
-                display_df["entry"] = display_df["entry"].apply(format_price)
-                display_df["sl"] = display_df["sl"].apply(format_price)
-                display_df["tp1"] = display_df["tp1"].apply(format_price)
-                display_df["tp2"] = display_df["tp2"].apply(format_price)
-                display_df["exit_price"] = display_df["exit_price"].apply(format_price)
-                display_df["r_multiple"] = display_df["r_multiple"].round(2)
-                display_df["pnl"] = display_df["pnl"].round(2)
+        with st.spinner("Backtest çalışıyor..."):
+            df_90d = get_4h_data(crypto_symbol, days=90)
+            if df_90d is not None and not df_90d.empty:
+                df_90d = calculate_indicators(df_90d, ema_period, rsi_period)
                 
-                st.dataframe(
-                    display_df,
-                    column_config={
-                        "open_time": "Açılış",
-                        "side": "Yön",
-                        "entry": "Giriş",
-                        "sl": "SL",
-                        "tp1": "TP1", 
-                        "tp2": "TP2",
-                        "exit_price": "Çıkış",
-                        "exit_reason": "Sebep",
-                        "r_multiple": "R Multiple",
-                        "pnl": "PnL ($)"
-                    },
-                    use_container_width=True
+                # Optimize edilmiş fonksiyonu kullan
+                report, trades_df, eq_df, dd_df = backtest_90d_optimized(
+                    df_90d, 
+                    risk_perc=risk_perc, 
+                    fee=fee, 
+                    slip=slip, 
+                    partial=partial,
+                    ema_period=ema_period, 
+                    min_rr_ratio=risk_reward_ratio, 
+                    start_balance=10000.0
                 )
-        else:
-            st.error("Backtest için veri yüklenemedi!")
+                
+                # KPI'lar
+                col1, col2, col3, col4 = st.columns(4)
+            
+                with col1:
+                    st.metric("İşlem Sayısı", report["trades"])
+                    st.metric("Win Rate", f"{report['win_rate']:.1f}%")
+                
+                with col2:
+                    st.metric("Profit Factor", f"{report['profit_factor']:.2f}")
+                    st.metric("Expectancy (R)", f"{report['expectancy_r']:.2f}")
+                
+                with col3:
+                    st.metric("Max Drawdown", f"{report['max_drawdown_pct']:.1f}%")
+                    st.metric("Sharpe Ratio", f"{report['sharpe']:.2f}")
+                
+                with col4:
+                    st.metric("Final Balance", f"${report['final_balance']:,.0f}")
+                    st.metric("Toplam Getiri", f"{report['total_return_pct']:.1f}%")
+                
+                # Grafikler
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    if not eq_df.empty:
+                        st.subheader("Equity Curve")
+                        fig_equity = go.Figure()
+                        fig_equity.add_trace(go.Scatter(
+                            x=eq_df["time"], 
+                            y=eq_df["equity"],
+                            line=dict(color="#00FF00", width=2),
+                            fill='tozeroy',
+                            fillcolor="rgba(0,255,0,0.1)"
+                        ))
+                        fig_equity.update_layout(
+                            height=300,
+                            showlegend=False,
+                            plot_bgcolor='#0E1117',
+                            paper_bgcolor='#0E1117',
+                            font=dict(color='white'),
+                            margin=dict(l=20, r=20, t=30, b=20)
+                        )
+                        st.plotly_chart(fig_equity, use_container_width=True)
+                
+                with col2:
+                    if not dd_df.empty:
+                        st.subheader("Drawdown")
+                        fig_dd = go.Figure()
+                        fig_dd.add_trace(go.Scatter(
+                            x=dd_df["time"], 
+                            y=dd_df["drawdown"],
+                            line=dict(color="#FF4444", width=2),
+                            fill='tozeroy',
+                            fillcolor="rgba(255,0,0,0.3)"
+                        ))
+                        fig_dd.update_layout(
+                            height=300,
+                            showlegend=False,
+                            plot_bgcolor='#0E1117',
+                            paper_bgcolor='#0E1117',
+                            font=dict(color='white'),
+                            margin=dict(l=20, r=20, t=30, b=20)
+                        )
+                        st.plotly_chart(fig_dd, use_container_width=True)
+                
+                # İşlem listesi
+                if not trades_df.empty:
+                    st.subheader("İşlem Listesi")
+                    display_cols = ["open_time", "side", "entry", "sl", "tp1", "tp2", "exit_price", "exit_reason", "r_multiple", "pnl"]
+                    display_df = trades_df[display_cols].copy()
+                    display_df["entry"] = display_df["entry"].apply(format_price)
+                    display_df["sl"] = display_df["sl"].apply(format_price)
+                    display_df["tp1"] = display_df["tp1"].apply(format_price)
+                    display_df["tp2"] = display_df["tp2"].apply(format_price)
+                    display_df["exit_price"] = display_df["exit_price"].apply(format_price)
+                    display_df["r_multiple"] = display_df["r_multiple"].round(2)
+                    display_df["pnl"] = display_df["pnl"].round(2)
+                    
+                    st.dataframe(
+                        display_df,
+                        column_config={
+                            "open_time": "Açılış",
+                            "side": "Yön",
+                            "entry": "Giriş",
+                            "sl": "SL",
+                            "tp1": "TP1", 
+                            "tp2": "TP2",
+                            "exit_price": "Çıkış",
+                            "exit_reason": "Sebep",
+                            "r_multiple": "R Multiple",
+                            "pnl": "PnL ($)"
+                        },
+                        use_container_width=True
+                    )
+            else:
+                st.error("Backtest için veri yüklenemedi!")
 
-# Detaylı bant listesi
-with st.expander("📋 Tüm Bant Detayları"):
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.write("**Destek Bantları**")
-        for i, zone in enumerate(all_support):
-            status_icon = "🟢" if zone.status == "valid" else "🟠" if zone.status == "fake" else "⚫"
-            st.write(f"{status_icon} S{i+1}: {format_price(zone.low)}-{format_price(zone.high)}")
-            st.caption(f"Skor: {zone.score}, Temas: {zone.touches}")
-    
-    with col2:
-        st.write("**Direnç Bantları**")
-        for i, zone in enumerate(all_resistance):
-            status_icon = "🔴" if zone.status == "valid" else "🟠" if zone.status == "fake" else "⚫"
-            st.write(f"{status_icon} R{i+1}: {format_price(zone.low)}-{format_price(zone.high)}")
-            st.caption(f"Skor: {zone.score}, Temas: {zone.touches}")
+    # Detaylı bant listesi
+    with st.expander("📋 Tüm Bant Detayları"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Destek Bantları**")
+            for i, zone in enumerate(all_support):
+                status_icon = "🟢" if zone.status == "valid" else "🟠" if zone.status == "fake" else "⚫"
+                st.write(f"{status_icon} S{i+1}: {format_price(zone.low)}-{format_price(zone.high)}")
+                st.caption(f"Skor: {zone.score}, Temas: {zone.touches}")
+        
+        with col2:
+            st.write("**Direnç Bantları**")
+            for i, zone in enumerate(all_resistance):
+                status_icon = "🔴" if zone.status == "valid" else "🟠" if zone.status == "fake" else "⚫"
+                st.write(f"{status_icon} R{i+1}: {format_price(zone.low)}-{format_price(zone.high)}")
+                st.caption(f"Skor: {zone.score}, Temas: {zone.touches}")
 
+# Ana uygulama çalıştırma
 if __name__ == "__main__":
+    # Backtest butonu session state kontrolü
+    if 'run_bt' not in st.session_state:
+        st.session_state.run_bt = False
+    
+    # Sidebar'daki backtest butonu session state'i günceller
+    if run_bt:
+        st.session_state.run_bt = True
+        st.rerun()
+    
     main()
