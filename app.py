@@ -63,7 +63,6 @@ def get_4h_data(symbol: str, days: int) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
     df = df.dropna()
-    # YFinance kolonları güvence
     cols = ["Open", "High", "Low", "Close", "Adj Close", "Volume"]
     df = df[[c for c in cols if c in df.columns]]
     return df
@@ -92,23 +91,34 @@ def atr(df: pd.DataFrame, n: int = 14) -> pd.Series:
     return tr.rolling(n).mean()
 
 def adx(df: pd.DataFrame, n: int = 14) -> pd.DataFrame:
-    # Wilder's ADX
+    """
+    DÜZELTME: pd.Series içine 2D array gitmesini engellemek için
+    np.where(...) çağrılarını .values ile 1D garanti ediyoruz ve index açıkça veriyoruz.
+    """
     high, low, close = df["High"], df["Low"], df["Close"]
+
     up_move = high.diff()
     down_move = -low.diff()
-    plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
-    minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
 
-    tr1 = high - low
+    plus_dm_vals = np.where((up_move > down_move) & (up_move > 0), up_move.values, 0.0)
+    minus_dm_vals = np.where((down_move > up_move) & (down_move > 0), down_move.values, 0.0)
+
+    plus_dm = pd.Series(plus_dm_vals, index=df.index)
+    minus_dm = pd.Series(minus_dm_vals, index=df.index)
+
+    tr1 = (high - low).abs()
     tr2 = (high - close.shift(1)).abs()
     tr3 = (low - close.shift(1)).abs()
     tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
 
-    atr_n = tr.rolling(n).mean()
-    plus_di = 100 * (pd.Series(plus_dm, index=df.index).rolling(n).mean() / atr_n).replace(0, 1e-8)
-    minus_di = 100 * (pd.Series(minus_dm, index=df.index).rolling(n).mean() / atr_n).replace(0, 1e-8)
+    atr_n = tr.rolling(n).mean().replace(0, 1e-8)
+
+    plus_di = 100 * (plus_dm.rolling(n).mean() / atr_n).replace(0, 1e-8)
+    minus_di = 100 * (minus_dm.rolling(n).mean() / atr_n).replace(0, 1e-8)
+
     dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, 1e-8)
     adx_val = dx.rolling(n).mean()
+
     out = pd.DataFrame({"PLUS_DI": plus_di, "MINUS_DI": minus_di, "ADX": adx_val})
     return out.fillna(method="bfill").fillna(0)
 
@@ -132,7 +142,7 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     return d.dropna()
 
 # =============================================================================
-# S/R BÖLGELERİ (Basit Yoğunluk Tabanlı)
+# S/R BÖLGELERİ
 # =============================================================================
 class Zone:
     def __init__(self, low: float, high: float, touches: int, kind: str):
@@ -189,7 +199,7 @@ def find_zones_simple(d: pd.DataFrame, lookback: int = 80, min_touch_points: int
     return supports, resistances
 
 # =============================================================================
-# SİNYAL MOTORU (Rejim + Onay + ATR SL + BB Opsiyonel)
+# SİNYAL MOTORU
 # =============================================================================
 @dataclass
 class Signal:
@@ -205,14 +215,12 @@ class Signal:
 
 def close_confirms_reversal(df: pd.DataFrame, idx: int, long: bool) -> bool:
     if idx < 1: return False
-    # basit teyit: mevcut kapanış önceki kapanıştan yüksek (long) / düşük (short)
     if long:
         return df["Close"].iloc[idx] > df["Close"].iloc[idx-1]
     else:
         return df["Close"].iloc[idx] < df["Close"].iloc[idx-1]
 
 def touched_band(df: pd.DataFrame, idx: int, long: bool) -> bool:
-    # Opsiyonel BB konfluansı
     if long:
         return df["Low"].iloc[idx] <= df["BB_L"].iloc[idx]
     else:
@@ -269,12 +277,11 @@ def generate_signals(
         reason = [f"Resistance zone score {zone.score}", f"ATR SL x{atr_mult_sl}", f"RR(TP2) {rr2:.2f}"]
         return Signal("SELL", price, sl, tp1, tp2, rr2, conf, "bear", reason)
 
-    # ENTRY KURALLARI
-    # TREND REJİMİ: yalnızca trend yönünde ve S/R + onay + (opsiyonel BB)
+    # TREND REJİMİ
     if regime == "trend":
         if trend == "bull" and best_s and best_s.score >= 80:
             near_s = price <= best_s.high * 1.005
-            rsi_ok = rsi14 <= 50  # dip istiyoruz
+            rsi_ok = rsi14 <= 50
             confirm = close_confirms_reversal(d, i, long=True)
             bb_ok = (touched_band(d, i, True) if use_bb_filter else True)
             if near_s and rsi_ok and confirm and bb_ok:
@@ -283,14 +290,14 @@ def generate_signals(
 
         if trend == "bear" and best_r and best_r.score >= 80:
             near_r = price >= best_r.low * 0.995
-            rsi_ok = rsi14 >= 50  # tepe istiyoruz
+            rsi_ok = rsi14 >= 50
             confirm = close_confirms_reversal(d, i, long=False)
             bb_ok = (touched_band(d, i, False) if use_bb_filter else True)
             if near_r and rsi_ok and confirm and bb_ok:
                 sig = build_short(best_r, conf_base=min(90, best_r.score))
                 if sig: signals.append(sig)
 
-    # RANGE REJİMİ: mean-reversion (klasik RSI uçları + S/R)
+    # RANGE REJİMİ
     if regime == "range" and not signals:
         if best_s and price <= best_s.high * 1.003 and rsi14 <= 35:
             confirm = close_confirms_reversal(d, i, long=True)
@@ -327,17 +334,10 @@ class Trade:
 
 def simulate_trade_path(df: pd.DataFrame, i_entry: int, side: str, entry: float, sl: float, tp1: float, tp2: float,
                         max_hold_bars: int = 12) -> Tuple[float, int, bool, bool, bool]:
-    """
-    Basit intrabar kontrol: her barda High/Low'a bakar.
-    TP1 görülürse: kalan %50 için BE (entry) stop atanır, trailing: long için
-    son swing low altı, short için son swing high üstü (basit: önceki bar low/high).
-    Dönüş: (exit_price, exit_index, hit_tp1, hit_tp2, stopped)
-    """
     hit_tp1 = False
     hit_tp2 = False
     stopped = False
     stop = sl
-    size_half = 0.5  # %50 ölçekleme
 
     def bar_hit(long: bool, hi: float, lo: float, level: float) -> bool:
         return (hi >= level) if long else (lo <= level)
@@ -352,46 +352,32 @@ def simulate_trade_path(df: pd.DataFrame, i_entry: int, side: str, entry: float,
         hi, lo, close = float(df["High"].iloc[idx]), float(df["Low"].iloc[idx]), float(df["Close"].iloc[idx])
 
         if side == "BUY":
-            # Önce SL mi TP mi? Sırayı bilemeyiz; basit yaklaşım: önce en olası yön (long için yukarı) kontrol
-            # 1) TP2
             if bar_hit(True, hi, lo, tp2):
                 hit_tp2 = True
-                # Tam kapat (kalanın da kapanması)
                 return tp2, idx, True, True, False
-            # 2) TP1
             if (not hit_tp1) and bar_hit(True, hi, lo, tp1):
                 hit_tp1 = True
-                # kalan %50 için stopu BE'ye çek
                 stop = max(stop, entry)
-            # 3) Trailing (basit): önceki barın düşüğü altında
             prev_low = float(df["Low"].iloc[idx-1])
             last_swing_low = max(last_swing_low, prev_low) if last_swing_low is not None else prev_low
             stop = max(stop, last_swing_low)
-            # 4) Stop kontrolü
             if bar_hit(False, hi, lo, stop):
                 stopped = True
-                # Eğer TP1 olmuşsa kalan %50 için stop = BE olmuştu → exit = stop
                 return stop, idx, hit_tp1, hit_tp2, True
-
-        else:  # SELL
-            # 1) TP2
+        else:
             if bar_hit(False, hi, lo, tp2):
                 hit_tp2 = True
                 return tp2, idx, True, True, False
-            # 2) TP1
             if (not hit_tp1) and bar_hit(False, hi, lo, tp1):
                 hit_tp1 = True
                 stop = min(stop, entry)
-            # 3) Trailing: önceki barın yükseği üstü
             prev_high = float(df["High"].iloc[idx-1])
             last_swing_high = min(last_swing_high, prev_high) if last_swing_high is not None else prev_high
             stop = min(stop, last_swing_high if last_swing_high is not None else stop)
-            # 4) Stop
             if bar_hit(True, hi, lo, stop):
                 stopped = True
                 return stop, idx, hit_tp1, hit_tp2, True
 
-    # Süre bitti: kapanışta çık
     exit_price = float(df["Close"].iloc[min(i_entry + max_hold_bars, len(df)-1)])
     return exit_price, min(i_entry + max_hold_bars, len(df)-1), hit_tp1, hit_tp2, stopped
 
@@ -427,14 +413,12 @@ def backtest(
             equity.append(balance)
             continue
 
-        entry = float(df["Open"].iloc[i+1])  # bir sonraki bar açılışı
+        entry = float(df["Open"].iloc[i+1])
         sl, tp1, tp2 = sig.sl, sig.tp1, sig.tp2
         if sl is None or tp1 is None or tp2 is None:
             equity.append(balance)
             continue
 
-        # Pozisyon büyüklüğü (sermaye * risk%)
-        # Not: Burada risk_% nominal; PnL hesaplaması giriş/çıkış farkı * (poz. büyüklüğü / entry)
         position_size = balance * (risk_percent / 100.0)
 
         exit_price, exit_i, hit_tp1, hit_tp2, stopped = simulate_trade_path(
@@ -459,7 +443,6 @@ def backtest(
     if total_trades == 0:
         return {"trades": 0, "win_rate": 0, "total_return": 0, "final_balance": 10000, "equity_curve": equity}
 
-    # Win tanımı: net pozitif PnL
     wins = sum(1 for t in trades if t.pnl > 0)
     win_rate = 100.0 * wins / total_trades
     total_return = 100.0 * (balance - 10000.0) / 10000.0
@@ -538,7 +521,6 @@ with col1:
         x=view.index, y=view["BB_L"], name="BB Lower", line=dict(width=1, dash="dot")
     ))
 
-    # S/R
     for i, z in enumerate(supports[:2]):
         fig.add_hline(y=z.low, line_dash="dash", line_color="green", annotation_text=f"S{i+1}L")
         fig.add_hline(y=z.high, line_dash="dash", line_color="green", annotation_text=f"S{i+1}H")
