@@ -50,32 +50,48 @@ def get_1d_data(symbol, days=120):
         return None
 
 def map_regime_to_4h(df_4h, df_1d):
-    """1D rejimini 4H verisine map et"""
+    """1D rejimini 4H verisine map et - DÜZELTİLMİŞ"""
+    if df_1d is None or len(df_1d) < 200:
+        return df_4h.assign(REGIME='RANGE')
+    
     df_1d = df_1d.copy()
     
-    # EMA200 ve ATR14 hesapla (1D)
-    ema200 = df_1d['Close'].ewm(span=200, adjust=False).mean()
-    
-    tr1 = df_1d['High'] - df_1d['Low']
-    tr2 = (df_1d['High'] - df_1d['Close'].shift()).abs()
-    tr3 = (df_1d['Low'] - df_1d['Close'].shift()).abs()
-    atr1d = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1).rolling(14).mean()
-    
-    # Rejim sınıflandırma
-    slope_up = ema200 > ema200.shift(1)
-    dist_up = (df_1d['Close'] - ema200) > 0.5 * atr1d
-    dist_down = (ema200 - df_1d['Close']) > 0.5 * atr1d
-    
-    regime_1d = np.where(slope_up & dist_up, 'UP',
-                  np.where((~slope_up) & dist_down, 'DOWN', 'RANGE'))
-    
-    df_reg = pd.DataFrame({'REGIME_D': regime_1d}, index=df_1d.index)
-    
-    # 4H verisine forward fill ile map et
-    result_df = df_4h.join(df_reg, how='left')
-    result_df['REGIME_D'] = result_df['REGIME_D'].fillna(method='ffill')
-    
-    return result_df
+    try:
+        # EMA200 hesapla (1D)
+        ema200 = df_1d['Close'].ewm(span=200, adjust=False).mean()
+        
+        # ATR14 hesapla (1D) - düzgün şekilde
+        high_low = df_1d['High'] - df_1d['Low']
+        high_close_prev = (df_1d['High'] - df_1d['Close'].shift()).abs()
+        low_close_prev = (df_1d['Low'] - df_1d['Close'].shift()).abs()
+        
+        tr = pd.concat([high_low, high_close_prev, low_close_prev], axis=1).max(axis=1)
+        atr1d = tr.rolling(window=14, min_periods=1).mean()
+        
+        # NaN değerleri temizle
+        atr1d = atr1d.fillna(method='bfill').fillna(method='ffill')
+        
+        # Rejim sınıflandırma - daha basit ve güvenli
+        current_close = df_1d['Close'].iloc[-1]
+        current_ema = ema200.iloc[-1]
+        current_atr = atr1d.iloc[-1] if not pd.isna(atr1d.iloc[-1]) else current_close * 0.02
+        
+        # Basit rejim belirleme
+        price_vs_ema_pct = (current_close - current_ema) / current_ema * 100
+        
+        if price_vs_ema_pct > 2:  # %2 üstünde
+            regime = 'UP'
+        elif price_vs_ema_pct < -2:  # %2 altında
+            regime = 'DOWN'
+        else:
+            regime = 'RANGE'
+        
+        # Tüm 4H verisine aynı rejimi uygula (basit yaklaşım)
+        return df_4h.assign(REGIME=regime)
+        
+    except Exception as e:
+        # Hata durumunda fallback
+        return df_4h.assign(REGIME='RANGE')
 
 def donchian(df, n=20):
     """Donchian Channel"""
@@ -88,69 +104,82 @@ def bollinger(df, n=20, k=2):
     return mid, mid + k * std, mid - k * std
 
 def chandelier_exit(df, period=22, mult=3):
-    """Chandelier Exit - Düzeltilmiş versiyon"""
-    if 'ATR' not in df.columns:
-        # ATR yoksa basit hesapla
-        tr1 = df['High'] - df['Low']
-        tr2 = (df['High'] - df['Close'].shift()).abs()
-        tr3 = (df['Low'] - df['Close'].shift()).abs()
-        atr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1).rolling(14).mean()
-    else:
-        atr = df['ATR']
-    
-    long_stop = df['High'].rolling(period).max() - mult * atr
-    short_stop = df['Low'].rolling(period).min() + mult * atr
-    
-    return long_stop, short_stop
+    """Chandelier Exit - Basitleştirilmiş"""
+    try:
+        if 'ATR' not in df.columns:
+            # Basit ATR hesapla
+            high_low = df['High'] - df['Low']
+            high_close_prev = (df['High'] - df['Close'].shift()).abs()
+            low_close_prev = (df['Low'] - df['Close'].shift()).abs()
+            tr = pd.concat([high_low, high_close_prev, low_close_prev], axis=1).max(axis=1)
+            atr = tr.rolling(14, min_periods=1).mean().fillna(method='bfill')
+        else:
+            atr = df['ATR']
+        
+        long_stop = df['High'].rolling(period, min_periods=1).max() - mult * atr
+        short_stop = df['Low'].rolling(period, min_periods=1).min() + mult * atr
+        
+        return long_stop.fillna(method='bfill'), short_stop.fillna(method='bfill')
+    except:
+        # Hata durumunda NaN döndür
+        return pd.Series([np.nan] * len(df), index=df.index), pd.Series([np.nan] * len(df), index=df.index)
 
 def calculate_advanced_indicators(df):
     """İleri teknik göstergeler - DÜZELTİLMİŞ"""
     df = df.copy()
     
-    # Donchian Channel
-    donch_high, donch_low = donchian(df, 20)
-    df['DONCH_HIGH'] = donch_high
-    df['DONCH_LOW'] = donch_low
-    
-    # Bollinger Bands
-    bb_mid, bb_upper, bb_lower = bollinger(df, 20, 2)
-    df['BB_MID'] = bb_mid
-    df['BB_UPPER'] = bb_upper
-    df['BB_LOWER'] = bb_lower
-    
-    # Chandelier Exit - ATR kontrolü ile
-    if len(df) > 22:  # Yeterli veri varsa
-        try:
-            ch_long, ch_short = chandelier_exit(df)
-            df['CHANDELIER_LONG'] = ch_long
-            df['CHANDELIER_SHORT'] = ch_short
-        except Exception as e:
-            # Hata durumunda NaN değerler
-            df['CHANDELIER_LONG'] = np.nan
-            df['CHANDELIER_SHORT'] = np.nan
-    else:
+    try:
+        # Donchian Channel
+        donch_high, donch_low = donchian(df, 20)
+        df['DONCH_HIGH'] = donch_high
+        df['DONCH_LOW'] = donch_low
+        
+        # Bollinger Bands
+        bb_mid, bb_upper, bb_lower = bollinger(df, 20, 2)
+        df['BB_MID'] = bb_mid
+        df['BB_UPPER'] = bb_upper
+        df['BB_LOWER'] = bb_lower
+        
+        # Chandelier Exit
+        ch_long, ch_short = chandelier_exit(df)
+        df['CHANDELIER_LONG'] = ch_long
+        df['CHANDELIER_SHORT'] = ch_short
+        
+    except Exception as e:
+        # Hata durumunda NaN değerler
+        df['DONCH_HIGH'] = np.nan
+        df['DONCH_LOW'] = np.nan
+        df['BB_MID'] = np.nan
+        df['BB_UPPER'] = np.nan
+        df['BB_LOWER'] = np.nan
         df['CHANDELIER_LONG'] = np.nan
         df['CHANDELIER_SHORT'] = np.nan
     
     return df
 
 def get_regime(symbol, df_4h):
-    """Rejim hesapla ve 4H verisine ekle"""
-    df_1d = get_1d_data(symbol, days=120)
-    if df_1d is None or len(df_1d) < 50:
-        # Fallback: EMA50 bazlı basit rejim
-        ema50 = df_4h['Close'].ewm(span=50, adjust=False).mean()
-        price_vs_ema = (df_4h['Close'] - ema50) / df_4h['Close'] * 100
-        df_4h['REGIME'] = np.where(price_vs_ema > 2, 'UP', 
-                            np.where(price_vs_ema < -2, 'DOWN', 'RANGE'))
-        return df_4h
-    else:
+    """Rejim hesapla ve 4H verisine ekle - BASİTLEŞTİRİLMİŞ"""
+    try:
+        df_1d = get_1d_data(symbol, days=120)
         result_df = map_regime_to_4h(df_4h, df_1d)
-        # REGIME_D'yi REGIME olarak yeniden adlandır
-        result_df['REGIME'] = result_df['REGIME_D']
-        if 'REGIME_D' in result_df.columns:
-            result_df = result_df.drop('REGIME_D', axis=1)
+        
+        # REGIME kolonunun olduğundan emin ol
+        if 'REGIME' not in result_df.columns:
+            result_df['REGIME'] = 'RANGE'
+            
         return result_df
+        
+    except Exception as e:
+        # Hata durumunda fallback: EMA50 bazlı basit rejim
+        try:
+            ema50 = df_4h['Close'].ewm(span=50, adjust=False).mean()
+            price_vs_ema = (df_4h['Close'] - ema50) / df_4h['Close'] * 100
+            df_4h['REGIME'] = np.where(price_vs_ema > 2, 'UP', 
+                                np.where(price_vs_ema < -2, 'DOWN', 'RANGE'))
+        except:
+            df_4h['REGIME'] = 'RANGE'
+            
+        return df_4h
 
 def can_trade(last_signal_time, current_time, cooldown_bars=3):
     """Cooldown kontrolü"""
@@ -174,17 +203,6 @@ def generate_signals_v2(df, regime_col='REGIME', min_rr_ratio=1.5, cooldown_bars
         current_idx = df.index[-1]
         current_data = df.iloc[-1]
         current_price = float(current_data['Close'])
-        
-        # Cooldown kontrolü (basit implementasyon)
-        if len(df) > cooldown_bars:
-            # Son cooldown_bars içinde sinyal var mı kontrol et
-            recent_data = df.iloc[-(cooldown_bars+1):-1]
-            for i in range(len(recent_data)):
-                temp_data = df.iloc[:-(cooldown_bars-i)]
-                if len(temp_data) > 50:
-                    temp_signal = generate_signals_v2(temp_data, regime_col, min_rr_ratio, cooldown_bars, bb_width_pct, donchian_len)
-                    if temp_signal.get('type') in ['BUY', 'SELL']:
-                        return {"type": "WAIT", "reason": "Cooldown", "strat_id": "NONE"}
         
         regime = current_data.get(regime_col, 'RANGE')
         atr = float(current_data.get('ATR', current_price * 0.02))
@@ -677,7 +695,7 @@ with st.sidebar:
 
 crypto_symbol = st.session_state['selected_symbol']
 
-# Mevcut fonksiyonlar (kısaltılmış)
+# Mevcut fonksiyonlar
 def compute_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
     high = df['High']
     low = df['Low']
@@ -809,8 +827,8 @@ def find_congestion_zones(data, min_touch_points=3, lookback=120):
     for zone in support_zones + resistance_zones:
         zone.score = min(zone.touches * 20, 80)
     
-    support_zones = sorted(support_zones, key=lambda x: x.score, reverse=True)[:2]  # Sadece 2
-    resistance_zones = sorted(resistance_zones, key=lambda x: x.score, reverse=True)[:2]  # Sadece 2
+    support_zones = sorted(support_zones, key=lambda x: x.score, reverse=True)[:2]
+    resistance_zones = sorted(resistance_zones, key=lambda x: x.score, reverse=True)[:2]
     
     return support_zones, resistance_zones
 
