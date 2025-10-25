@@ -49,11 +49,18 @@ class CryptoStrategy:
             df['MACD_Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
             df['MACD_Histogram'] = df['MACD'] - df['MACD_Signal']
             
-            # Bollinger Bantları
-            df['BB_Middle'] = df['Close'].rolling(window=20).mean()
+            # DÜZELTİLMİŞ Bollinger Bantları - DataFrame problemi çözüldü
+            bb_middle = df['Close'].rolling(window=20).mean()
             bb_std = df['Close'].rolling(window=20).std()
-            df['BB_Upper'] = df['BB_Middle'] + (bb_std * 2)
-            df['BB_Lower'] = df['BB_Middle'] - (bb_std * 2)
+            
+            # Tek tek sütun ataması yap
+            df = df.assign(
+                BB_Middle=bb_middle,
+                BB_Upper=bb_middle + (bb_std * 2),
+                BB_Lower=bb_middle - (bb_std * 2)
+            )
+            
+            # Bollinger Band pozisyonu
             df['BB_Position'] = (df['Close'] - df['BB_Lower']) / (df['BB_Upper'] - df['BB_Lower'])
             
             # Momentum
@@ -380,15 +387,6 @@ initial_capital = st.sidebar.number_input(
     step=1000
 )
 
-# Risk ayarı
-risk_per_trade = st.sidebar.slider(
-    "İşlem Başına Risk (%)",
-    min_value=5,
-    max_value=30,
-    value=15,
-    step=5
-)
-
 # Ana içerik
 st.subheader("🎯 Gelişmiş Strateji Bilgileri")
     
@@ -639,7 +637,10 @@ if st.button("🎯 Gelişmiş Backtest Simülasyonunu Başlat", type="primary", 
                         with stat_col4:
                             st.metric("Toplam Kar/Zarar", f"${total_pnl:.2f}")
                         with stat_col5:
-                            st.metric("Ort. Bekleme Süresi", f"{avg_hold_time.days} gün")
+                            if pd.notna(avg_hold_time):
+                                st.metric("Ort. Bekleme Süresi", f"{avg_hold_time.days} gün")
+                            else:
+                                st.metric("Ort. Bekleme Süresi", "N/A")
                         
                     else:
                         st.info("Kapanan işlem bulunamadı.")
