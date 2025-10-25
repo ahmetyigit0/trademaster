@@ -282,33 +282,29 @@ def generate_max_winrate_signals(d: pd.DataFrame,
                                         confidence, "range", reason))
         
         # STRATEGY 3: BREAKOUT WITH RETEST (Medium Win Rate but good RR)
-        if not signals:
-            if best_resistance and current_price >= best_resistance.low * 0.998 and trend_strength >= 5:
-                # Breakout above resistance with trend confirmation
-                sl = best_resistance.low * 0.995
-                risk = current_price - sl
-                tp1 = current_price + risk * 1.0
-                tp2 = current_price + risk * 1.5
-                rr = (tp2 - current_price) / risk
-                
-                if rr >= min_rr and rsi < 70:
-                    confidence = min(best_resistance.score + 20, 90)
-                    reason = [
-                        "🚀 BREAKOUT STRATEJİSİ",
-                        f"Resistance breakout (Güç: {trend_strength}/9)",
-                        f"RSI {rsi:.1f} (momentum)",
-                        f"Risk/Reward: {rr:.2f}:1",
-                        "Trend + Breakout kombinasyonu"
-                    ]
-                    signals.append(Signal("BUY", current_price, sl, tp1, tp2, rr,
-                                        confidence, trend rr,
-                                        confidence, trend, reason))
+if not signals:
+    if best_resistance and current_price >= best_resistance.low * 0.998 and trend_strength >= 5:
+        # Breakout above resistance with trend confirmation
+        sl = best_resistance.low * 0.995
+        risk = current_price - sl
+        tp1 = current_price + risk * 1.0
+        tp2 = current_price + risk * 1.5
+        rr = (tp2 - current_price) / risk
+        
+        if rr >= min_rr and rsi < 70:
+            confidence = min(best_resistance.score + 20, 90)
+            reason = [
+                "🚀 BREAKOUT STRATEJİSİ",
+                f"Resistance breakout (Güç: {trend_strength}/9)",
+                f"RSI {rsi:.1f} (momentum)",
+                f"Risk/Reward: {rr:.2f}:1",
+                "Trend + Breakout kombinasyonu"
+            ]
+            signals.append(Signal("BUY", current_price, sl, tp1, tp2, rr,
+                                confidence, trend, reason))
                     
-    except, reason))
-                    
-    except Exception as Exception as e:
-        notes e:
-        notes.append(f.append(f"Hata"Hata: {str(e: {str(e)}")
+except Exception as e:
+    notes.append(f"Hata: {str(e)}")
     
     if)}")
     
