@@ -72,7 +72,10 @@ def map_regime_to_4h(df_4h, df_1d):
     df_reg = pd.DataFrame({'REGIME_D': regime_1d}, index=df_1d.index)
     
     # 4H verisine forward fill ile map et
-    return df_4h.join(df_reg.reindex(df_4h.index, method='ffill'))
+    result_df = df_4h.join(df_reg, how='left')
+    result_df['REGIME_D'] = result_df['REGIME_D'].fillna(method='ffill')
+    
+    return result_df
 
 def donchian(df, n=20):
     """Donchian Channel"""
@@ -85,32 +88,56 @@ def bollinger(df, n=20, k=2):
     return mid, mid + k * std, mid - k * std
 
 def chandelier_exit(df, period=22, mult=3):
-    """Chandelier Exit"""
-    atr = df['ATR']
+    """Chandelier Exit - Düzeltilmiş versiyon"""
+    if 'ATR' not in df.columns:
+        # ATR yoksa basit hesapla
+        tr1 = df['High'] - df['Low']
+        tr2 = (df['High'] - df['Close'].shift()).abs()
+        tr3 = (df['Low'] - df['Close'].shift()).abs()
+        atr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1).rolling(14).mean()
+    else:
+        atr = df['ATR']
+    
     long_stop = df['High'].rolling(period).max() - mult * atr
     short_stop = df['Low'].rolling(period).min() + mult * atr
+    
     return long_stop, short_stop
 
 def calculate_advanced_indicators(df):
-    """İleri teknik göstergeler"""
+    """İleri teknik göstergeler - DÜZELTİLMİŞ"""
     df = df.copy()
     
     # Donchian Channel
-    df['DONCH_HIGH'], df['DONCH_LOW'] = donchian(df, 20)
+    donch_high, donch_low = donchian(df, 20)
+    df['DONCH_HIGH'] = donch_high
+    df['DONCH_LOW'] = donch_low
     
     # Bollinger Bands
-    df['BB_MID'], df['BB_UPPER'], df['BB_LOWER'] = bollinger(df, 20, 2)
+    bb_mid, bb_upper, bb_lower = bollinger(df, 20, 2)
+    df['BB_MID'] = bb_mid
+    df['BB_UPPER'] = bb_upper
+    df['BB_LOWER'] = bb_lower
     
-    # Chandelier Exit (ATR varsa)
-    if 'ATR' in df.columns:
-        df['CHANDELIER_LONG'], df['CHANDELIER_SHORT'] = chandelier_exit(df)
+    # Chandelier Exit - ATR kontrolü ile
+    if len(df) > 22:  # Yeterli veri varsa
+        try:
+            ch_long, ch_short = chandelier_exit(df)
+            df['CHANDELIER_LONG'] = ch_long
+            df['CHANDELIER_SHORT'] = ch_short
+        except Exception as e:
+            # Hata durumunda NaN değerler
+            df['CHANDELIER_LONG'] = np.nan
+            df['CHANDELIER_SHORT'] = np.nan
+    else:
+        df['CHANDELIER_LONG'] = np.nan
+        df['CHANDELIER_SHORT'] = np.nan
     
     return df
 
 def get_regime(symbol, df_4h):
     """Rejim hesapla ve 4H verisine ekle"""
     df_1d = get_1d_data(symbol, days=120)
-    if df_1d is None:
+    if df_1d is None or len(df_1d) < 50:
         # Fallback: EMA50 bazlı basit rejim
         ema50 = df_4h['Close'].ewm(span=50, adjust=False).mean()
         price_vs_ema = (df_4h['Close'] - ema50) / df_4h['Close'] * 100
@@ -118,14 +145,23 @@ def get_regime(symbol, df_4h):
                             np.where(price_vs_ema < -2, 'DOWN', 'RANGE'))
         return df_4h
     else:
-        return map_regime_to_4h(df_4h, df_1d)
+        result_df = map_regime_to_4h(df_4h, df_1d)
+        # REGIME_D'yi REGIME olarak yeniden adlandır
+        result_df['REGIME'] = result_df['REGIME_D']
+        if 'REGIME_D' in result_df.columns:
+            result_df = result_df.drop('REGIME_D', axis=1)
+        return result_df
 
 def can_trade(last_signal_time, current_time, cooldown_bars=3):
     """Cooldown kontrolü"""
-    if last_signal_time is None:
+    if last_signal_time is None or pd.isna(last_signal_time):
         return True
-    dt = (current_time - last_signal_time) / pd.Timedelta('4H')
-    return dt >= cooldown_bars
+    
+    if isinstance(last_signal_time, pd.Timestamp) and isinstance(current_time, pd.Timestamp):
+        dt = (current_time - last_signal_time) / pd.Timedelta('4H')
+        return dt >= cooldown_bars
+    
+    return True
 
 def generate_signals_v2(df, regime_col='REGIME', min_rr_ratio=1.5, cooldown_bars=3, bb_width_pct=2.5, donchian_len=20):
     """
@@ -134,102 +170,111 @@ def generate_signals_v2(df, regime_col='REGIME', min_rr_ratio=1.5, cooldown_bars
     if len(df) < 50:
         return {"type": "WAIT", "reason": "Yetersiz veri", "strat_id": "NONE"}
     
-    current_idx = df.index[-1]
-    current_data = df.iloc[-1]
-    current_price = float(current_data['Close'])
-    
-    # Cooldown kontrolü (basit implementasyon)
-    if len(df) > 10:
-        last_signals = [s for s in [generate_signals_v2(df.iloc[:-i], regime_col, min_rr_ratio, cooldown_bars, bb_width_pct, donchian_len) 
-                                  for i in range(1, min(10, len(df)))] 
-                       if s.get('type') in ['BUY', 'SELL']]
-        if last_signals and not can_trade(df.index[-2], current_idx, cooldown_bars):
-            return {"type": "WAIT", "reason": "Cooldown", "strat_id": "NONE"}
-    
-    regime = current_data.get(regime_col, 'RANGE')
-    atr = float(current_data.get('ATR', current_price * 0.02))
-    rsi = float(current_data.get('RSI', 50))
-    
-    # Strateji A: Uptrend - Momentum Breakout
-    if regime == 'UP':
-        # Donchian breakout + RSI filtresi
-        donch_high = float(current_data.get('DONCH_HIGH', current_price))
-        if current_price >= donch_high and rsi < 70:
-            sl = min(float(current_data.get('DONCH_LOW', current_price * 0.98)), 
-                    float(current_data.get('BB_LOWER', current_price * 0.98)))
-            risk = current_price - sl
-            if risk > 0:
-                tp1 = current_price + risk * (min_rr_ratio * 0.5)
-                tp2 = current_price + risk * min_rr_ratio
-                rr = (tp2 - current_price) / risk
-                if rr >= min_rr_ratio:
-                    return {
-                        "type": "BUY", "entry": current_price, "sl": sl, 
-                        "tp1": tp1, "tp2": tp2, "rr": rr, 
-                        "reason": "Uptrend Breakout", "strat_id": "A"
-                    }
-    
-    # Strateji B: Downtrend - Momentum Breakdown  
-    elif regime == 'DOWN':
-        # Donchian breakdown + RSI filtresi
-        donch_low = float(current_data.get('DONCH_LOW', current_price))
-        if current_price <= donch_low and rsi > 30:
-            sl = max(float(current_data.get('DONCH_HIGH', current_price * 1.02)), 
-                    float(current_data.get('BB_UPPER', current_price * 1.02)))
-            risk = sl - current_price
-            if risk > 0:
-                tp1 = current_price - risk * (min_rr_ratio * 0.5)
-                tp2 = current_price - risk * min_rr_ratio
-                rr = (current_price - tp2) / risk
-                if rr >= min_rr_ratio:
-                    return {
-                        "type": "SELL", "entry": current_price, "sl": sl, 
-                        "tp1": tp1, "tp2": tp2, "rr": rr,
-                        "reason": "Downtrend Breakdown", "strat_id": "B"
-                    }
-    
-    # Strateji C: Range - Mean Reversion
-    elif regime == 'RANGE':
-        # Bollinger Band bounce
-        bb_upper = float(current_data.get('BB_UPPER', current_price * 1.1))
-        bb_lower = float(current_data.get('BB_LOWER', current_price * 0.9))
-        bb_mid = float(current_data.get('BB_MID', current_price))
+    try:
+        current_idx = df.index[-1]
+        current_data = df.iloc[-1]
+        current_price = float(current_data['Close'])
         
-        # Üst band direnç - Short
-        if current_price >= bb_upper * 0.99 and rsi > 60:
-            sl = bb_upper * 1.02
-            risk = sl - current_price
-            if risk > 0:
-                tp1 = bb_mid
-                tp2 = bb_lower
-                rr = (current_price - tp2) / risk
-                if rr >= min_rr_ratio:
-                    return {
-                        "type": "SELL", "entry": current_price, "sl": sl, 
-                        "tp1": tp1, "tp2": tp2, "rr": rr,
-                        "reason": "Range Resistance", "strat_id": "C"
-                    }
+        # Cooldown kontrolü (basit implementasyon)
+        if len(df) > cooldown_bars:
+            # Son cooldown_bars içinde sinyal var mı kontrol et
+            recent_data = df.iloc[-(cooldown_bars+1):-1]
+            for i in range(len(recent_data)):
+                temp_data = df.iloc[:-(cooldown_bars-i)]
+                if len(temp_data) > 50:
+                    temp_signal = generate_signals_v2(temp_data, regime_col, min_rr_ratio, cooldown_bars, bb_width_pct, donchian_len)
+                    if temp_signal.get('type') in ['BUY', 'SELL']:
+                        return {"type": "WAIT", "reason": "Cooldown", "strat_id": "NONE"}
         
-        # Alt band destek - Long
-        elif current_price <= bb_lower * 1.01 and rsi < 40:
-            sl = bb_lower * 0.98
-            risk = current_price - sl
-            if risk > 0:
-                tp1 = bb_mid
-                tp2 = bb_upper
-                rr = (tp2 - current_price) / risk
-                if rr >= min_rr_ratio:
-                    return {
-                        "type": "BUY", "entry": current_price, "sl": sl, 
-                        "tp1": tp1, "tp2": tp2, "rr": rr,
-                        "reason": "Range Support", "strat_id": "C"
-                    }
+        regime = current_data.get(regime_col, 'RANGE')
+        atr = float(current_data.get('ATR', current_price * 0.02))
+        rsi = float(current_data.get('RSI', 50))
+        
+        # Strateji A: Uptrend - Momentum Breakout
+        if regime == 'UP':
+            # Donchian breakout + RSI filtresi
+            donch_high = float(current_data.get('DONCH_HIGH', current_price * 1.02))
+            if current_price >= donch_high * 0.998 and rsi < 70:  # %0.2 tolerans
+                sl = min(float(current_data.get('DONCH_LOW', current_price * 0.98)), 
+                        float(current_data.get('BB_LOWER', current_price * 0.98)),
+                        current_price * 0.98)  # Max %2 stop loss
+                risk = current_price - sl
+                if risk > 0 and risk < current_price * 0.05:  # Max %5 risk
+                    tp1 = current_price + risk * (min_rr_ratio * 0.5)
+                    tp2 = current_price + risk * min_rr_ratio
+                    rr = (tp2 - current_price) / risk
+                    if rr >= min_rr_ratio:
+                        return {
+                            "type": "BUY", "entry": current_price, "sl": sl, 
+                            "tp1": tp1, "tp2": tp2, "rr": rr, 
+                            "reason": "Uptrend Breakout", "strat_id": "A"
+                        }
+        
+        # Strateji B: Downtrend - Momentum Breakdown  
+        elif regime == 'DOWN':
+            # Donchian breakdown + RSI filtresi
+            donch_low = float(current_data.get('DONCH_LOW', current_price * 0.98))
+            if current_price <= donch_low * 1.002 and rsi > 30:  # %0.2 tolerans
+                sl = max(float(current_data.get('DONCH_HIGH', current_price * 1.02)), 
+                        float(current_data.get('BB_UPPER', current_price * 1.02)),
+                        current_price * 1.02)  # Min %2 stop loss
+                risk = sl - current_price
+                if risk > 0 and risk < current_price * 0.05:  # Max %5 risk
+                    tp1 = current_price - risk * (min_rr_ratio * 0.5)
+                    tp2 = current_price - risk * min_rr_ratio
+                    rr = (current_price - tp2) / risk
+                    if rr >= min_rr_ratio:
+                        return {
+                            "type": "SELL", "entry": current_price, "sl": sl, 
+                            "tp1": tp1, "tp2": tp2, "rr": rr,
+                            "reason": "Downtrend Breakdown", "strat_id": "B"
+                        }
+        
+        # Strateji C: Range - Mean Reversion
+        elif regime == 'RANGE':
+            # Bollinger Band bounce
+            bb_upper = float(current_data.get('BB_UPPER', current_price * 1.1))
+            bb_lower = float(current_data.get('BB_LOWER', current_price * 0.9))
+            bb_mid = float(current_data.get('BB_MID', current_price))
+            
+            # Üst band direnç - Short
+            if current_price >= bb_upper * 0.99 and rsi > 60:
+                sl = bb_upper * 1.02
+                risk = sl - current_price
+                if risk > 0 and risk < current_price * 0.05:
+                    tp1 = bb_mid
+                    tp2 = bb_lower
+                    rr = (current_price - tp2) / risk
+                    if rr >= min_rr_ratio:
+                        return {
+                            "type": "SELL", "entry": current_price, "sl": sl, 
+                            "tp1": tp1, "tp2": tp2, "rr": rr,
+                            "reason": "Range Resistance", "strat_id": "C"
+                        }
+            
+            # Alt band destek - Long
+            elif current_price <= bb_lower * 1.01 and rsi < 40:
+                sl = bb_lower * 0.98
+                risk = current_price - sl
+                if risk > 0 and risk < current_price * 0.05:
+                    tp1 = bb_mid
+                    tp2 = bb_upper
+                    rr = (tp2 - current_price) / risk
+                    if rr >= min_rr_ratio:
+                        return {
+                            "type": "BUY", "entry": current_price, "sl": sl, 
+                            "tp1": tp1, "tp2": tp2, "rr": rr,
+                            "reason": "Range Support", "strat_id": "C"
+                        }
+        
+        # Aşırı uzama filtresi
+        if rsi > 80 or rsi < 20:
+            return {"type": "WAIT", "reason": f"Aşırı uzama (RSI:{rsi:.1f})", "strat_id": "NONE"}
+        
+        return {"type": "WAIT", "reason": "Koşullar uygun değil", "strat_id": "NONE"}
     
-    # Aşırı uzama filtresi
-    if rsi > 80 or rsi < 20:
-        return {"type": "WAIT", "reason": f"Aşırı uzama (RSI:{rsi:.1f})", "strat_id": "NONE"}
-    
-    return {"type": "WAIT", "reason": "Koşullar uygun değil", "strat_id": "NONE"}
+    except Exception as e:
+        return {"type": "WAIT", "reason": f"Hata: {str(e)}", "strat_id": "NONE"}
 
 # =============================================================================
 # BACKTEST SİSTEMİ
