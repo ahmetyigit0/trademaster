@@ -306,7 +306,6 @@ if not signals:
 except Exception as e:
     notes.append(f"Hata: {str(e)}")
     
-    if)}")
     
     if not signals not signals:
         wait_re:
