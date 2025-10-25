@@ -28,30 +28,34 @@ class CryptoStrategy:
         """Teknik göstergeleri hesapla"""
         df = df.copy()
         
-        # RSI
-        delta = df['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rs = gain / loss
-        df['RSI'] = 100 - (100 / (1 + rs))
-        
-        # MACD
-        exp1 = df['Close'].ewm(span=12).mean()
-        exp2 = df['Close'].ewm(span=26).mean()
-        df['MACD'] = exp1 - exp2
-        df['MACD_Signal'] = df['MACD'].ewm(span=9).mean()
-        df['MACD_Histogram'] = df['MACD'] - df['MACD_Signal']
-        
-        # Bollinger Bantları
-        df['BB_Middle'] = df['Close'].rolling(window=20).mean()
-        bb_std = df['Close'].rolling(window=20).std()
-        df['BB_Upper'] = df['BB_Middle'] + (bb_std * 2)
-        df['BB_Lower'] = df['BB_Middle'] - (bb_std * 2)
-        
-        # EMA'lar
-        df['EMA_9'] = df['Close'].ewm(span=9).mean()
-        df['EMA_21'] = df['Close'].ewm(span=21).mean()
-        
+        try:
+            # RSI
+            delta = df['Close'].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            rs = gain / loss
+            df.loc[:, 'RSI'] = 100 - (100 / (1 + rs))
+            
+            # MACD
+            exp1 = df['Close'].ewm(span=12).mean()
+            exp2 = df['Close'].ewm(span=26).mean()
+            df.loc[:, 'MACD'] = exp1 - exp2
+            df.loc[:, 'MACD_Signal'] = df['MACD'].ewm(span=9).mean()
+            df.loc[:, 'MACD_Histogram'] = df['MACD'] - df['MACD_Signal']
+            
+            # Bollinger Bantları
+            df.loc[:, 'BB_Middle'] = df['Close'].rolling(window=20).mean()
+            bb_std = df['Close'].rolling(window=20).std()
+            df.loc[:, 'BB_Upper'] = df['BB_Middle'] + (bb_std * 2)
+            df.loc[:, 'BB_Lower'] = df['BB_Middle'] - (bb_std * 2)
+            
+            # EMA'lar
+            df.loc[:, 'EMA_9'] = df['Close'].ewm(span=9).mean()
+            df.loc[:, 'EMA_21'] = df['Close'].ewm(span=21).mean()
+            
+        except Exception as e:
+            st.error(f"Göstergeler hesaplanırken hata: {e}")
+            
         return df
     
     def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -59,23 +63,27 @@ class CryptoStrategy:
         df = df.copy()
         df['Signal'] = 0  # 0: Bekle, 1: Long, -1: Short
         
-        # Strateji kuralları
-        long_condition = (
-            (df['RSI'] < 35) &  # RSI oversold
-            (df['MACD'] > df['MACD_Signal']) &  # MACD yukarı kesiyor
-            (df['Close'] < df['BB_Lower']) &  # Fiyat Bollinger alt bandında
-            (df['EMA_9'] > df['EMA_21'])  # Kısa EMA uzun EMA'nın üstünde
-        )
-        
-        short_condition = (
-            (df['RSI'] > 65) &  # RSI overbought
-            (df['MACD'] < df['MACD_Signal']) &  # MACD aşağı kesiyor
-            (df['Close'] > df['BB_Upper']) &  # Fiyat Bollinger üst bandında
-            (df['EMA_9'] < df['EMA_21'])  # Kısa EMA uzun EMA'nın altında
-        )
-        
-        df.loc[long_condition, 'Signal'] = 1
-        df.loc[short_condition, 'Signal'] = -1
+        try:
+            # Strateji kuralları
+            long_condition = (
+                (df['RSI'] < 35) &  # RSI oversold
+                (df['MACD'] > df['MACD_Signal']) &  # MACD yukarı kesiyor
+                (df['Close'] < df['BB_Lower']) &  # Fiyat Bollinger alt bandında
+                (df['EMA_9'] > df['EMA_21'])  # Kısa EMA uzun EMA'nın üstünde
+            )
+            
+            short_condition = (
+                (df['RSI'] > 65) &  # RSI overbought
+                (df['MACD'] < df['MACD_Signal']) &  # MACD aşağı kesiyor
+                (df['Close'] > df['BB_Upper']) &  # Fiyat Bollinger üst bandında
+                (df['EMA_9'] < df['EMA_21'])  # Kısa EMA uzun EMA'nın altında
+            )
+            
+            df.loc[long_condition, 'Signal'] = 1
+            df.loc[short_condition, 'Signal'] = -1
+            
+        except Exception as e:
+            st.error(f"Sinyal oluşturulurken hata: {e}")
         
         return df
     
@@ -325,9 +333,16 @@ if st.button("🎯 Backtest Simülasyonunu Başlat", type="primary", use_contain
             try:
                 # Stratejiyi çalıştır
                 strategy = CryptoStrategy(initial_capital)
+                
+                # Göstergeleri hesapla
+                status_text.text("Teknik göstergeler hesaplanıyor...")
                 data_with_indicators = strategy.calculate_indicators(data)
+                
+                # Sinyalleri oluştur
+                status_text.text("Alım-satım sinyalleri oluşturuluyor...")
                 data_with_signals = strategy.generate_signals(data_with_indicators)
                 
+                # Backtest yap
                 status_text.text("Strateji backtest ediliyor...")
                 results = strategy.backtest_strategy(data_with_signals, progress_bar)
                 
@@ -389,7 +404,7 @@ if st.button("🎯 Backtest Simülasyonunu Başlat", type="primary", use_contain
                 
                 # Equity curve
                 if not results['equity_curve'].empty:
-                    st.subheader("📈 Equity Curve")
+                    st.subheader("📈 Portföy Performansı")
                     
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(
