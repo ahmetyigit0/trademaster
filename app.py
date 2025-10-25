@@ -148,7 +148,7 @@ class CryptoStrategy:
             df['Signal'] = 0
             return df
     
-    def backtest_advanced_strategy(self, df: pd.DataFrame, progress_bar, risk_per_trade: float,
+    def backtest_advanced_strategy(self, df: pd.DataFrame, progress_bar, position_size: float,
                                  stop_loss: float, take_profit: float, max_profit: float) -> dict:
         """Gelişmiş stratejiyi backtest et"""
         try:
@@ -174,7 +174,8 @@ class CryptoStrategy:
                 if position == 0 and signal != 0:
                     position = signal
                     entry_price = current_price
-                    trade_size = min(capital * (risk_per_trade / 100), capital)
+                    # İşlem büyüklüğü - portföyün %100'ü kullanılacak
+                    trade_size = min(capital * (position_size / 100), capital)
                     entry_capital = trade_size
                     total_trades += 1
                     
@@ -406,6 +407,15 @@ initial_capital = st.sidebar.number_input(
     step=1000
 )
 
+# İŞLEM BÜYÜKLÜĞÜ AYARI EKLENDİ
+position_size = st.sidebar.slider(
+    "İşlem Büyüklüğü (%):",
+    min_value=10,
+    max_value=100,
+    value=100,  # Default: %100 - portföyün tamamı
+    step=5
+)
+
 # Gösterge ayarları
 st.sidebar.subheader("📊 Teknik Gösterge Ayarları")
 
@@ -427,7 +437,6 @@ signal_threshold = st.sidebar.slider("Sinyal Eşik Değeri:", 0.5, 3.0, 1.5, 0.1
 # Risk yönetimi ayarları
 st.sidebar.subheader("🛡️ Risk Yönetimi")
 
-risk_per_trade = st.sidebar.slider("İşlem Başına Risk (%):", 1, 30, 15)
 stop_loss = st.sidebar.slider("Stop Loss (%):", 1, 10, 3)
 take_profit = st.sidebar.slider("Take Profit (%):", 1, 20, 6)
 max_profit = st.sidebar.slider("Maksimum Kar (%):", 5, 30, 15)
@@ -456,7 +465,7 @@ st.markdown(f"""
 **Risk Yönetimi:**
 - %{stop_loss} Stop Loss
 - %{take_profit} Take Profit
-- %{risk_per_trade} Pozisyon Büyüklüğü
+- %{position_size} İşlem Büyüklüğü
 - Maksimum %{max_profit} kar sınırı
 - Sinyal eşik değeri: {signal_threshold}
 """)
@@ -533,7 +542,7 @@ if st.button("🎯 Gelişmiş Backtest Simülasyonunu Başlat", type="primary", 
                 # Backtest yap
                 status_text.text("Gelişmiş strateji backtest ediliyor...")
                 results = strategy.backtest_advanced_strategy(
-                    data_with_signals, progress_bar, risk_per_trade, stop_loss, take_profit, max_profit
+                    data_with_signals, progress_bar, position_size, stop_loss, take_profit, max_profit
                 )
                 
                 end_time = time.time()
