@@ -36,23 +36,38 @@ class CryptoStrategy:
             avg_gain = gain.rolling(window=rsi_period, min_periods=1).mean()
             avg_loss = loss.rolling(window=rsi_period, min_periods=1).mean()
             rs = avg_gain / avg_loss
-            df['RSI'] = 100 - (100 / (1 + rs))
+            rsi = 100 - (100 / (1 + rs))
             
             # EMA'lar
-            df['EMA_Short'] = df['Close'].ewm(span=ema_short, adjust=False).mean()
-            df['EMA_Long'] = df['Close'].ewm(span=ema_long, adjust=False).mean()
+            ema_short_val = df['Close'].ewm(span=ema_short, adjust=False).mean()
+            ema_long_val = df['Close'].ewm(span=ema_long, adjust=False).mean()
             
             # MACD
             exp1 = df['Close'].ewm(span=macd_fast, adjust=False).mean()
             exp2 = df['Close'].ewm(span=macd_slow, adjust=False).mean()
-            df['MACD'] = exp1 - exp2
-            df['MACD_Signal'] = df['MACD'].ewm(span=macd_signal, adjust=False).mean()
-            df['MACD_Histogram'] = df['MACD'] - df['MACD_Signal']
+            macd = exp1 - exp2
+            macd_signal_val = macd.ewm(span=macd_signal, adjust=False).mean()
+            macd_histogram = macd - macd_signal_val
             
             # Momentum
-            df['Momentum'] = df['Close'] - df['Close'].shift(5)
-            df['Volume_SMA'] = df['Volume'].rolling(window=20).mean()
-            df['Volume_Ratio'] = df['Volume'] / df['Volume_SMA']
+            momentum = df['Close'] - df['Close'].shift(5)
+            
+            # Volume
+            volume_sma = df['Volume'].rolling(window=20).mean()
+            volume_ratio = df['Volume'] / volume_sma
+            
+            # Tüm sütunları tek seferde ata - DataFrame hatasını önlemek için
+            df = df.assign(
+                RSI=rsi,
+                EMA_Short=ema_short_val,
+                EMA_Long=ema_long_val,
+                MACD=macd,
+                MACD_Signal=macd_signal_val,
+                MACD_Histogram=macd_histogram,
+                Momentum=momentum,
+                Volume_SMA=volume_sma,
+                Volume_Ratio=volume_ratio
+            )
             
             return df.fillna(0)
         except Exception as e:
