@@ -234,57 +234,52 @@ def generate_max_winrate_signals(d: pd.DataFrame,
                         ]
                         signals.append(Signal("BUY", current_price, sl, tp1, tp2, rr, 
                                             confidence, trend, reason))
-        
         # STRATEGY 2: MEAN REVERSION IN RANGE (High Win Rate)
-        elif trend == "neutral" and abs(current_price - ema50) / current_price < 0.015:
-            # Price is close to EMA50, look for mean reversion opportunities
-            
-            if best_support and current_price <= best_support.high * 1.01 and rsi < 45:
-                # Oversold bounce from support
-                sl = best_support.low * 0.992
-                risk = current_price - sl
-                tp1 = ema50  # Target EMA50
-                tp2 = best_resistance.low if best_resistance else current_price * 1.02
-                rr = (tp2 - current_price) / risk
-                
-                if rr >= min_rr:
-                    confidence = 75
-                    reason = [
-                        "🔄 MEAN REVERSION STRATEJİSİ",
-                        "Oversold + Support bounce",
-                        f"RSI {rsi:.1f} (oversold)",
-                        f"EMA50 hedef: {format_price(ema50)}",
-                        f"Risk/Reward: {rr:.2f}:1",
-                        "Range market optimizasyonu"
-                    ]
-                    signals.append(Signal("BUY", current_price, sl, tp1, tp2, rr,
-                                        confidence, "range", reason))
-            
-            elif best_resistance and current_price >= best_resistance.low * 0.99 and rsi > 55:
-                # Overbought rejection from resistance
-                sl = best_resistance.high * 1.008
-                risk = sl - current_price
-                tp1 = ema50  # Target EMA50
-                tp2 = best_support.high if best_support else current_price * 0.98
-                rr = (current_price - tp2) / risk
-                
-                if rr >= min_rr:
-                    confidence = 75
-                    reason = [
-                        "🔄 MEAN REVERSION STRATEJİSİ", 
-                        "Overbought + Resistance reject",
-                        f"RSI {rsi:.1f} (overbought)",
-                        f"EMA50 hedef: {format_price(ema50)}",
-                        f"Risk/Reward: {rr:.2f}:1",
-                        "",
-                        "Range market optimizRange market optimizasyonu"
-asyonu"
-                    ]
-                    signals                    ]
-                    signals.append(Signal.append(Signal("SELL", current_price,("SELL", current_price, sl, tp sl, tp1, tp2, rr1, tp2, rr,
-                                       ,
-                                        confidence, "range confidence, "range", reason))
-", reason))
+elif trend == "neutral" and abs(current_price - ema50) / current_price < 0.015:
+    # Price is close to EMA50, look for mean reversion opportunities
+    
+    if best_support and current_price <= best_support.high * 1.01 and rsi < 45:
+        # Oversold bounce from support
+        sl = best_support.low * 0.992
+        risk = current_price - sl
+        tp1 = ema50  # Target EMA50
+        tp2 = best_resistance.low if best_resistance else current_price * 1.02
+        rr = (tp2 - current_price) / risk
+        
+        if rr >= min_rr:
+            confidence = 75
+            reason = [
+                "🔄 MEAN REVERSION STRATEJİSİ",
+                "Oversold + Support bounce",
+                f"RSI {rsi:.1f} (oversold)",
+                f"EMA50 hedef: {format_price(ema50)}",
+                f"Risk/Reward: {rr:.2f}:1",
+                "Range market optimizasyonu"
+            ]
+            signals.append(Signal("BUY", current_price, sl, tp1, tp2, rr,
+                                confidence, "range", reason))
+    
+    elif best_resistance and current_price >= best_resistance.low * 0.99 and rsi > 55:
+        # Overbought rejection from resistance
+        sl = best_resistance.high * 1.008
+        risk = sl - current_price
+        tp1 = ema50  # Target EMA50
+        tp2 = best_support.high if best_support else current_price * 0.98
+        rr = (current_price - tp2) / risk
+        
+        if rr >= min_rr:
+            confidence = 75
+            reason = [
+                "🔄 MEAN REVERSION STRATEJİSİ", 
+                "Overbought + Resistance reject",
+                f"RSI {rsi:.1f} (overbought)",
+                f"EMA50 hedef: {format_price(ema50)}",
+                f"Risk/Reward: {rr:.2f}:1",
+                "Range market optimizasyonu"
+            ]
+            signals.append(Signal("SELL", current_price, sl, tp1, tp2, rr,
+                                confidence, "range", reason))
+    
         
         # STRATEGY 3: BREAK        
         # STRATEGY 3:OUT WITH RETEST (Medium BREAKOUT WITH RETEST (Medium Win Rate but good RR Win Rate but good RR)
