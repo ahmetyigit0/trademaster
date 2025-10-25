@@ -92,35 +92,43 @@ def atr(df: pd.DataFrame, n: int = 14) -> pd.Series:
 
 def adx(df: pd.DataFrame, n: int = 14) -> pd.DataFrame:
     """
-    DÜZELTME: pd.Series içine 2D array gitmesini engellemek için
-    np.where(...) çağrılarını .values ile 1D garanti ediyoruz ve index açıkça veriyoruz.
+    DÜZELTİLMİŞ ADX: Basit ve güvenilir versiyon
     """
     high, low, close = df["High"], df["Low"], df["Close"]
-
-    up_move = high.diff()
-    down_move = -low.diff()
-
-    plus_dm_vals = np.where((up_move > down_move) & (up_move > 0), up_move.values, 0.0)
-    minus_dm_vals = np.where((down_move > up_move) & (down_move > 0), down_move.values, 0.0)
-
-    plus_dm = pd.Series(plus_dm_vals, index=df.index)
-    minus_dm = pd.Series(minus_dm_vals, index=df.index)
-
-    tr1 = (high - low).abs()
+    
+    # True Range
+    tr1 = high - low
     tr2 = (high - close.shift(1)).abs()
     tr3 = (low - close.shift(1)).abs()
     tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-
-    atr_n = tr.rolling(n).mean().replace(0, 1e-8)
-
-    plus_di = 100 * (plus_dm.rolling(n).mean() / atr_n).replace(0, 1e-8)
-    minus_di = 100 * (minus_dm.rolling(n).mean() / atr_n).replace(0, 1e-8)
-
-    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, 1e-8)
+    atr = tr.rolling(n).mean().replace(0, 1e-8)
+    
+    # Directional Movement
+    up = high.diff()
+    down = -low.diff()
+    
+    plus_dm = np.where((up > down) & (up > 0), up, 0.0)
+    minus_dm = np.where((down > up) & (down > 0), down, 0.0)
+    
+    # Smooth the DM values
+    plus_dm_smooth = pd.Series(plus_dm, index=df.index).rolling(n).mean()
+    minus_dm_smooth = pd.Series(minus_dm, index=df.index).rolling(n).mean()
+    
+    # Directional Indicators
+    plus_di = 100 * (plus_dm_smooth / atr)
+    minus_di = 100 * (minus_dm_smooth / atr)
+    
+    # ADX
+    dx = (abs(plus_di - minus_di) / (plus_di + minus_di).replace(0, 1e-8)) * 100
     adx_val = dx.rolling(n).mean()
-
-    out = pd.DataFrame({"PLUS_DI": plus_di, "MINUS_DI": minus_di, "ADX": adx_val})
-    return out.fillna(method="bfill").fillna(0)
+    
+    out = pd.DataFrame({
+        "PLUS_DI": plus_di.fillna(0),
+        "MINUS_DI": minus_di.fillna(0), 
+        "ADX": adx_val.fillna(0)
+    })
+    
+    return out
 
 def bollinger(series: pd.Series, n: int = 20, k: float = 2.0) -> Tuple[pd.Series, pd.Series, pd.Series]:
     ma = series.rolling(n).mean()
@@ -130,15 +138,34 @@ def bollinger(series: pd.Series, n: int = 20, k: float = 2.0) -> Tuple[pd.Series
     return lower, ma, upper
 
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    if df.empty: return df
+    if df.empty: 
+        return df
+        
     d = df.copy()
+    
+    # Temel göstergeler
     d["EMA50"] = ema(d["Close"], 50)
     d["RSI14"] = rsi(d["Close"], 14)
     d["ATR14"] = atr(d, 14)
-    adx_df = adx(d, 14)
-    d = d.join(adx_df)
-    bb_l, bb_m, bb_u = bollinger(d["Close"], 20, 2.0)
-    d["BB_L"], d["BB_M"], d["BB_U"] = bb_l, bb_m, bb_u
+    
+    # ADX - hata yönetimi ile
+    try:
+        adx_df = adx(d, 14)
+        d = d.join(adx_df)
+    except Exception as e:
+        st.warning(f"ADX hesaplanamadı: {e}")
+        d["PLUS_DI"] = 0
+        d["MINUS_DI"] = 0 
+        d["ADX"] = 0
+    
+    # Bollinger Bands
+    try:
+        bb_l, bb_m, bb_u = bollinger(d["Close"], 20, 2.0)
+        d["BB_L"], d["BB_M"], d["BB_U"] = bb_l, bb_m, bb_u
+    except Exception as e:
+        st.warning(f"Bollinger Bands hesaplanamadı: {e}")
+        d["BB_L"], d["BB_M"], d["BB_U"] = d["Close"], d["Close"], d["Close"]
+    
     return d.dropna()
 
 # =============================================================================
@@ -246,7 +273,14 @@ def generate_signals(
     ema50 = float(d["EMA50"].iloc[i])
     rsi14 = float(d["RSI14"].iloc[i])
     atr14 = float(d["ATR14"].iloc[i])
-    adx14 = float(d["ADX"].iloc[i])
+    
+    # ADX değerlerini güvenli şekilde al
+    try:
+        adx14 = float(d["ADX"].iloc[i]) if "ADX" in d.columns else 20.0
+        plus_di = float(d["PLUS_DI"].iloc[i]) if "PLUS_DI" in d.columns else 0.0
+        minus_di = float(d["MINUS_DI"].iloc[i]) if "MINUS_DI" in d.columns else 0.0
+    except:
+        adx14, plus_di, minus_di = 20.0, 0.0, 0.0
 
     trend = "bull" if price > ema50 else "bear"
     regime = "trend" if adx14 >= adx_trend_thr else "range" if adx14 <= adx_range_thr else "mid"
@@ -475,7 +509,7 @@ with st.sidebar:
     st.subheader("Rejim / Filtre")
     adx_trend_thr = st.slider("ADX Trend Eşiği", 20, 35, 25, 1)
     adx_range_thr = st.slider("ADX Range Eşiği", 10, 25, 18, 1)
-    use_bb_filter = st.checkbox("Range’de Bollinger dokunuşu iste (Önerilir)", True)
+    use_bb_filter = st.checkbox("Range'de Bollinger dokunuşu iste (Önerilir)", True)
 
     st.subheader("Backtest")
     run_backtest = st.button("🚀 Backtest (90g)")
@@ -487,7 +521,15 @@ with st.spinner("Veri yükleniyor..."):
     if data.empty:
         st.error("❌ Veri alınamadı!")
         st.stop()
-    data_ind = compute_indicators(data)
+    
+    try:
+        data_ind = compute_indicators(data)
+        if data_ind.empty:
+            st.error("❌ Göstergeler hesaplanamadı!")
+            st.stop()
+    except Exception as e:
+        st.error(f"❌ Hesaplama hatası: {e}")
+        st.stop()
 
 # S/R & Sinyal
 supports, resistances = find_zones_simple(data_ind, lookback=80, min_touch_points=3)
@@ -511,15 +553,18 @@ with col1:
     fig.add_trace(go.Scatter(
         x=view.index, y=view["EMA50"], name="EMA50", line=dict(width=2)
     ))
-    fig.add_trace(go.Scatter(
-        x=view.index, y=view["BB_U"], name="BB Upper", line=dict(width=1, dash="dot")
-    ))
-    fig.add_trace(go.Scatter(
-        x=view.index, y=view["BB_M"], name="BB Mid", line=dict(width=1, dash="dot")
-    ))
-    fig.add_trace(go.Scatter(
-        x=view.index, y=view["BB_L"], name="BB Lower", line=dict(width=1, dash="dot")
-    ))
+    
+    # Bollinger Bands sadece hesaplanabildiyse göster
+    if "BB_U" in view.columns:
+        fig.add_trace(go.Scatter(
+            x=view.index, y=view["BB_U"], name="BB Upper", line=dict(width=1, dash="dot")
+        ))
+        fig.add_trace(go.Scatter(
+            x=view.index, y=view["BB_M"], name="BB Mid", line=dict(width=1, dash="dot")
+        ))
+        fig.add_trace(go.Scatter(
+            x=view.index, y=view["BB_L"], name="BB Lower", line=dict(width=1, dash="dot")
+        ))
 
     for i, z in enumerate(supports[:2]):
         fig.add_hline(y=z.low, line_dash="dash", line_color="green", annotation_text=f"S{i+1}L")
@@ -595,10 +640,10 @@ with st.expander("ℹ️ Strateji Özeti ve İpuçları"):
 - **Onaylı Giriş**: S/R temasından sonra bar kapanışı trend yönünde teyit et.
 - **ATR Tabanlı SL**: SL = zone sınırı ± ATR*x (varsayılan x=1.0).
 - **Kısmi Kâr + Break-even**: TP1'de %50 kapat; kalan BE, basit trailing.
-- **Bollinger (opsiyonel)**: Range’de band dokunuşu ek konfluans (false sinyalleri azaltır).
+- **Bollinger (opsiyonel)**: Range'de band dokunuşu ek konfluans (false sinyalleri azaltır).
 - **Backtest**: Bar-bar SL/TP/BE/Trailing mantığı; max tutma süresi varsayılan 12 bar (~2 gün).
 
 **Not**
-- Win rate’i yükseltirken R/R'yi aşırı kısmayın. En az ~1:1 hedefleyin.
+- Win rate'i yükseltirken R/R'yi aşırı kısmayın. En az ~1:1 hedefleyin.
 - ADX eşiklerini (trend 25, range 18) ve RSI uçlarını (range: 35/65) enstrümana göre optimize edin.
 """)
