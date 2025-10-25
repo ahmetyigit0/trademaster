@@ -56,23 +56,24 @@ class CryptoStrategy:
             # NaN değerleri temizle
             df = df.fillna(0)
             
-            # Basit strateji kuralları
-            # Long: RSI düşük ve EMA9 > EMA21
-            long_condition = (
-                (df['RSI'] < 40) &  # RSI oversold
-                (df['EMA_9'] > df['EMA_21'])  # Kısa EMA uzun EMA'nın üstünde
-            )
-            
-            # Short: RSI yüksek ve EMA9 < EMA21
-            short_condition = (
-                (df['RSI'] > 60) &  # RSI overbought
-                (df['EMA_9'] < df['EMA_21'])  # Kısa EMA uzun EMA'nın altında
-            )
-            
-            # Koşulları kontrol et ve sinyalleri ayarla
-            df.loc[long_condition, 'Signal'] = 1
-            df.loc[short_condition, 'Signal'] = -1
-            
+            # Her satır için tek tek kontrol et
+            for i in range(len(df)):
+                try:
+                    rsi = df['RSI'].iloc[i]
+                    ema_9 = df['EMA_9'].iloc[i]
+                    ema_21 = df['EMA_21'].iloc[i]
+                    
+                    # Long koşulu: RSI < 40 ve EMA9 > EMA21
+                    if rsi < 40 and ema_9 > ema_21:
+                        df.iloc[i, df.columns.get_loc('Signal')] = 1
+                    
+                    # Short koşulu: RSI > 60 ve EMA9 < EMA21
+                    elif rsi > 60 and ema_9 < ema_21:
+                        df.iloc[i, df.columns.get_loc('Signal')] = -1
+                        
+                except:
+                    continue
+                    
             return df
         except Exception as e:
             st.error(f"Sinyal oluşturma hatası: {e}")
@@ -92,25 +93,27 @@ class CryptoStrategy:
             # İlerleme çubuğu için
             total_rows = len(df)
             
-            for i, (index, row) in enumerate(df.iterrows()):
+            for i in range(len(df)):
                 # İlerleme çubuğunu güncelle
                 if i % 10 == 0 and total_rows > 0:
                     progress_bar.progress(min(i / total_rows, 1.0))
                 
+                row = df.iloc[i]
                 current_price = row['Close']
                 signal = row['Signal']
+                current_date = df.index[i]
                 
                 # Pozisyon açma/kapama
                 if position == 0 and signal != 0:
                     # Yeni pozisyon aç
                     position = signal
                     entry_price = current_price
-                    trade_size = min(capital * 0.1, capital)  # %10 risk, sermayeyi aşmamak için
+                    trade_size = min(capital * 0.1, capital)  # %10 risk
                     entry_capital = trade_size
                     total_trades += 1
                     
                     trades.append({
-                        'entry_time': index,
+                        'entry_time': current_date,
                         'entry_price': entry_price,
                         'position': 'LONG' if position == 1 else 'SHORT',
                         'entry_capital': entry_capital,
@@ -130,14 +133,16 @@ class CryptoStrategy:
                         stop_loss = -0.05  # %5 stop loss
                         take_profit = 0.08  # %8 take profit
                         
-                        # Pozisyon kapatma koşulları
-                        close_condition = (
-                            pnl_percent <= stop_loss or 
-                            pnl_percent >= take_profit or 
-                            signal == -1
-                        )
+                        # Pozisyon kapatma koşulları - tek tek kontrol
+                        should_close = False
+                        if pnl_percent <= stop_loss:
+                            should_close = True
+                        elif pnl_percent >= take_profit:
+                            should_close = True
+                        elif signal == -1:
+                            should_close = True
                         
-                        if close_condition:
+                        if should_close:
                             # Pozisyonu kapat
                             pnl_amount = current_trade['entry_capital'] * pnl_percent
                             capital += pnl_amount
@@ -146,7 +151,7 @@ class CryptoStrategy:
                                 winning_trades += 1
                                 
                             trades[-1].update({
-                                'exit_time': index,
+                                'exit_time': current_date,
                                 'exit_price': current_price,
                                 'pnl': pnl_amount,
                                 'status': 'CLOSED',
@@ -160,14 +165,16 @@ class CryptoStrategy:
                         stop_loss = -0.05  # %5 stop loss
                         take_profit = 0.08  # %8 take profit
                         
-                        # Pozisyon kapatma koşulları
-                        close_condition = (
-                            pnl_percent <= stop_loss or 
-                            pnl_percent >= take_profit or 
-                            signal == 1
-                        )
+                        # Pozisyon kapatma koşulları - tek tek kontrol
+                        should_close = False
+                        if pnl_percent <= stop_loss:
+                            should_close = True
+                        elif pnl_percent >= take_profit:
+                            should_close = True
+                        elif signal == 1:
+                            should_close = True
                         
-                        if close_condition:
+                        if should_close:
                             # Pozisyonu kapat
                             pnl_amount = current_trade['entry_capital'] * pnl_percent
                             capital += pnl_amount
@@ -176,7 +183,7 @@ class CryptoStrategy:
                                 winning_trades += 1
                                 
                             trades[-1].update({
-                                'exit_time': index,
+                                'exit_time': current_date,
                                 'exit_price': current_price,
                                 'pnl': pnl_amount,
                                 'status': 'CLOSED',
@@ -528,35 +535,67 @@ if st.button("🎯 Backtest Simülasyonunu Başlat", type="primary", use_contain
                         max_loss = trades_df['pnl'].min()
                         total_pnl = trades_df['pnl'].sum()
                         
-                        stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
+                        stat_col1, stat_col2, stat_col3, stat_col_col2, stat_col3, stat_col4 = st.columns4 = st.columns(4)
+                        with stat_col(4)
                         with stat_col1:
-                            st.metric("Ortalama Kar/Zarar", f"${avg_profit:.2f}")
+1:
+                            st.metric("Ortal                            st.metric("Ortalama Kar/Zama Kar/Zarar", farar", f"${"${avg_profitavg_profit:.2f:.2f}")
+                        with stat_col}")
                         with stat_col2:
-                            st.metric("Maksimum Kar", f"${max_profit:.2f}")
-                        with stat_col3:
-                            st.metric("Maksimum Zarar", f"${max_loss:.2f}")
-                        with stat_col4:
-                            st.metric("Toplam Kar/Zarar", f"${total_pnl:.2f}")
+2:
+                            st.metric("                            st.metric("MaksMaksimum Kar", fimum Kar", f"${max"${max_profit:.2_profit:.2f}")
+                       f}")
+                        with stat_col3 with stat_col3:
+                            st.m:
+                            st.metric("Maksimum Zarar", f"${max_loss:.2fetric("Maksimum Zarar", f"${max_loss:.2f}")
+}")
+                        with stat_col4                        with stat_col4:
+:
+                            st.metric("                            st.metric("Toplam Kar/Zarar",Toplam Kar/Zarar", f"${total_pnl f"${total_pnl:.:.2f}")
                         
                     else:
-                        st.info("Kapanan işlem bulunamadı.")
+                        st.info("K2f}")
+                        
+                    else:
+                        st.infoapanan işlem bul("Kapanan işlem bulunamadıunamadı.")
+                else.")
                 else:
-                    st.info("Hiç işlem yapılmadı.")
+                    st.info(":
+                    st.info("Hiç işHiç işlem ylem yapılmadapılmadı.")
                     
-            except Exception as e:
-                st.error(f"Simülasyon sırasında hata oluştu: {str(e)}")
+ı.")
+                    
+            except Exception            except Exception as as e e:
+               :
+                st.error(f st.error(f"Simülasyon sırasında h"Simülasyon sırasında hata oluata oluştu: {str(e)}ştu: {str(e)}")
+   ")
     else:
-        st.error("Veri yüklenemedi. Lütfen önce kripto para ve tarih seçin.")
+        st.error else:
+        st.error("Veri("Veri yüklenemed yüklenemedi.i. Lütfen önce Lütfen önce kript kripto para ve tariho para ve tarih seç seçin.")
+
+# Bilgiin.")
 
 # Bilgi
+
 st.markdown("---")
-st.info("""
-**⚠️ Uyarı:** Bu simülasyon sadece eğitim amaçlıdır. Gerçek trading için kullanmayın. 
-Geçmiş performans gelecek sonuçların garantisi değildir.
+st.markdown("---")
+st.infost.info(""("""
+**⚠️ Uyarı:** Bu sim"
+**⚠️ Uyarı:** Bu simülasyon sadece eülğitim amaçlıdır. Gerçek trading için kasyonullanmayın. 
+Ge sadece eğitim amaçlıdır. Gerçek trading için kullanmayın. 
+Geçmişçmiş performans gelecek son performans gelecek sonuuçlarçların garantisi değildir.
+
+**📊 Stın garantisi değildir.
 
 **📊 Strateji Notları:**
-- Basit RSI + EMA stratejisi kullanılmaktadır
-- Her işlemde maksimum %10 risk
+rateji Notları:**
+-- Basit RSI + Basit RSI + EMA str EMA stratejisi kullanatejisi kullanılmılmaktaktadır
+- Heradır
+- Her iş işlemde maksimum %10 risk
+lemde maksimum %10 risk
 - Otomatik stop loss ve take profit
+- Trend- Otomatik stop loss ve take profit
 - Trend takip sistemi
+""")
+ takip sistemi
 """)
