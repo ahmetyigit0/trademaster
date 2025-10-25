@@ -284,7 +284,7 @@ elif trend == "neutral" and abs(current_price - ema50) / current_price < 0.015:
         # STRATEGY 3: BREAK        
         # STRATEGY 3:OUT WITH RETEST (Medium BREAKOUT WITH RETEST (Medium Win Rate but good RR Win Rate but good RR)
 
-        if not signals        if not signals:
+        if not signals:
             if best_resistance and current:
             if best_resistance and current_price >= best_resistance.l_price >= best_resistance.low * 0.998ow * 0.998 and trend_strength >= and trend_strength >= 5:
                 5:
