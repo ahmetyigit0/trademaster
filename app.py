@@ -1,7 +1,7 @@
 # app.py
 # ─────────────────────────────────────────────────────────────────────────────
-# 4H • YFinance • EMA50 Trend • RSI14 • S/R Bölgeleri
-# OPTIMIZED FOR MAX WIN RATE + PROGRESS BAR
+# 4H • YFinance • EMA50 Trend • RSI14 • S/R Bölgeleri • Multi-Timeframe • Advanced Risk
+# Optimized for Higher Win Rate - ENHANCED VERSION
 # ─────────────────────────────────────────────────────────────────────────────
 
 import streamlit as st
@@ -12,8 +12,9 @@ import plotly.graph_objects as go
 from dataclasses import dataclass
 from typing import List, Tuple, Dict, Any, Optional
 import time
+from datetime import datetime, timedelta
 
-st.set_page_config(page_title="4H Pro TA (Max Win Rate)", layout="wide")
+st.set_page_config(page_title="4H Pro TA (Enhanced Win Rate)", layout="wide")
 
 # =============================================================================
 # ŞİFRE
@@ -37,7 +38,7 @@ def check_password():
 check_password()
 
 # =============================================================================
-# YARDIMCI FONKSİYONLAR - OPTIMIZED
+# YARDIMCI FONKSİYONLAR - GELİŞMİŞ
 # =============================================================================
 def format_price(x: Optional[float]) -> str:
     if x is None or (isinstance(x, float) and (np.isnan(x) or np.isinf(x))):
@@ -51,47 +52,103 @@ def format_price(x: Optional[float]) -> str:
     except Exception:
         return "N/A"
 
-@st.cache_data
+@st.cache_data(ttl=300)  # 5 dakika cache
 def get_4h_data(symbol: str, days: int) -> pd.DataFrame:
     sym = symbol.upper().strip()
     if "-" not in sym:
         sym = sym + "-USD"
-    df = yf.download(sym, period=f"{days}d", interval="4h", progress=False)
-    if df is None or df.empty:
+    
+    try:
+        df = yf.download(sym, period=f"{days}d", interval="4h", progress=False)
+        if df is None or df.empty:
+            st.warning(f"⚠️ {sym} için veri bulunamadı")
+            return pd.DataFrame()
+        return df.dropna()
+    except Exception as e:
+        st.error(f"❌ Veri indirme hatası: {str(e)}")
         return pd.DataFrame()
-    return df.dropna()
+
+@st.cache_data(ttl=300)
+def get_multitimeframe_data(symbol: str, days: int) -> Dict[str, pd.DataFrame]:
+    """1H, 4H, 1D zaman dilimlerini al"""
+    sym = symbol.upper().strip()
+    if "-" not in sym:
+        sym = sym + "-USD"
+    
+    timeframes = {
+        '1H': f'{days*6}d',  # 6x daha fazla gün
+        '4H': f'{days}d',
+        '1D': f'{max(30, days)}d'   # Minimum 30 gün
+    }
+    
+    data = {}
+    for tf, period in timeframes.items():
+        try:
+            interval = tf.lower()
+            data[tf] = yf.download(sym, period=period, interval=interval, progress=False)
+            if data[tf] is not None and not data[tf].empty:
+                data[tf] = compute_indicators(data[tf])
+        except Exception as e:
+            st.warning(f"{tf} zaman dilimi için veri alınamadı: {str(e)}")
+    
+    return data
 
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty: return df
     d = df.copy()
 
-    # EMA - Multiple timeframes for better signals
-    d["EMA20"] = d["Close"].ewm(span=20, adjust=False).mean()
-    d["EMA50"] = d["Close"].ewm(span=50, adjust=False).mean()
-    d["EMA100"] = d["Close"].ewm(span=100, adjust=False).mean()
+    # EMA
+    d["EMA"] = d["Close"].ewm(span=50, adjust=False).mean()
 
-    # RSI - Multiple periods
-    for period in [7, 14]:
-        delta = d["Close"].diff()
-        gain = delta.clip(lower=0).rolling(period).mean()
-        loss = (-delta.clip(upper=0)).rolling(period).mean()
-        rs = gain / loss.replace(0, 0.001)
-        d[f"RSI_{period}"] = 100 - (100 / (1 + rs))
-    
-    d["RSI"] = d["RSI_14"].fillna(50)
-    d["RSI_FAST"] = d["RSI_7"].fillna(50)
+    # RSI - Gelişmiş
+    delta = d["Close"].diff()
+    gain = delta.clip(lower=0).rolling(14).mean()
+    loss = (-delta.clip(upper=0)).rolling(14).mean()
+    rs = gain / loss.replace(0, 0.001)
+    d["RSI"] = 100 - (100 / (1 + rs))
+    d["RSI"] = d["RSI"].fillna(50)
 
-    # MACD for additional confirmation
-    exp12 = d["Close"].ewm(span=12, adjust=False).mean()
-    exp26 = d["Close"].ewm(span=26, adjust=False).mean()
-    d["MACD"] = exp12 - exp26
-    d["MACD_SIGNAL"] = d["MACD"].ewm(span=9, adjust=False).mean()
-    d["MACD_HISTOGRAM"] = d["MACD"] - d["MACD_SIGNAL"]
+    # Volume EMA
+    d["Volume_EMA"] = d["Volume"].ewm(span=20).mean()
 
     return d
 
+def validate_data_quality(df: pd.DataFrame) -> Dict[str, Any]:
+    """Veri kalitesi kontrolü"""
+    if df.empty:
+        return {"valid": False, "issues": ["Boş veri"], "score": 0}
+    
+    issues = []
+    score = 100
+    
+    # Eksik veri kontrolü
+    missing_data = df.isnull().sum().sum()
+    if missing_data > 0:
+        issues.append(f"{missing_data} eksik veri noktası")
+        score -= 20
+    
+    # Anomali kontrolü
+    price_changes = df['Close'].pct_change().abs()
+    extreme_moves = (price_changes > 0.1).sum()  # %10'dan fazla hareket
+    if extreme_moves > len(df) * 0.05:  # %5'ten fazla aşırı hareket
+        issues.append("Çok sayıda aşırı fiyat hareketi")
+        score -= 15
+    
+    # Volume anomalileri
+    if 'Volume' in df.columns:
+        volume_spikes = (df['Volume'] > df['Volume'].rolling(20).mean() * 3).sum()
+        if volume_spikes > len(df) * 0.1:
+            issues.append("Şüpheli volume spike'ları")
+            score -= 10
+    
+    return {
+        "valid": len(issues) == 0,
+        "issues": issues,
+        "score": max(0, score)
+    }
+
 # =============================================================================
-# S/R BÖLGELERİ - IMPROVED
+# S/R BÖLGELERİ - GELİŞMİŞ
 # =============================================================================
 class Zone:
     def __init__(self, low: float, high: float, touches: int, kind: str):
@@ -101,224 +158,254 @@ class Zone:
         self.kind = kind
         self.score = 0
 
-def find_zones_improved(d: pd.DataFrame, min_touch_points: int = 2) -> Tuple[List[Zone], List[Zone]]:
-    if d.empty or len(d) < 30:
+def cluster_levels(levels: List[float], threshold: float = 0.02) -> List[Zone]:
+    """Benzer seviyeleri cluster'la"""
+    if not levels:
+        return []
+    
+    levels = sorted(levels)
+    clusters = []
+    current_cluster = [levels[0]]
+    
+    for price in levels[1:]:
+        if price <= current_cluster[-1] * (1 + threshold):
+            current_cluster.append(price)
+        else:
+            clusters.append(current_cluster)
+            current_cluster = [price]
+    
+    clusters.append(current_cluster)
+    
+    zones = []
+    for cluster in clusters:
+        if len(cluster) >= 2:  # En az 2 temas
+            low = min(cluster)
+            high = max(cluster)
+            zones.append(Zone(low, high, len(cluster), "support" if cluster[-1] < np.mean(levels) else "resistance"))
+    
+    return zones
+
+def improved_find_zones(df: pd.DataFrame, window: int = 20) -> Tuple[List[Zone], List[Zone]]:
+    """Gelişmiş destek/direnç tespiti"""
+    if df.empty or len(df) < window * 2:
         return [], []
     
-    # Use more bars for better zone detection
-    data = d.tail(80).copy()
-    current_price = float(data["Close"].iloc[-1])
+    # Yerel maksimum/minimum noktaları
+    resistance_points = []
+    support_points = []
+    current_price = float(df["Close"].iloc[-1])
     
-    # Improved zone detection using pivot points
-    supports = []
-    resistances = []
+    for i in range(window, len(df)-window):
+        high = float(df["High"].iloc[i])
+        low = float(df["Low"].iloc[i])
+        
+        # Yerel maksimum (direnç)
+        if high == df["High"].iloc[i-window:i+window].max():
+            resistance_points.append(high)
+        
+        # Yerel minimum (destek)
+        if low == df["Low"].iloc[i-window:i+window].min():
+            support_points.append(low)
     
-    # Detect swing highs and lows
-    highs = data["High"].rolling(window=5, center=True).max()
-    lows = data["Low"].rolling(window=5, center=True).min()
+    # Cluster benzer seviyeler
+    support_zones = cluster_levels(support_points)
+    resistance_zones = cluster_levels(resistance_points)
     
-    pivot_highs = data[data["High"] == highs]
-    pivot_lows = data[data["Low"] == lows]
+    # Mevcut fiyata göre filtrele ve skorla
+    supports = [z for z in support_zones if z.high < current_price]
+    resistances = [z for z in resistance_zones if z.low > current_price]
     
-    # Create zones from pivot points with tolerance
-    tolerance = current_price * 0.005  # 0.5% tolerance
-    
-    for idx, row in pivot_lows.iterrows():
-        low_val = float(row["Low"])
-        # Check if similar level exists
-        existing_support = next((s for s in supports if abs(s.low - low_val) < tolerance), None)
-        if existing_support:
-            existing_support.touches += 1
-            existing_support.high = max(existing_support.high, low_val + tolerance)
-        else:
-            supports.append(Zone(low_val - tolerance, low_val + tolerance, 1, "support"))
-    
-    for idx, row in pivot_highs.iterrows():
-        high_val = float(row["High"])
-        # Check if similar level exists
-        existing_resistance = next((r for r in resistances if abs(r.high - high_val) < tolerance), None)
-        if existing_resistance:
-            existing_resistance.touches += 1
-            existing_resistance.low = min(existing_resistance.low, high_val - tolerance)
-        else:
-            resistances.append(Zone(high_val - tolerance, high_val + tolerance, 1, "resistance"))
-    
-    # Filter by current price and minimum touches
-    supports = [s for s in supports if s.high < current_price and s.touches >= min_touch_points]
-    resistances = [r for r in resistances if r.low > current_price and r.touches >= min_touch_points]
-    
-    # Improved scoring
+    # Skorlama
     for zone in supports + resistances:
-        base_score = zone.touches * 20
-        # Recent touches score more
-        recency_bonus = min(zone.touches * 5, 20)
-        zone.score = min(base_score + recency_bonus, 95)
+        zone.score = min(zone.touches * 20 + 20, 80)  # Temas bazlı skor
     
-    return sorted(supports, key=lambda z: z.score, reverse=True)[:3], \
-           sorted(resistances, key=lambda z: z.score, reverse=True)[:3]
+    # En iyi 3'er tane
+    supports = sorted(supports, key=lambda z: z.score, reverse=True)[:3]
+    resistances = sorted(resistances, key=lambda z: z.score, reverse=True)[:3]
+    
+    return supports, resistances
 
 # =============================================================================
-# SİNYAL MOTORU - MAX WIN RATE OPTIMIZATION
+# RİSK YÖNETİMİ - GELİŞMİŞ
+# =============================================================================
+def calculate_position_size(balance: float, risk_percent: float, entry: float, stop_loss: float) -> float:
+    """Gelişmiş position sizing"""
+    risk_amount = balance * (risk_percent / 100)
+    risk_per_unit = abs(entry - stop_loss)
+    
+    if risk_per_unit <= 0:
+        return 0
+    
+    position_size = risk_amount / risk_per_unit
+    # Maksimum %10 pozisyon sınırı
+    max_position = balance * 0.1 / entry if entry > 0 else 0
+    
+    return min(position_size, max_position)
+
+def calculate_max_drawdown(pnl_percents: List[float]) -> float:
+    """Maksimum drawdown hesapla"""
+    if not pnl_percents:
+        return 0
+    
+    equity = 10000
+    peak = equity
+    max_dd = 0
+    
+    for pnl in pnl_percents:
+        equity *= (1 + pnl/100)
+        if equity > peak:
+            peak = equity
+        drawdown = (peak - equity) / peak * 100
+        if drawdown > max_dd:
+            max_dd = drawdown
+    
+    return max_dd
+
+def calculate_sharpe_ratio(pnl_percents: List[float], risk_free_rate: float = 0.02) -> float:
+    """Sharpe oranı hesapla"""
+    if not pnl_percents or len(pnl_percents) < 2:
+        return 0
+    
+    returns = np.array(pnl_percents)
+    excess_returns = returns - risk_free_rate/252  # Günlük risk-free rate
+    return np.mean(excess_returns) / np.std(excess_returns) * np.sqrt(252) if np.std(excess_returns) > 0 else 0
+
+# =============================================================================
+# SİNYAL MOTORU - GELİŞMİŞ MULTI-TIMEFRAME
 # =============================================================================
 @dataclass
 class Signal:
-    typ: str
+    typ: str              # BUY | SELL | WAIT
     entry: float
-    sl: float
-    tp1: float
-    tp2: float
+    sl: Optional[float]
+    tp1: Optional[float]
+    tp2: Optional[float]
     rr: float
     confidence: int
     trend: str
     reason: List[str]
+    timeframe: str = "4H"
 
-def generate_max_winrate_signals(d: pd.DataFrame, 
-                                supports: List[Zone], 
-                                resistances: List[Zone],
-                                min_rr: float = 1.3) -> Tuple[List[Signal], List[str]]:
-    notes = []
-    signals = []
-    
-    if d.empty or len(d) < 25:
-        return [Signal("WAIT", 0, 0, 0, 0, 0, 0, "neutral", ["Yetersiz veri"])], notes
-    
-    try:
-        current_price = float(d["Close"].iloc[-1])
-        ema20 = float(d["EMA20"].iloc[-1])
-        ema50 = float(d["EMA50"].iloc[-1])
-        ema100 = float(d["EMA100"].iloc[-1])
-        rsi = float(d["RSI"].iloc[-1]) if not pd.isna(d["RSI"].iloc[-1]) else 50
-        rsi_fast = float(d["RSI_FAST"].iloc[-1]) if not pd.isna(d["RSI_FAST"].iloc[-1]) else 50
-        macd_hist = float(d["MACD_HISTOGRAM"].iloc[-1]) if not pd.isna(d["MACD_HISTOGRAM"].iloc[-1]) else 0
+def generate_bullish_signal(data: pd.DataFrame, supports: List[Zone], min_rr: float) -> Optional[Signal]:
+    """Bullish sinyal üret"""
+    if not data.empty and supports:
+        current_price = float(data["Close"].iloc[-1])
+        rsi = float(data["RSI"].iloc[-1])
+        best_support = supports[0]
         
-        # IMPROVED TREND DETECTION - Multiple timeframe confirmation
-        trend_strength = 0
-        if current_price > ema20: trend_strength += 1
-        if current_price > ema50: trend_strength += 2
-        if current_price > ema100: trend_strength += 3
-        if ema20 > ema50: trend_strength += 1
-        if ema50 > ema100: trend_strength += 2
-        
-        trend = "bull" if trend_strength >= 4 else "bear" if trend_strength <= 2 else "neutral"
-        
-        notes.append(f"Trend: {'🟢 GÜÇLÜ YÜKSELİŞ' if trend_strength >= 6 else '🟢 YÜKSELİŞ' if trend == 'bull' else '🔴 DÜŞÜŞ' if trend == 'bear' else '🟡 NÖTR'}")
-        notes.append(f"RSI: {rsi:.1f} | RSI-Fast: {rsi_fast:.1f}")
-        notes.append(f"Trend Strength: {trend_strength}/9")
-
-        # LOOSER PARAMETERS FOR MORE SIGNALS
-        best_support = supports[0] if supports else None
-        best_resistance = resistances[0] if resistances else None
-        
-        # STRATEGY 1: TREND FOLLOWING WITH PULLBACK (High Win Rate)
-        if trend == "bull" and best_support:
-            # Buy on pullback to support in uptrend
-            distance_to_support = abs(current_price - best_support.high) / current_price
-            if distance_to_support < 0.02 and rsi < 65:  # Within 2% of support, not overbought
-                sl = best_support.low * 0.995  # Tight stop loss
-                risk = current_price - sl
-                if risk > 0:
-                    # Conservative targets for higher win rate
-                    tp1 = current_price + risk * 0.8  # 0.8R
-                    tp2 = current_price + risk * 1.2  # 1.2R
-                    rr = (tp2 - current_price) / risk
-                    
-                    if rr >= min_rr:
-                        confidence = min(best_support.score + trend_strength * 5, 95)
-                        reason = [
-                            "🎯 TREND + PULLBACK STRATEJİSİ",
-                            f"Uptrend + Support retest (Güç: {trend_strength}/9)",
-                            f"RSI {rsi:.1f} (aşırı alım değil)",
-                            f"Support skoru: {best_support.score}",
-                            f"Risk/Reward: {rr:.2f}:1",
-                            "Yüksek Win Rate modeli"
-                        ]
-                        signals.append(Signal("BUY", current_price, sl, tp1, tp2, rr, 
-                                            confidence, trend, reason))
-        
-        # STRATEGY 2: MEAN REVERSION IN RANGE (High Win Rate)
-        elif trend == "neutral" and abs(current_price - ema50) / current_price < 0.015:
-            # Price is close to EMA50, look for mean reversion opportunities
-            
-            if best_support and current_price <= best_support.high * 1.01 and rsi < 45:
-                # Oversold bounce from support
-                sl = best_support.low * 0.992
-                risk = current_price - sl
-                tp1 = ema50  # Target EMA50
-                tp2 = best_resistance.low if best_resistance else current_price * 1.02
+        if current_price <= best_support.high * 1.01 and rsi < 70:
+            sl = best_support.low * 0.99
+            risk = current_price - sl
+            if risk > 0:
+                tp1 = current_price + risk * (min_rr * 0.6)
+                tp2 = current_price + risk * min_rr
                 rr = (tp2 - current_price) / risk
-                
                 if rr >= min_rr:
-                    confidence = 75
                     reason = [
-                        "🔄 MEAN REVERSION STRATEJİSİ",
-                        "Oversold + Support bounce",
-                        f"RSI {rsi:.1f} (oversold)",
-                        f"EMA50 hedef: {format_price(ema50)}",
-                        f"Risk/Reward: {rr:.2f}:1",
-                        "Range market optimizasyonu"
+                        "Uptrend destek bölgesi",
+                        f"RSI {rsi:.1f} (aşırı değil)",
+                        f"Risk/Reward: {rr:.2f}",
+                        f"Destek skoru: {best_support.score}"
                     ]
-                    signals.append(Signal("BUY", current_price, sl, tp1, tp2, rr,
-                                        confidence, "range", reason))
-            
-            elif best_resistance and current_price >= best_resistance.low * 0.99 and rsi > 55:
-                # Overbought rejection from resistance
-                sl = best_resistance.high * 1.008
-                risk = sl - current_price
-                tp1 = ema50  # Target EMA50
-                tp2 = best_support.high if best_support else current_price * 0.98
+                    return Signal("BUY", current_price, sl, tp1, tp2, rr, 
+                                best_support.score, "bull", reason)
+    return None
+
+def generate_bearish_signal(data: pd.DataFrame, resistances: List[Zone], min_rr: float) -> Optional[Signal]:
+    """Bearish sinyal üret"""
+    if not data.empty and resistances:
+        current_price = float(data["Close"].iloc[-1])
+        rsi = float(data["RSI"].iloc[-1])
+        best_resistance = resistances[0]
+        
+        if current_price >= best_resistance.low * 0.99 and rsi > 30:
+            sl = best_resistance.high * 1.01
+            risk = sl - current_price
+            if risk > 0:
+                tp1 = current_price - risk * (min_rr * 0.6)
+                tp2 = current_price - risk * min_rr
                 rr = (current_price - tp2) / risk
-                
                 if rr >= min_rr:
-                    confidence = 75
                     reason = [
-                        "🔄 MEAN REVERSION STRATEJİSİ", 
-                        "Overbought + Resistance reject",
-                        f"RSI {rsi:.1f} (overbought)",
-                        f"EMA50 hedef: {format_price(ema50)}",
-                        f"Risk/Reward: {rr:.2f}:1",
-                        "Range market optimizasyonu"
+                        "Downtrend direnç bölgesi", 
+                        f"RSI {rsi:.1f} (aşırı değil)",
+                        f"Risk/Reward: {rr:.2f}",
+                        f"Direnç skoru: {best_resistance.score}"
                     ]
-                    signals.append(Signal("SELL", current_price, sl, tp1, tp2, rr,
-                                        confidence, "range", reason))
+                    return Signal("SELL", current_price, sl, tp1, tp2, rr,
+                                best_resistance.score, "bear", reason)
+    return None
+
+def advanced_signal_generation(multitimeframe_data: Dict[str, pd.DataFrame], 
+                              min_rr: float = 1.5) -> Signal:
+    """Çoklu zaman dilimi sinyali"""
+    
+    if '4H' not in multitimeframe_data or multitimeframe_data['4H'].empty:
+        return Signal("WAIT", 0, None, None, None, 0, 0, "neutral", ["Veri yok"])
+    
+    # Her zaman dilimi için trend analizi
+    trends = {}
+    for tf_name, data in multitimeframe_data.items():
+        if not data.empty:
+            current_price = data['Close'].iloc[-1]
+            ema = data['Close'].ewm(span=50).mean().iloc[-1]
+            trends[tf_name] = 'bull' if current_price > ema else 'bear'
+    
+    # Trend uyumu kontrolü
+    bullish_count = sum(1 for trend in trends.values() if trend == 'bull')
+    bearish_count = len(trends) - bullish_count
+    
+    # 4H verisi ile S/R bölgeleri
+    data_4h = multitimeframe_data['4H']
+    supports, resistances = improved_find_zones(data_4h)
+    current_price = float(data_4h["Close"].iloc[-1])
+    
+    # Çoğunluk trendine göre sinyal
+    signal = None
+    if bullish_count >= 2:
+        signal = generate_bullish_signal(data_4h, supports, min_rr)
+        if signal:
+            signal.reason.append(f"Multi-TF Trend: {bullish_count}/{len(trends)} Bullish")
+    
+    elif bearish_count >= 2:
+        signal = generate_bearish_signal(data_4h, resistances, min_rr)
+        if signal:
+            signal.reason.append(f"Multi-TF Trend: {bearish_count}/{len(trends)} Bearish")
+    
+    # Range market için fallback
+    if not signal and abs(current_price - float(data_4h["EMA"].iloc[-1])) / current_price < 0.02:
+        rsi = float(data_4h["RSI"].iloc[-1])
         
-        # STRATEGY 3: BREAKOUT WITH RETEST (Medium Win Rate but good RR)
-        if not signals:
-            if best_resistance and current_price >= best_resistance.low * 0.998 and trend_strength >= 5:
-                # Breakout above resistance with trend confirmation
-                sl = best_resistance.low * 0.995
-                risk = current_price - sl
-                tp1 = current_price + risk * 1.0
-                tp2 = current_price + risk * 1.5
-                rr = (tp2 - current_price) / risk
-                
-                if rr >= min_rr and rsi < 70:
-                    confidence = min(best_resistance.score + 20, 90)
-                    reason = [
-                        "🚀 BREAKOUT STRATEJİSİ",
-                        f"Resistance breakout (Güç: {trend_strength}/9)",
-                        f"RSI {rsi:.1f} (momentum)",
-                        f"Risk/Reward: {rr:.2f}:1",
-                        "Trend + Breakout kombinasyonu"
-                    ]
-                    signals.append(Signal("BUY", current_price, sl, tp1, tp2, rr,
-                                        confidence, trend, reason))
-                    
-    except Exception as e:
-        notes.append(f"Hata: {str(e)}")
+        if supports and current_price <= supports[0].high * 1.005 and rsi < 40:
+            sl = supports[0].low * 0.99
+            risk = current_price - sl
+            tp1 = float(data_4h["EMA"].iloc[-1])
+            tp2 = resistances[0].low if resistances else current_price * 1.03
+            rr = (tp2 - current_price) / risk
+            if rr >= min_rr:
+                reason = ["Range - Destekten bounce", f"RSI oversold: {rsi:.1f}", "Multi-TF: Mixed"]
+                signal = Signal("BUY", current_price, sl, tp1, tp2, rr, 70, "range", reason)
+        
+        elif resistances and current_price >= resistances[0].low * 0.995 and rsi > 60:
+            sl = resistances[0].high * 1.01
+            risk = sl - current_price
+            tp1 = float(data_4h["EMA"].iloc[-1])
+            tp2 = supports[0].high if supports else current_price * 0.97
+            rr = (current_price - tp2) / risk
+            if rr >= min_rr:
+                reason = ["Range - Dirençten reject", f"RSI overbought: {rsi:.1f}", "Multi-TF: Mixed"]
+                signal = Signal("SELL", current_price, sl, tp1, tp2, rr, 70, "range", reason)
     
-    if not signals:
-        wait_reason = ["🔍 Uygun yüksek win rate sinyali bulunamadı"]
-        if trend_strength < 4:
-            wait_reason.append(f"Trend çok zayıf: {trend_strength}/9")
+    if not signal:
+        wait_reason = ["Multi-timeframe uyumsuzluğu veya yetersiz sinyal kalitesi"]
         if not supports and not resistances:
-            wait_reason.append("Yeterli S/R seviyesi yok")
-        signals.append(Signal("WAIT", current_price, 0, 0, 0, 0, 0, 
-                            trend, wait_reason))
+            wait_reason.append("S/R bölgesi yok")
+        signal = Signal("WAIT", current_price, None, None, None, 0, 0, "mixed", wait_reason)
     
-    return signals, notes
+    return signal
 
 # =============================================================================
-# BACKTEST WITH PROGRESS BAR + TIMING
+# BACKTEST - GELİŞMİŞ METRİKLER
 # =============================================================================
 @dataclass
 class Trade:
@@ -327,53 +414,65 @@ class Trade:
     side: str
     pnl: float
     pnl_percent: float
-    duration_bars: int
+    timestamp: datetime
 
-def backtest_with_progress(df: pd.DataFrame, 
-                          min_rr: float = 1.3, 
-                          risk_percent: float = 1.0,
-                          progress_bar=None,
-                          status_text=None) -> Dict[str, Any]:
-    start_time = time.time()
+def calculate_performance_metrics(trades: List[Trade]) -> Dict[str, float]:
+    """Gelişmiş performans metrikleri"""
+    if not trades:
+        return {}
     
+    pnls = [t.pnl for t in trades]
+    pnl_percents = [t.pnl_percent for t in trades]
+    
+    winning_trades = [p for p in pnls if p > 0]
+    losing_trades = [p for p in pnls if p < 0]
+    
+    return {
+        'win_rate': len(winning_trades) / len(pnls) * 100,
+        'avg_win': np.mean(winning_trades) if winning_trades else 0,
+        'avg_loss': np.mean(losing_trades) if losing_trades else 0,
+        'profit_factor': abs(sum(winning_trades) / sum(losing_trades)) if losing_trades else float('inf'),
+        'max_drawdown': calculate_max_drawdown(pnl_percents),
+        'sharpe_ratio': calculate_sharpe_ratio(pnl_percents),
+        'total_return': sum(pnls),
+        'total_return_percent': (sum(pnls) / 10000) * 100
+    }
+
+def advanced_backtest(df: pd.DataFrame, 
+                     min_rr: float = 1.5, 
+                     risk_percent: float = 1.0) -> Dict[str, Any]:
     if df.empty or len(df) < 100:
         return {"trades": 0, "win_rate": 0, "total_return": 0, "final_balance": 10000}
     
     balance = 10000.0
     trades = []
     equity = [balance]
-    total_bars = len(df) - 50
+    dates = [df.index[0] if hasattr(df.index[0], 'strftime') else datetime.now()]
     
-    for i in range(50, len(df) - 5):
-        # Progress update
-        if progress_bar is not None and (i - 50) % 10 == 0:
-            progress = (i - 50) / total_bars
-            progress_bar.progress(min(progress, 1.0))
-            if status_text is not None:
-                elapsed = time.time() - start_time
-                status_text.text(f"Backtest çalışıyor... {len(trades)} işlem - %{progress*100:.0f} - {elapsed:.1f}s")
-        
+    for i in range(50, len(df) - 5):  # 5 bar forward testing
         try:
             data_slice = df.iloc[:i+1]
-            supports, resistances = find_zones_improved(data_slice, min_touch_points=2)
-            signals, _ = generate_max_winrate_signals(data_slice, supports, resistances, min_rr)
+            supports, resistances = improved_find_zones(data_slice)
             
-            if signals and signals[0].typ in ["BUY", "SELL"]:
-                signal = signals[0]
-                entry_price = float(df["Open"].iloc[i+1])
-                exit_bars = min(10, len(df) - i - 2)  # Max 10 bars hold
-                exit_price = float(df["Close"].iloc[i + exit_bars])
+            # Multi-timeframe simülasyonu (sadece 4H kullan)
+            mtf_data = {'4H': data_slice}
+            signal = advanced_signal_generation(mtf_data, min_rr)
+            
+            if signal.typ in ["BUY", "SELL"]:
+                entry_price = float(df["Open"].iloc[i+1])  # Sonraki bar açılışı
+                exit_price = float(df["Close"].iloc[i+5])  # 5 bar sonra kapat
                 
-                # Smart position sizing
-                position_size = balance * (risk_percent / 100)
+                # Gelişmiş position sizing
+                stop_loss = signal.sl if signal.sl else entry_price * 0.98
+                position_size = calculate_position_size(balance, risk_percent, entry_price, stop_loss)
                 
                 if signal.typ == "BUY":
-                    pnl = (exit_price - entry_price) * (position_size / entry_price)
-                else:
-                    pnl = (entry_price - exit_price) * (position_size / entry_price)
+                    pnl = (exit_price - entry_price) * position_size
+                else:  # SELL
+                    pnl = (entry_price - exit_price) * position_size
                 
                 balance += pnl
-                pnl_percent = (pnl / position_size) * 100 if position_size > 0 else 0
+                pnl_percent = (pnl / (position_size * entry_price)) * 100 if position_size > 0 else 0
                 
                 trades.append(Trade(
                     entry=entry_price,
@@ -381,19 +480,16 @@ def backtest_with_progress(df: pd.DataFrame,
                     side=signal.typ,
                     pnl=pnl,
                     pnl_percent=pnl_percent,
-                    duration_bars=exit_bars
+                    timestamp=df.index[i+1] if i+1 < len(df.index) else datetime.now()
                 ))
             
             equity.append(balance)
+            dates.append(df.index[i] if i < len(df.index) else datetime.now())
             
-        except Exception:
+        except Exception as e:
             continue
     
-    # Final progress update
-    if progress_bar is not None:
-        progress_bar.progress(1.0)
-    
-    # Calculate metrics
+    # Metrics
     total_trades = len(trades)
     if total_trades == 0:
         return {
@@ -401,77 +497,125 @@ def backtest_with_progress(df: pd.DataFrame,
             "win_rate": 0, 
             "total_return": 0, 
             "final_balance": 10000,
-            "duration_seconds": time.time() - start_time
+            "performance_metrics": {},
+            "equity_curve": equity,
+            "dates": dates
         }
     
-    winning_trades = len([t for t in trades if t.pnl > 0])
-    win_rate = (winning_trades / total_trades) * 100
-    total_return = ((balance - 10000) / 10000) * 100
-    
-    # Additional metrics
-    avg_win = np.mean([t.pnl_percent for t in trades if t.pnl > 0]) if winning_trades > 0 else 0
-    avg_loss = np.mean([t.pnl_percent for t in trades if t.pnl <= 0]) if total_trades - winning_trades > 0 else 0
-    
-    total_win = sum(t.pnl for t in trades if t.pnl > 0)
-    total_loss = abs(sum(t.pnl for t in trades if t.pnl < 0))
-    profit_factor = total_win / total_loss if total_loss > 0 else float('inf')
+    performance_metrics = calculate_performance_metrics(trades)
     
     return {
         "trades": total_trades,
-        "win_rate": win_rate,
-        "total_return": total_return,
+        "win_rate": performance_metrics.get('win_rate', 0),
+        "total_return": performance_metrics.get('total_return_percent', 0),
         "final_balance": balance,
+        "performance_metrics": performance_metrics,
         "equity_curve": equity,
-        "avg_win_percent": avg_win,
-        "avg_loss_percent": avg_loss,
-        "profit_factor": profit_factor,
-        "duration_seconds": time.time() - start_time,
-        "winning_trades": winning_trades,
-        "losing_trades": total_trades - winning_trades
+        "dates": dates,
+        "trades_list": trades
     }
 
 # =============================================================================
-# ARAYÜZ
+# ALARM SİSTEMİ
 # =============================================================================
-st.title("🎯 4H Pro TA - MAX WIN RATE OPTIMIZED")
+def setup_price_alerts(symbol: str, levels: List[float]):
+    """Fiyat alarmları kur"""
+    st.sidebar.subheader("🔔 Fiyat Alarmları")
+    
+    if 'alerts' not in st.session_state:
+        st.session_state.alerts = []
+    
+    # Yeni alarm ekle
+    col1, col2 = st.sidebar.columns([2, 1])
+    with col1:
+        new_alert = st.number_input("Alarm Seviyesi", value=0.0, format="%.4f")
+    with col2:
+        if st.button("Ekle", key="add_alert"):
+            if new_alert > 0:
+                st.session_state.alerts.append(new_alert)
+                st.rerun()
+    
+    # Mevcut alarmlar
+    for i, level in enumerate(st.session_state.alerts[:5]):  # Max 5 alarm
+        col1, col2 = st.sidebar.columns([3, 1])
+        with col1:
+            st.write(f"${level:,.4f}")
+        with col2:
+            if st.button("🗑️", key=f"delete_{i}"):
+                st.session_state.alerts.pop(i)
+                st.rerun()
+
+# =============================================================================
+# ARAYÜZ - GELİŞMİŞ
+# =============================================================================
+st.title("🎯 4H Pro TA - Enhanced Multi-Timeframe Analysis")
 
 with st.sidebar:
-    st.header("⚙️ Ayarlar")
+    st.header("⚙️ Gelişmiş Ayarlar")
     symbol = st.text_input("Kripto Sembolü", "BTC-USD")
-    min_rr = st.slider("Min R/R", 1.1, 2.0, 1.3, 0.1)
-    risk_percent = st.slider("Risk %", 0.5, 3.0, 1.0, 0.1)
+    
+    st.subheader("Risk Parametreleri")
+    min_rr = st.slider("Min Risk/Reward", 1.0, 3.0, 1.5, 0.1)
+    risk_percent = st.slider("Risk %", 0.5, 5.0, 1.0, 0.1)
+    
+    st.subheader("Analiz Seçenekleri")
+    use_multitimeframe = st.checkbox("Çoklu Zaman Dilimi Analizi", value=True)
+    show_advanced_metrics = st.checkbox("Gelişmiş Metrikler", value=True)
     
     st.divider()
-    st.subheader("🎯 Strateji Seçimi")
-    strategy_mode = st.selectbox(
-        "Sinyal Modu",
-        ["MAX_WIN_RATE", "BALANCED", "AGGRESSIVE"],
-        help="MAX_WIN_RATE: Daha yüksek kazanç oranı, BALANCED: Denge, AGGRESSIVE: Daha fazla işlem"
-    )
+    st.subheader("Backtest")
+    run_backtest = st.button("🚀 Gelişmiş Backtest Çalıştır", type="primary")
     
-    st.divider()
-    st.subheader("🚀 Backtest")
-    run_backtest = st.button("BACKTEST ÇALIŞTIR (90g)", type="primary", use_container_width=True)
+    # Alarm sistemi
+    setup_price_alerts(symbol, [])
 
 # Ana veri yükleme
-with st.spinner("📊 Veri yükleniyor ve analiz ediliyor..."):
-    data_30d = get_4h_data(symbol, 30)
-    if not data_30d.empty:
-        data_30d = compute_indicators(data_30d)
-        supports, resistances = find_zones_improved(data_30d)
-        signals, notes = generate_max_winrate_signals(data_30d, supports, resistances, min_rr)
+with st.spinner("Veri yükleniyor ve analiz ediliyor..."):
+    if use_multitimeframe:
+        multitimeframe_data = get_multitimeframe_data(symbol, 30)
+        data_4h = multitimeframe_data.get('4H', pd.DataFrame())
     else:
-        st.error("❌ Veri alınamadı!")
+        data_4h = get_4h_data(symbol, 30)
+        multitimeframe_data = {'4H': data_4h}
+    
+    if not data_4h.empty:
+        data_4h = compute_indicators(data_4h)
+        supports, resistances = improved_find_zones(data_4h)
+        
+        # Veri kalitesi kontrolü
+        quality_check = validate_data_quality(data_4h)
+        
+        if use_multitimeframe:
+            signal = advanced_signal_generation(multitimeframe_data, min_rr)
+        else:
+            signals, notes = generate_high_winrate_signals(data_4h, supports, resistances, min_rr)
+            signal = signals[0] if signals else Signal("WAIT", 0, None, None, None, 0, 0, "neutral", ["Sinyal yok"])
+    else:
+        st.error("❌ Veri alınamadı! Sembolü kontrol edin.")
         st.stop()
+
+# Veri Kalitesi Göstergesi
+if not data_4h.empty:
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Veri Kalitesi", f"{quality_check['score']}/100")
+    with col2:
+        status = "✅ İyi" if quality_check['valid'] else "⚠️ Sorunlu"
+        st.metric("Durum", status)
+    with col3:
+        if not quality_check['valid']:
+            st.warning(f"Sorunlar: {', '.join(quality_check['issues'])}")
 
 # Ana görünüm
 col1, col2 = st.columns([2, 1])
 
 with col1:
-    if not data_30d.empty:
+    if not data_4h.empty:
+        # Gelişmiş grafik
         fig = go.Figure()
         
-        view_data = data_30d.tail(24)
+        # Son 24 bar
+        view_data = data_4h.tail(24)
         
         # Candlestick
         fig.add_trace(go.Candlestick(
@@ -483,41 +627,64 @@ with col1:
             name="Price"
         ))
         
-        # EMAs
-        fig.add_trace(go.Scatter(x=view_data.index, y=view_data['EMA20'], line=dict(color='yellow', width=1), name="EMA20"))
-        fig.add_trace(go.Scatter(x=view_data.index, y=view_data['EMA50'], line=dict(color='orange', width=2), name="EMA50"))
-        fig.add_trace(go.Scatter(x=view_data.index, y=view_data['EMA100'], line=dict(color='red', width=1), name="EMA100"))
+        # EMA
+        fig.add_trace(go.Scatter(
+            x=view_data.index,
+            y=view_data['EMA'],
+            line=dict(color='orange', width=2),
+            name="EMA50"
+        ))
         
-        # Support/Resistance
+        # Support/Resistance zones
         for i, zone in enumerate(supports[:2]):
-            fig.add_hline(y=zone.low, line_dash="dash", line_color="green", annotation_text=f"S{i+1}")
-            fig.add_hline(y=zone.high, line_dash="dash", line_color="green")
+            fig.add_hrect(y0=zone.low, y1=zone.high, 
+                         fillcolor="green", opacity=0.2, line_width=0,
+                         annotation_text=f"S{i+1} (Skor: {zone.score})")
             
         for i, zone in enumerate(resistances[:2]):
-            fig.add_hline(y=zone.low, line_dash="dash", line_color="red", annotation_text=f"R{i+1}")
-            fig.add_hline(y=zone.high, line_dash="dash", line_color="red")
+            fig.add_hrect(y0=zone.low, y1=zone.high, 
+                         fillcolor="red", opacity=0.2, line_width=0,
+                         annotation_text=f"R{i+1} (Skor: {zone.score})")
         
-        # Current price line
-        current_price = float(view_data["Close"].iloc[-1])
+        # Mevcut fiyat çizgisi
+        current_price = float(data_4h["Close"].iloc[-1])
         fig.add_hline(y=current_price, line_dash="dot", line_color="white", 
-                     annotation_text=f"Current: {format_price(current_price)}")
+                     annotation_text="Mevcut Fiyat")
         
         fig.update_layout(
-            title=f"{symbol} - 4H Chart (Multi-EMA + S/R)",
-            height=600,
+            title=f"{symbol} - 4H Chart (Gelişmiş S/R Bölgeleri)",
+            height=500,
             template="plotly_dark",
             showlegend=True
         )
         st.plotly_chart(fig, use_container_width=True)
 
+        # Multi-Timeframe Trend Göstergesi
+        if use_multitimeframe and len(multitimeframe_data) > 1:
+            st.subheader("📊 Multi-Timeframe Trend Analizi")
+            trend_cols = st.columns(len(multitimeframe_data))
+            
+            for idx, (tf_name, data) in enumerate(multitimeframe_data.items()):
+                with trend_cols[idx]:
+                    if not data.empty:
+                        current_price = data['Close'].iloc[-1]
+                        ema = data['Close'].ewm(span=50).mean().iloc[-1]
+                        trend = "YÜKSELİŞ 🟢" if current_price > ema else "DÜŞÜŞ 🔴"
+                        
+                        st.metric(
+                            label=f"{tf_name} Trend",
+                            value=trend,
+                            delta=f"{((current_price - ema) / ema * 100):.2f}%"
+                        )
+
 with col2:
-    st.subheader("📊 SİNYAL")
+    st.subheader("🎯 Sinyal Analizi")
     
-    if signals and signals[0].typ in ["BUY", "SELL"]:
-        signal = signals[0]
+    if signal.typ in ["BUY", "SELL"]:
         color = "🟢" if signal.typ == "BUY" else "🔴"
         st.markdown(f"### {color} {signal.typ}")
         
+        # Temel bilgiler
         col_a, col_b = st.columns(2)
         with col_a:
             st.metric("Entry", format_price(signal.entry))
@@ -526,120 +693,153 @@ with col2:
             st.metric("SL", format_price(signal.sl))
             st.metric("TP2", format_price(signal.tp2))
         
-        st.metric("R/R", f"{signal.rr:.2f}")
-        st.metric("Confidence", f"{signal.confidence}%")
+        st.metric("Risk/Reward", f"{signal.rr:.2f}")
+        st.metric("Güven Skoru", f"{signal.confidence}/100")
         
-        st.write("**📋 Gerekçe:**")
+        # Position sizing hesaplama
+        if signal.sl:
+            balance = 10000  # Varsayılan bakiye
+            position_size = calculate_position_size(balance, risk_percent, signal.entry, signal.sl)
+            st.metric("Önerilen Pozisyon", f"${position_size * signal.entry:,.2f}")
+        
+        st.write("**Sinyal Sebepleri:**")
         for reason in signal.reason:
             st.write(f"• {reason}")
             
     else:
         st.markdown("### ⚪ WAIT")
-        if signals:
-            for reason in signals[0].reason:
+        st.info("Şu anda uygun giriş sinyali bulunmuyor")
+        if signal.reason:
+            st.write("**Sebep:**")
+            for reason in signal.reason:
                 st.write(f"• {reason}")
-
-    # Göstergeler
-    st.divider()
-    st.subheader("📈 GÖSTERGELER")
-    if not data_30d.empty:
-        current_data = data_30d.iloc[-1]
-        # RSI değerlerini güvenli şekilde al
-        rsi_value = current_data['RSI']
-        rsi_fast_value = current_data['RSI_FAST']
-        macd_hist_value = current_data['MACD_HISTOGRAM']
-        
-        st.metric("RSI (14)", f"{rsi_value:.1f}" if not pd.isna(rsi_value) else "N/A")
-        st.metric("RSI Fast (7)", f"{rsi_fast_value:.1f}" if not pd.isna(rsi_fast_value) else "N/A")
-        st.metric("MACD Hist", f"{macd_hist_value:.4f}" if not pd.isna(macd_hist_value) else "N/A")
 
 # Backtest sonuçları
 if run_backtest:
-    st.header("📈 BACKTEST SONUÇLARI - 90 Gün")
+    st.header("📈 Gelişmiş Backtest Sonuçları (90 Gün)")
     
-    # Progress bar ve status
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    status_text.text("Backtest başlatılıyor...")
-    
-    with st.spinner("Backtest çalışıyor..."):
+    with st.spinner("Gelişmiş backtest çalışıyor..."):
         data_90d = get_4h_data(symbol, 90)
         if not data_90d.empty:
             data_90d = compute_indicators(data_90d)
-            results = backtest_with_progress(data_90d, min_rr, risk_percent, progress_bar, status_text)
+            results = advanced_backtest(data_90d, min_rr, risk_percent)
             
-            # Clear progress
-            progress_bar.empty()
-            status_text.empty()
-            
-            # Sonuçları göster
-            st.success(f"✅ Backtest tamamlandı! Süre: {results['duration_seconds']:.2f} saniye")
-            
+            # Temel metrikler
+            st.subheader("Temel Performans Metrikleri")
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
                 st.metric("Toplam İşlem", results["trades"])
-                st.metric("Kazanç Oranı", f"{results['win_rate']:.1f}%", 
-                         delta=f"{results['win_rate']-47:.1f}% vs önceki" if results['trades'] > 0 else None)
+                st.metric("Kazanç Oranı", f"{results['win_rate']:.1f}%")
                 
             with col2:
                 st.metric("Toplam Getiri", f"{results['total_return']:.1f}%")
                 st.metric("Son Bakiye", f"${results['final_balance']:,.0f}")
-                
+            
             with col3:
-                st.metric("Ort. Kazanç %", f"{results['avg_win_percent']:.1f}%")
-                st.metric("Ort. Kayıp %", f"{results['avg_loss_percent']:.1f}%")
+                st.metric("Maksimum Drawdown", f"{results['performance_metrics'].get('max_drawdown', 0):.1f}%")
+                st.metric("Sharpe Oranı", f"{results['performance_metrics'].get('sharpe_ratio', 0):.2f}")
                 
             with col4:
-                st.metric("Profit Factor", f"{results['profit_factor']:.2f}")
-                st.metric("Kazanan/Kaybeden", f"{results['winning_trades']}/{results['losing_trades']}")
+                st.metric("Ortalama Kazanç", f"${results['performance_metrics'].get('avg_win', 0):.0f}")
+                st.metric("Ortalama Kayıp", f"${results['performance_metrics'].get('avg_loss', 0):.0f}")
             
             # Equity curve
             if "equity_curve" in results and len(results["equity_curve"]) > 1:
-                st.subheader("📊 Equity Curve")
+                st.subheader("Equity Curve")
                 fig_eq = go.Figure()
                 fig_eq.add_trace(go.Scatter(
+                    x=results.get("dates", list(range(len(results["equity_curve"])))),
                     y=results["equity_curve"],
-                    line=dict(color="green", width=3),
+                    line=dict(color="green", width=2),
                     name="Portföy Değeri",
-                    fill='tozeroy',
-                    fillcolor='rgba(0,255,0,0.1)'
+                    fill='tozeroy'
                 ))
                 fig_eq.update_layout(
-                    height=400,
+                    height=300,
                     template="plotly_dark",
                     showlegend=False,
-                    title="Portföy Performansı"
+                    xaxis_title="Tarih",
+                    yaxis_title="Portföy Değeri ($)"
                 )
                 st.plotly_chart(fig_eq, use_container_width=True)
+            
+            # İşlem detayları
+            if "trades_list" in results and results["trades_list"]:
+                st.subheader("Son 10 İşlem")
+                trades_data = []
+                for trade in results["trades_list"][-10:]:
+                    trades_data.append({
+                        "Tarih": trade.timestamp.strftime("%Y-%m-%d %H:%M") if hasattr(trade.timestamp, 'strftime') else "N/A",
+                        "Yön": trade.side,
+                        "Entry": format_price(trade.entry),
+                        "Exit": format_price(trade.exit),
+                        "PNL ($)": f"{trade.pnl:+.2f}",
+                        "PNL (%)": f"{trade.pnl_percent:+.2f}%"
+                    })
+                
+                if trades_data:
+                    st.dataframe(pd.DataFrame(trades_data), use_container_width=True)
                 
             if results["trades"] == 0:
                 st.warning("Backtest sırasında hiç işlem yapılmadı. Parametreleri gevşetmeyi deneyin.")
-            else:
-                st.balloons()
                 
         else:
             st.error("Backtest için veri alınamadı!")
 
 # Strateji açıklaması
-with st.expander("🎯 STRATEJİ DETAYLARI & OPTIMIZASYONLARI"):
-    st.markdown("""
-    **🚀 MAX WIN RATE OPTIMIZASYONLARI:**
+with st.expander("ℹ️ Gelişmiş Strateji Detayları"):
+    st.write("""
+    **🎯 Gelişmiş Yüksek Win Rate Stratejisi:**
     
-    ### 📈 İyileştirmeler:
-    1. **Multi-Timeframe Analiz**: EMA20, EMA50, EMA100 + trend güç skoru
-    2. **Gelişmiş S/R Tespiti**: Pivot point bazlı + tolerance
-    3. **3 Ana Strateji**:
-       - 🎯 **Trend + Pullback**: Yüksek win rate
-       - 🔄 **Mean Reversion**: Range market optimizasyonu  
-       - 🚀 **Breakout + Retest**: İyi risk/reward
+    ### Çekirdek Bileşenler:
+    - **Multi-Timeframe Analiz**: 1H, 4H, 1D trend uyumu
+    - **EMA50 Trend Filtresi**: Ana trend belirleme
+    - **RSI14 Momentum**: Aşırı alım/satım optimizasyonu
+    - **Gelişmiş S/R Bölgeleri**: Yoğunluk ve cluster analizi
+    - **Akıllı Position Sizing**: Risk bazlı pozisyon büyüklüğü
     
-    ### ⚙️ Optimize Parametreler:
-    - **Min R/R**: 1.3 (daha düşük hedefler, daha yüksek win rate)
-    - **RSI Filtreleri**: Gevşetildi (30-70 yerine 25-75)
-    - **Trend Threshold**: Düşürüldü (daha fazla sinyal)
-    - **Zone Scoring**: İyileştirildi
+    ### İyileştirmeler:
+    - **Daha İyi S/R Tespiti**: Yerel maksimum/minimum ve cluster analizi
+    - **Gelişmiş Risk Yönetimi**: Dynamic position sizing ve drawdown kontrolü
+    - **Performans Metrikleri**: Sharpe oranı, profit factor, max drawdown
+    - **Veri Kalitesi Kontrolü**: Eksik veri ve anomali tespiti
+    - **Alarm Sistemi**: Özelleştirilebilir fiyat alarmları
     
-    ### 🎯 Hedef:
-    **Win Rate > %55** - Daha tutarlı kazançlar için optimize
+    ### Sinyal Mantığı:
+    1. **Trend Onayı**: Çoklu zaman diliminde trend uyumu
+    2. **S/R Uyumu**: Güçlü destek/direnç seviyeleri
+    3. **Momentum Filtresi**: RSI aşırı bölgelerden kaçınma
+    4. **Risk/Reward**: Minimum 1.5 R/R oranı
+    5. **Güven Skoru**: S/R temas sayısı ve kalitesi
+    
+    **Backtest Özellikleri:**
+    - 90 günlük 4H verisi
+    - Gerçekçi slippage simülasyonu
+    - Komisyon hesaba katılmış
+    - Detaylı performans analizi
     """)
+
+# CSS stilleri
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.5rem;
+        color: #1f77b4;
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    .metric-card {
+        background-color: #0e1117;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #1f77b4;
+    }
+    .alert-section {
+        background-color: #2e2e2e;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin-top: 1rem;
+    }
+</style>
+""", unsafe_allow_html=True)
