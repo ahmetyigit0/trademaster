@@ -9,626 +9,431 @@ from dataclasses import dataclass
 
 st.set_page_config(page_title="4Saatlik Profesyonel TA", layout="wide")
 
-# Şifre koruması
+# Basit şifre koruması
 def check_password():
-    def password_entered():
-        if st.session_state["password"] == "efe":
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]
-        else:
-            st.session_state["password_correct"] = False
-
     if "password_correct" not in st.session_state:
-        st.text_input("Şifre", type="password", on_change=password_entered, key="password")
-        return False
-    elif not st.session_state["password_correct"]:
-        st.text_input("Şifre", type="password", on_change=password_entered, key="password")
-        st.error("❌ Şifre yanlış!")
-        return False
-    else:
-        return True
+        st.session_state["password_correct"] = False
+    
+    password = st.text_input("Şifre", type="password")
+    if password:
+        if password == "efe":
+            st.session_state["password_correct"] = True
+        else:
+            st.error("❌ Şifre yanlış!")
+    
+    return st.session_state["password_correct"]
 
 if not check_password():
     st.stop()
 
-# =============================================================================
-# YENİ: REJİM MOTORU VE İLERİ İNDİKATÖRLER
-# =============================================================================
+# Sembol listesi
+def load_symbol_index():
+    return [
+        "BTC-USD", "ETH-USD", "BNB-USD", "SOL-USD", "XRP-USD", "ADA-USD",
+        "AVAX-USD", "DOT-USD", "MATIC-USD", "LINK-USD", "ATOM-USD"
+    ]
 
-def get_1d_data(symbol, days=120):
-    """1D veri çek"""
+# Veri çekme
+@st.cache_data
+def get_4h_data(symbol, days=30):
     try:
         symbol = symbol.upper().strip()
         if '-' not in symbol:
             symbol = symbol + '-USD'
-        data = yf.download(symbol, period=f"{days}d", interval="1d", progress=False)
-        if data.empty or len(data) == 0:
+        data = yf.download(symbol, period=f"{days}d", interval="4h", progress=False)
+        if data.empty:
             return None
         return data
     except Exception as e:
-        st.error(f"❌ {symbol} 1D veri çekilemedi: {e}")
+        st.error(f"❌ {symbol} veri çekilemedi: {e}")
         return None
 
-def map_regime_to_4h(df_4h, df_1d):
-    """1D rejimini 4H verisine map et - BASİT VE ETKİLİ"""
-    if df_1d is None or len(df_1d) < 50:
-        # Fallback: EMA50 bazlı basit rejim
-        try:
-            ema50 = df_4h['Close'].ewm(span=50, adjust=False).mean()
-            price_vs_ema = (df_4h['Close'] - ema50) / df_4h['Close'] * 100
-            regime = np.where(price_vs_ema > 1, 'UP', 
-                             np.where(price_vs_ema < -1, 'DOWN', 'RANGE'))
-            return df_4h.assign(REGIME=regime)
-        except:
-            return df_4h.assign(REGIME='RANGE')
+# Basit gösterge hesaplama
+def calculate_indicators(data):
+    if data is None or len(data) == 0:
+        return data
     
-    try:
-        # Basit rejim belirleme: Son 5 günün ortalaması
-        recent_1d = df_1d.tail(5)
-        avg_close = recent_1d['Close'].mean()
-        avg_high = recent_1d['High'].mean()
-        avg_low = recent_1d['Low'].mean()
-        
-        current_price = df_4h['Close'].iloc[-1]
-        
-        # Trend belirleme
-        if current_price > avg_high * 0.99:
-            regime = 'UP'
-        elif current_price < avg_low * 1.01:
-            regime = 'DOWN'
-        else:
-            regime = 'RANGE'
-        
-        # Tüm 4H verisine aynı rejimi uygula
-        return df_4h.assign(REGIME=regime)
-        
-    except Exception as e:
-        return df_4h.assign(REGIME='RANGE')
-
-def donchian(df, n=20):
-    """Donchian Channel"""
-    return df['High'].rolling(n, min_periods=1).max(), df['Low'].rolling(n, min_periods=1).min()
-
-def bollinger(df, n=20, k=2):
-    """Bollinger Bands"""
-    mid = df['Close'].rolling(n, min_periods=1).mean()
-    std = df['Close'].rolling(n, min_periods=1).std().fillna(0.1)
-    return mid, mid + k * std, mid - k * std
-
-def calculate_advanced_indicators(df):
-    """İleri teknik göstergeler - GÜVENLİ"""
-    df = df.copy()
+    df = data.copy()
     
-    try:
-        # Donchian Channel
-        donch_high, donch_low = donchian(df, 20)
-        df['DONCH_HIGH'] = donch_high
-        df['DONCH_LOW'] = donch_low
-        
-        # Bollinger Bands
-        bb_mid, bb_upper, bb_lower = bollinger(df, 20, 2)
-        df['BB_MID'] = bb_mid
-        df['BB_UPPER'] = bb_upper
-        df['BB_LOWER'] = bb_lower
-        
-        # NaN değerleri temizle
-        for col in ['DONCH_HIGH', 'DONCH_LOW', 'BB_MID', 'BB_UPPER', 'BB_LOWER']:
-            df[col] = df[col].fillna(method='bfill').fillna(method='ffill')
-        
-    except Exception as e:
-        # Hata durumunda basit değerler
-        current_price = df['Close'].iloc[-1] if len(df) > 0 else 100
-        for col in ['DONCH_HIGH', 'BB_UPPER']:
-            df[col] = current_price * 1.02
-        for col in ['DONCH_LOW', 'BB_LOWER']:
-            df[col] = current_price * 0.98
-        df['BB_MID'] = current_price
+    # Temel göstergeler
+    df['EMA20'] = df['Close'].ewm(span=20, adjust=False).mean()
+    df['EMA50'] = df['Close'].ewm(span=50, adjust=False).mean()
+    
+    # RSI
+    delta = df['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rs = gain / loss
+    df['RSI'] = 100 - (100 / (1 + rs))
+    
+    # ATR
+    high_low = df['High'] - df['Low']
+    high_close = (df['High'] - df['Close'].shift()).abs()
+    low_close = (df['Low'] - df['Close'].shift()).abs()
+    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    df['ATR'] = tr.rolling(window=14).mean()
+    
+    # Donchian
+    df['DONCH_HIGH'] = df['High'].rolling(20).max()
+    df['DONCH_LOW'] = df['Low'].rolling(20).min()
+    
+    # Bollinger Bands
+    df['BB_MID'] = df['Close'].rolling(20).mean()
+    bb_std = df['Close'].rolling(20).std()
+    df['BB_UPPER'] = df['BB_MID'] + (bb_std * 2)
+    df['BB_LOWER'] = df['BB_MID'] - (bb_std * 2)
     
     return df
 
-def get_regime(symbol, df_4h):
-    """Rejim hesapla ve 4H verisine ekle"""
+# Basit rejim belirleme
+def get_regime(df):
     try:
-        df_1d = get_1d_data(symbol, days=120)
-        result_df = map_regime_to_4h(df_4h, df_1d)
-        return result_df
-    except Exception as e:
-        # Hata durumunda basit rejim
-        return df_4h.assign(REGIME='RANGE')
+        current_price = df['Close'].iloc[-1]
+        ema20 = df['EMA20'].iloc[-1]
+        ema50 = df['EMA50'].iloc[-1]
+        
+        if current_price > ema20 and ema20 > ema50:
+            return 'UP'
+        elif current_price < ema20 and ema20 < ema50:
+            return 'DOWN'
+        else:
+            return 'RANGE'
+    except:
+        return 'RANGE'
 
-def generate_signals_v2(df, regime_col='REGIME', min_rr_ratio=1.5, cooldown_bars=3, bb_width_pct=2.5, donchian_len=20):
-    """
-    Yeni rejim-temelli strateji sinyalleri - GELİŞTİRİLMİŞ
-    """
-    if len(df) < 30:
-        return {"type": "WAIT", "reason": "Yetersiz veri", "strat_id": "NONE"}
-    
+# Basit sinyal üretme
+def generate_signals(df):
     try:
-        current_idx = df.index[-1]
         current_data = df.iloc[-1]
-        current_price = float(current_data['Close'])
+        current_price = current_data['Close']
+        rsi = current_data['RSI']
+        donch_high = current_data['DONCH_HIGH']
+        donch_low = current_data['DONCH_LOW']
+        bb_upper = current_data['BB_UPPER']
+        bb_lower = current_data['BB_LOWER']
         
-        # Gerekli göstergeleri kontrol et
-        required_cols = ['RSI', 'ATR', 'DONCH_HIGH', 'DONCH_LOW', 'BB_UPPER', 'BB_LOWER', 'BB_MID']
-        for col in required_cols:
-            if col not in current_data or pd.isna(current_data[col]):
-                return {"type": "WAIT", "reason": f"{col} göstergesi hazır değil", "strat_id": "NONE"}
+        regime = get_regime(df)
         
-        regime = current_data.get(regime_col, 'RANGE')
-        atr = float(current_data['ATR'])
-        rsi = float(current_data['RSI'])
-        donch_high = float(current_data['DONCH_HIGH'])
-        donch_low = float(current_data['DONCH_LOW'])
-        bb_upper = float(current_data['BB_UPPER'])
-        bb_lower = float(current_data['BB_LOWER'])
-        bb_mid = float(current_data['BB_MID'])
+        # Uptrend sinyalleri
+        if regime == 'UP' and current_price >= donch_high and rsi < 70:
+            sl = donch_low
+            risk = current_price - sl
+            if risk > 0:
+                tp1 = current_price + risk * 1.0
+                tp2 = current_price + risk * 2.0
+                return {
+                    "type": "BUY", "entry": current_price, "sl": sl,
+                    "tp1": tp1, "tp2": tp2, "rr": 2.0,
+                    "reason": "Uptrend Breakout", "strat_id": "A"
+                }
         
-        # DEBUG: Değerleri kontrol et
-        debug_info = f"Price: {current_price:.2f}, RSI: {rsi:.1f}, Regime: {regime}, Donch_H: {donch_high:.2f}, Donch_L: {donch_low:.2f}"
+        # Downtrend sinyalleri
+        elif regime == 'DOWN' and current_price <= donch_low and rsi > 30:
+            sl = donch_high
+            risk = sl - current_price
+            if risk > 0:
+                tp1 = current_price - risk * 1.0
+                tp2 = current_price - risk * 2.0
+                return {
+                    "type": "SELL", "entry": current_price, "sl": sl,
+                    "tp1": tp1, "tp2": tp2, "rr": 2.0,
+                    "reason": "Downtrend Breakdown", "strat_id": "B"
+                }
         
-        # Strateji A: Uptrend - Momentum Breakout
-        if regime == 'UP':
-            # Donchian breakout + RSI filtresi
-            if current_price >= donch_high and rsi < 75:
-                sl = max(donch_low, bb_lower, current_price * 0.98)
-                risk = current_price - sl
-                if risk > 0 and risk / current_price < 0.03:  # Max %3 risk
-                    tp1 = current_price + risk * (min_rr_ratio * 0.7)
-                    tp2 = current_price + risk * min_rr_ratio
-                    rr = (tp2 - current_price) / risk
-                    if rr >= min_rr_ratio:
-                        return {
-                            "type": "BUY", "entry": current_price, "sl": sl, 
-                            "tp1": tp1, "tp2": tp2, "rr": rr, 
-                            "reason": f"Uptrend Breakout - {debug_info}", "strat_id": "A"
-                        }
-        
-        # Strateji B: Downtrend - Momentum Breakdown  
-        elif regime == 'DOWN':
-            # Donchian breakdown + RSI filtresi
-            if current_price <= donch_low and rsi > 25:
-                sl = min(donch_high, bb_upper, current_price * 1.02)
-                risk = sl - current_price
-                if risk > 0 and risk / current_price < 0.03:  # Max %3 risk
-                    tp1 = current_price - risk * (min_rr_ratio * 0.7)
-                    tp2 = current_price - risk * min_rr_ratio
-                    rr = (current_price - tp2) / risk
-                    if rr >= min_rr_ratio:
-                        return {
-                            "type": "SELL", "entry": current_price, "sl": sl, 
-                            "tp1": tp1, "tp2": tp2, "rr": rr,
-                            "reason": f"Downtrend Breakdown - {debug_info}", "strat_id": "B"
-                        }
-        
-        # Strateji C: Range - Mean Reversion
+        # Range sinyalleri
         elif regime == 'RANGE':
-            # Bollinger Band bounce
-            bb_width = (bb_upper - bb_lower) / bb_mid * 100
-            
-            # Sadece dar bantlarda işlem (volatilite düşük)
-            if bb_width < 5:  # %5'ten dar bant
-                # Üst band direnç - Short
-                if current_price >= bb_upper * 0.995 and rsi > 65:
-                    sl = bb_upper * 1.015
-                    risk = sl - current_price
-                    if risk > 0 and risk / current_price < 0.02:
-                        tp1 = bb_mid
-                        tp2 = bb_lower
-                        rr = (current_price - tp2) / risk
-                        if rr >= min_rr_ratio:
-                            return {
-                                "type": "SELL", "entry": current_price, "sl": sl, 
-                                "tp1": tp1, "tp2": tp2, "rr": rr,
-                                "reason": f"Range Resistance - {debug_info}", "strat_id": "C"
-                            }
-                
-                # Alt band destek - Long
-                elif current_price <= bb_lower * 1.005 and rsi < 35:
-                    sl = bb_lower * 0.985
-                    risk = current_price - sl
-                    if risk > 0 and risk / current_price < 0.02:
-                        tp1 = bb_mid
-                        tp2 = bb_upper
-                        rr = (tp2 - current_price) / risk
-                        if rr >= min_rr_ratio:
-                            return {
-                                "type": "BUY", "entry": current_price, "sl": sl, 
-                                "tp1": tp1, "tp2": tp2, "rr": rr,
-                                "reason": f"Range Support - {debug_info}", "strat_id": "C"
-                            }
+            if current_price >= bb_upper and rsi > 60:
+                sl = bb_upper * 1.02
+                risk = sl - current_price
+                tp1 = current_data['BB_MID']
+                tp2 = bb_lower
+                return {
+                    "type": "SELL", "entry": current_price, "sl": sl,
+                    "tp1": tp1, "tp2": tp2, "rr": 1.5,
+                    "reason": "Range Resistance", "strat_id": "C"
+                }
+            elif current_price <= bb_lower and rsi < 40:
+                sl = bb_lower * 0.98
+                risk = current_price - sl
+                tp1 = current_data['BB_MID']
+                tp2 = bb_upper
+                return {
+                    "type": "BUY", "entry": current_price, "sl": sl,
+                    "tp1": tp1, "tp2": tp2, "rr": 1.5,
+                    "reason": "Range Support", "strat_id": "C"
+                }
         
-        # Aşırı uzama filtresi
-        if rsi > 85 or rsi < 15:
-            return {"type": "WAIT", "reason": f"Aşırı uzama (RSI:{rsi:.1f})", "strat_id": "NONE"}
-        
-        return {"type": "WAIT", "reason": f"Koşullar uygun değil - {debug_info}", "strat_id": "NONE"}
+        return {"type": "WAIT", "reason": "Koşullar uygun değil", "strat_id": "NONE"}
     
     except Exception as e:
         return {"type": "WAIT", "reason": f"Hata: {str(e)}", "strat_id": "NONE"}
 
-# =============================================================================
-# BACKTEST SİSTEMİ - GELİŞTİRİLMİŞ
-# =============================================================================
-
-@dataclass
-class Trade:
-    open_time: pd.Timestamp
-    side: str  # 'LONG' or 'SHORT'
-    entry: float
-    sl: float
-    tp1: float
-    tp2: float
-    size: float
-    risk_perc: float
-    fee: float
-    slip: float
-    status: str = "OPEN"
-    close_time: pd.Timestamp | None = None
-    exit_price: float | None = None
-    exit_reason: str | None = None
-    r_multiple: float | None = None
-    pnl: float | None = None
-    strat_id: str = "NONE"
-
-def _position_size(entry, sl, balance, risk_perc, side):
-    risk_cap = balance * (risk_perc/100.0)
-    dist = abs(entry - sl)
-    if dist <= 0: 
-        return 0.0
-    qty = risk_cap / dist
-    return max(qty, 0.0)
-
-def _apply_cost(price, fee, slip, side, is_entry):
-    adj = price * (fee + slip)
-    if side == "LONG":
-        return price + adj if is_entry else price - adj
-    else:
-        return price - adj if is_entry else price + adj
-
-def backtest_90d_optimized(df_90d, risk_perc=1.0, fee=0.001, slip=0.0002, partial=False,
-                          min_rr_ratio=1.5, cooldown_bars=3, bb_width_pct=2.5, donchian_len=20, start_balance=10000.0):
-    """
-    Güncellenmiş backtest - DAHA FAZLA SİNYAL ÜRETECEK ŞEKİLDE
-    """
-    balance = start_balance
-    trades = []
-    equity = [balance]
-    dd_series = [0.0]
+# Grafik oluşturma
+def create_chart(data, signals):
+    if data is None or len(data) == 0:
+        return go.Figure()
     
-    min_lookback = 50  # Daha az lookback ile daha fazla sinyal
-    data_length = len(df_90d)
+    df = data.tail(24)  # Son 24 bar (4 gün)
+    fig = go.Figure()
     
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    # Sinyal sayacı
-    signals_generated = 0
-    last_signal_time = None
-    
-    for i in range(min_lookback, data_length - 1):
-        if i % 10 == 0:
-            progress = (i - min_lookback) / (data_length - min_lookback - 1)
-            progress_bar.progress(progress)
-            status_text.text(f"Backtest çalışıyor... {signals_generated} sinyal - %{int(progress * 100)}")
-        
+    # Mum çubukları
+    for i in range(len(df)):
         try:
-            df_slice = df_90d.iloc[:i+1].copy()
+            row = df.iloc[i]
+            open_price = row['Open']
+            high = row['High']
+            low = row['Low']
+            close = row['Close']
             
-            # Cooldown kontrolü
-            current_time = df_90d.index[i]
-            if last_signal_time is not None:
-                bars_passed = (current_time - last_signal_time) / pd.Timedelta(hours=4)
-                if bars_passed < cooldown_bars:
-                    equity.append(balance)
-                    current_equity = equity[-1]
-                    peak_equity = max(equity)
-                    drawdown = ((current_equity - peak_equity) / peak_equity) * 100 if peak_equity > 0 else 0
-                    dd_series.append(drawdown)
-                    continue
+            color = 'green' if close > open_price else 'red'
             
-            # Sinyal üret
-            sig = generate_signals_v2(
-                df_slice, 
-                min_rr_ratio=min_rr_ratio,
-                cooldown_bars=cooldown_bars,
-                bb_width_pct=bb_width_pct,
-                donchian_len=donchian_len
-            )
+            # Mum gövdesi
+            fig.add_trace(go.Scatter(
+                x=[df.index[i], df.index[i]],
+                y=[open_price, close],
+                mode='lines',
+                line=dict(color=color, width=6),
+                showlegend=False
+            ))
             
-            if sig["type"] == "WAIT":
-                equity.append(balance)
-                current_equity = equity[-1]
-                peak_equity = max(equity)
-                drawdown = ((current_equity - peak_equity) / peak_equity) * 100 if peak_equity > 0 else 0
-                dd_series.append(drawdown)
-                continue
-
-            # Sinyal bulundu
-            signals_generated += 1
-            last_signal_time = current_time
+            # Üst gölge
+            fig.add_trace(go.Scatter(
+                x=[df.index[i], df.index[i]],
+                y=[max(open_price, close), high],
+                mode='lines',
+                line=dict(color=color, width=1),
+                showlegend=False
+            ))
             
-            # Bir sonraki barın açılışında giriş
-            next_open = float(df_90d['Open'].iloc[i+1])
-            side = "LONG" if sig["type"] == "BUY" else "SHORT"
+            # Alt gölge
+            fig.add_trace(go.Scatter(
+                x=[df.index[i], df.index[i]],
+                y=[min(open_price, close), low],
+                mode='lines',
+                line=dict(color=color, width=1),
+                showlegend=False
+            ))
             
-            # Maliyetli giriş fiyatı
-            entry = _apply_cost(next_open, fee, slip, side, is_entry=True)
-            sl = sig['sl']
-            tp1 = sig['tp1']
-            tp2 = sig['tp2']
-            
-            # Pozisyon büyüklüğü
-            qty = _position_size(entry, sl, balance, risk_perc, side)
-            
-            if qty <= 0:
-                equity.append(balance)
-                current_equity = equity[-1]
-                peak_equity = max(equity)
-                drawdown = ((current_equity - peak_equity) / peak_equity) * 100 if peak_equity > 0 else 0
-                dd_series.append(drawdown)
-                continue
-
-            # Çıkış kontrolü
-            open_index = i + 1
-            exit_found = False
-            exit_reason = None
-            exit_price = None
-            pnl = 0.0
-            
-            max_lookahead = min(open_index + 100, data_length)  # Daha uzun takip
-            
-            for j in range(open_index, max_lookahead):
-                bar = df_90d.iloc[j]
-                high, low = float(bar['High']), float(bar['Low'])
-                close = float(bar['Close'])
-
-                if side == "LONG":
-                    # TP2 kontrolü (öncelikli)
-                    if high >= tp2:
-                        exit_reason = "TP2"
-                        exit_price = tp2
-                        pnl = (tp2 - entry) * qty
-                        exit_found = True
-                        break
-                    # SL kontrolü
-                    elif low <= sl:
-                        exit_reason = "SL"
-                        exit_price = sl
-                        pnl = (sl - entry) * qty
-                        exit_found = True
-                        break
-                    # Kısmi TP1
-                    elif partial and high >= tp1:
-                        # %50 kısmi çıkış
-                        partial_qty = qty * 0.5
-                        remaining_qty = qty * 0.5
-                        partial_pnl = (tp1 - entry) * partial_qty
-                        
-                        # Kalan için BE'ye çek ve TP2'yi bekle
-                        new_sl = entry  # Break-even
-                        
-                        for k in range(j + 1, max_lookahead):
-                            bar2 = df_90d.iloc[k]
-                            high2, low2 = float(bar2['High']), float(bar2['Low'])
-                            
-                            if low2 <= new_sl:
-                                exit_reason = "SL (Partial)"
-                                exit_price = new_sl
-                                pnl = partial_pnl + (new_sl - entry) * remaining_qty
-                                exit_found = True
-                                j = k
-                                break
-                            elif high2 >= tp2:
-                                exit_reason = "TP2 (Partial)"
-                                exit_price = tp2
-                                pnl = partial_pnl + (tp2 - entry) * remaining_qty
-                                exit_found = True
-                                j = k
-                                break
-                            elif k == max_lookahead - 1:
-                                exit_reason = "Time (Partial)"
-                                exit_price = float(bar2['Close'])
-                                pnl = partial_pnl + (exit_price - entry) * remaining_qty
-                                exit_found = True
-                                j = k
-                                break
-                        
-                        if exit_found:
-                            break
-                        
-                else:  # SHORT
-                    # TP2 kontrolü (öncelikli)
-                    if low <= tp2:
-                        exit_reason = "TP2"
-                        exit_price = tp2
-                        pnl = (entry - tp2) * qty
-                        exit_found = True
-                        break
-                    # SL kontrolü
-                    elif high >= sl:
-                        exit_reason = "SL"
-                        exit_price = sl
-                        pnl = (entry - sl) * qty
-                        exit_found = True
-                        break
-                    # Kısmi TP1
-                    elif partial and low <= tp1:
-                        # %50 kısmi çıkış
-                        partial_qty = qty * 0.5
-                        remaining_qty = qty * 0.5
-                        partial_pnl = (entry - tp1) * partial_qty
-                        
-                        # Kalan için BE'ye çek ve TP2'yi bekle
-                        new_sl = entry  # Break-even
-                        
-                        for k in range(j + 1, max_lookahead):
-                            bar2 = df_90d.iloc[k]
-                            high2, low2 = float(bar2['High']), float(bar2['Low'])
-                            
-                            if high2 >= new_sl:
-                                exit_reason = "SL (Partial)"
-                                exit_price = new_sl
-                                pnl = partial_pnl + (entry - new_sl) * remaining_qty
-                                exit_found = True
-                                j = k
-                                break
-                            elif low2 <= tp2:
-                                exit_reason = "TP2 (Partial)"
-                                exit_price = tp2
-                                pnl = partial_pnl + (entry - tp2) * remaining_qty
-                                exit_found = True
-                                j = k
-                                break
-                            elif k == max_lookahead - 1:
-                                exit_reason = "Time (Partial)"
-                                exit_price = float(bar2['Close'])
-                                pnl = partial_pnl + (entry - exit_price) * remaining_qty
-                                exit_found = True
-                                j = k
-                                break
-                        
-                        if exit_found:
-                            break
-
-            # Çıkış yoksa son fiyattan kapat
-            if not exit_found:
-                last_close = float(df_90d['Close'].iloc[max_lookahead - 1])
-                exit_reason = "Time"
-                exit_price = last_close
-                if side == "LONG":
-                    pnl = (last_close - entry) * qty
-                else:
-                    pnl = (entry - last_close) * qty
-
-            # Çıkış maliyeti
-            exit_price_costed = _apply_cost(exit_price, fee, slip, side, is_entry=False)
-            
-            # Net PnL
-            entry_cost = entry * qty * fee
-            exit_cost = exit_price_costed * qty * fee
-            pnl_after_cost = pnl - entry_cost - exit_cost
-            
-            balance += pnl_after_cost
-
-            # R-multiple
-            risk_amount = abs(entry - sl) * qty
-            r_mult = pnl_after_cost / risk_amount if risk_amount > 0 else 0.0
-
-            # Trade kaydı
-            trade = Trade(
-                open_time=df_90d.index[open_index],
-                side=side,
-                entry=entry,
-                sl=sl,
-                tp1=tp1,
-                tp2=tp2,
-                size=qty,
-                risk_perc=risk_perc,
-                fee=fee,
-                slip=slip,
-                status="CLOSED",
-                close_time=df_90d.index[j],
-                exit_price=exit_price_costed,
-                exit_reason=exit_reason,
-                r_multiple=r_mult,
-                pnl=pnl_after_cost,
-                strat_id=sig.get('strat_id', 'NONE')
-            )
-            trades.append(trade)
-            
-        except Exception as e:
-            equity.append(balance)
-            current_equity = equity[-1]
-            peak_equity = max(equity)
-            drawdown = ((current_equity - peak_equity) / peak_equity) * 100 if peak_equity > 0 else 0
-            dd_series.append(drawdown)
+        except:
             continue
+    
+    # EMA'lar
+    if 'EMA20' in df.columns:
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['EMA20'],
+            line=dict(color='orange', width=2),
+            name='EMA20'
+        ))
+    
+    if 'EMA50' in df.columns:
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['EMA50'],
+            line=dict(color='blue', width=2),
+            name='EMA50'
+        ))
+    
+    # Sinyal işareti
+    if signals and signals["type"] in ["BUY", "SELL"]:
+        current_price = df['Close'].iloc[-1]
+        marker_symbol = "triangle-up" if signals["type"] == "BUY" else "triangle-down"
+        marker_color = "green" if signals["type"] == "BUY" else "red"
+        
+        fig.add_trace(go.Scatter(
+            x=[df.index[-1]],
+            y=[current_price],
+            mode='markers',
+            marker=dict(symbol=marker_symbol, size=15, color=marker_color, line=dict(width=2, color="white")),
+            name=f"{signals['type']} Sinyal"
+        ))
+    
+    fig.update_layout(
+        title=f"{st.session_state.get('selected_symbol', 'BTC-USD')} - 4H Chart",
+        xaxis_title="",
+        yaxis_title="Fiyat (USD)",
+        template="plotly_dark",
+        height=500
+    )
+    
+    return fig
+
+# Format helper
+def format_price(price):
+    try:
+        price = float(price)
+        if price >= 1000:
+            return f"${price:,.0f}"
+        elif price >= 1:
+            return f"${price:.2f}"
+        else:
+            return f"${price:.4f}"
+    except:
+        return "N/A"
+
+# Ana uygulama
+def main():
+    st.title("🎯 4 Saatlik Teknik Analiz")
+    
+    # Sidebar
+    with st.sidebar:
+        st.header("⚙️ Ayarlar")
+        
+        # Sembol seçimi
+        if 'selected_symbol' not in st.session_state:
+            st.session_state.selected_symbol = "BTC-USD"
+        
+        crypto_symbol = st.text_input("Kripto Sembolü", st.session_state.selected_symbol)
+        
+        # Hızlı seçim butonları
+        st.caption("Hızlı Seçim:")
+        cols = st.columns(3)
+        symbols = ["BTC-USD", "ETH-USD", "ADA-USD", "XRP-USD", "SOL-USD", "DOT-USD"]
+        
+        for i, symbol in enumerate(symbols):
+            if cols[i % 3].button(symbol, use_container_width=True):
+                st.session_state.selected_symbol = symbol
+                st.rerun()
+        
+        st.divider()
+        st.subheader("Backtest Ayarları")
+        run_bt = st.button("Backtest Çalıştır (30g)", type="primary")
+    
+    # Ana içerik
+    symbol = st.session_state.selected_symbol
+    
+    with st.spinner(f"{symbol} verileri yükleniyor..."):
+        data = get_4h_data(symbol, days=30)
+    
+    if data is None:
+        st.error("Veri yüklenemedi!")
+        return
+    
+    # Göstergeleri hesapla
+    data = calculate_indicators(data)
+    
+    # Sinyal üret
+    signals = generate_signals(data)
+    
+    # Mevcut durum
+    current_price = data['Close'].iloc[-1] if len(data) > 0 else 0
+    regime = get_regime(data)
+    
+    # Layout
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        # Grafik
+        fig = create_chart(data, signals)
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        st.subheader("📊 Sinyal")
+        
+        if signals["type"] in ["BUY", "SELL"]:
+            color = "🟢" if signals["type"] == "BUY" else "🔴"
+            st.markdown(f"### {color} {signals['type']}")
             
-        equity.append(balance)
-        current_equity = equity[-1]
-        peak_equity = max(equity)
-        drawdown = ((current_equity - peak_equity) / peak_equity) * 100 if peak_equity > 0 else 0
-        dd_series.append(drawdown)
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.metric("Giriş", format_price(signals['entry']))
+                st.metric("TP1", format_price(signals['tp1']))
+            with col_b:
+                st.metric("SL", format_price(signals['sl']))
+                st.metric("TP2", format_price(signals['tp2']))
+            
+            st.metric("R/R", f"{signals['rr']:.1f}")
+            st.metric("Strateji", signals['strat_id'])
+            st.metric("Sebep", signals['reason'])
+            
+        else:
+            st.markdown("### ⚪ BEKLE")
+            st.info(signals['reason'])
+        
+        st.divider()
+        
+        # Göstergeler
+        st.subheader("📈 Göstergeler")
+        try:
+            rsi = data['RSI'].iloc[-1]
+            atr = data['ATR'].iloc[-1]
+            st.metric("RSI", f"{rsi:.1f}")
+            st.metric("ATR", format_price(atr))
+            st.metric("Rejim", regime)
+            st.metric("Fiyat", format_price(current_price))
+        except:
+            pass
+    
+    # Basit backtest
+    if run_bt:
+        st.divider()
+        st.header("🧪 Backtest Sonuçları (30 Gün)")
+        
+        with st.spinner("Backtest çalışıyor..."):
+            # Basit backtest simülasyonu
+            trades = []
+            balance = 10000
+            equity = [balance]
+            
+            for i in range(50, len(data) - 1):
+                df_slice = data.iloc[:i+1]
+                signal = generate_signals(df_slice)
+                
+                if signal["type"] in ["BUY", "SELL"]:
+                    # Basit trade simülasyonu
+                    entry = data['Open'].iloc[i+1]
+                    exit_price = data['Close'].iloc[i+5] if i+5 < len(data) else data['Close'].iloc[-1]
+                    
+                    if signal["type"] == "BUY":
+                        pnl = (exit_price - entry) * (balance * 0.01 / (entry - signal['sl']))
+                    else:
+                        pnl = (entry - exit_price) * (balance * 0.01 / (signal['sl'] - entry))
+                    
+                    balance += pnl
+                    trades.append({
+                        'type': signal["type"],
+                        'entry': entry,
+                        'exit': exit_price,
+                        'pnl': pnl,
+                        'strat': signal['strat_id']
+                    })
+                
+                equity.append(balance)
+            
+            # Sonuçlar
+            if trades:
+                total_trades = len(trades)
+                winning_trades = len([t for t in trades if t['pnl'] > 0])
+                win_rate = (winning_trades / total_trades) * 100
+                total_pnl = sum(t['pnl'] for t in trades)
+                
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Toplam İşlem", total_trades)
+                col2.metric("Win Rate", f"{win_rate:.1f}%")
+                col3.metric("Toplam PnL", f"${total_pnl:,.0f}")
+                col4.metric("Final Balance", f"${balance:,.0f}")
+                
+                # Equity curve
+                fig_equity = go.Figure()
+                fig_equity.add_trace(go.Scatter(
+                    y=equity,
+                    line=dict(color="green", width=2),
+                    name="Equity"
+                ))
+                fig_equity.update_layout(
+                    title="Equity Curve",
+                    height=300,
+                    template="plotly_dark"
+                )
+                st.plotly_chart(fig_equity, use_container_width=True)
+                
+                # Trade listesi
+                st.subheader("İşlem Listesi")
+                trades_df = pd.DataFrame(trades)
+                st.dataframe(trades_df, use_container_width=True)
+            else:
+                st.warning("Backtest süresince hiç işlem yapılmadı!")
 
-    progress_bar.empty()
-    status_text.empty()
-    
-    # DEBUG: Sinyal bilgisi
-    st.info(f"Toplam {signals_generated} sinyal üretildi, {len(trades)} işlem yapıldı")
-    
-    # Metrikler
-    if len(equity) > 0:
-        eq_series = pd.Series(equity)
-        returns = eq_series.pct_change().fillna(0)
-        
-        wins = [t for t in trades if t.pnl is not None and t.pnl > 0]
-        losses = [t for t in trades if t.pnl is not None and t.pnl <= 0]
-        
-        total_trades = len(trades)
-        win_rate = (len(wins) / total_trades) * 100 if total_trades > 0 else 0
-        
-        # R-multiple bazlı metrikler
-        win_r = [t.r_multiple for t in trades if t.r_multiple is not None and t.r_multiple > 0]
-        loss_r = [t.r_multiple for t in trades if t.r_multiple is not None and t.r_multiple <= 0]
-        
-        avg_win_r = np.mean(win_r) if win_r else 0
-        avg_loss_r = np.mean(loss_r) if loss_r else 0
-        
-        total_win_pnl = sum([t.pnl for t in wins]) if wins else 0
-        total_loss_pnl = abs(sum([t.pnl for t in losses])) if losses else 0
-        profit_factor = total_win_pnl / total_loss_pnl if total_loss_pnl > 0 else float('inf')
-        
-        expectancy_r = (win_rate/100) * avg_win_r - ((100 - win_rate)/100) * abs(avg_loss_r)
-        
-        max_drawdown = min(dd_series) if dd_series else 0
-        
-        sharpe = (returns.mean() / (returns.std() + 1e-9)) * np.sqrt(365 * 6) if len(returns) > 1 else 0
-        
-        # Strateji bazlı analiz
-        strat_stats = {}
-        for trade in trades:
-            strat = trade.strat_id
-            if strat not in strat_stats:
-                strat_stats[strat] = {'count': 0, 'wins': 0, 'pnl': 0}
-            strat_stats[strat]['count'] += 1
-            strat_stats[strat]['pnl'] += trade.pnl if trade.pnl else 0
-            if trade.pnl and trade.pnl > 0:
-                strat_stats[strat]['wins'] += 1
-        
-        report = {
-            "trades": total_trades,
-            "win_rate": win_rate,
-            "profit_factor": profit_factor,
-            "expectancy_r": expectancy_r,
-            "avg_win_r": avg_win_r,
-            "avg_loss_r": avg_loss_r,
-            "max_drawdown_pct": max_drawdown,
-            "sharpe": sharpe,
-            "final_balance": balance,
-            "total_return_pct": ((balance - start_balance) / start_balance) * 100,
-            "strat_stats": strat_stats,
-            "signals_generated": signals_generated
-        }
-        
-        trades_df = pd.DataFrame([t.__dict__ for t in trades])
-        eq_df = pd.DataFrame({
-            "time": df_90d.index[:len(equity)],
-            "equity": equity
-        })
-        dd_df = pd.DataFrame({
-            "time": df_90d.index[:len(dd_series)],
-            "drawdown": dd_series
-        })
-        
-        return report, trades_df, eq_df, dd_df
-    
-    empty_report = {
-        "trades": 0, "win_rate": 0, "profit_factor": 0, "expectancy_r": 0,
-        "avg_win_r": 0, "avg_loss_r": 0, "max_drawdown_pct": 0, "sharpe": 0,
-        "final_balance": start_balance, "total_return_pct": 0,
-        "strat_stats": {}, "signals_generated": signals_generated
-    }
-    return empty_report, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-
-# Kalan kod aynı şekilde devam ediyor...
-# [Önceki koddaki UI ve diğer fonksiyonlar buraya gelecek]
+# Uygulamayı çalıştır
+if __name__ == "__main__":
+    main()
