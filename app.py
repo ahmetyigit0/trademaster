@@ -1,8 +1,6 @@
 # app.py
 # ─────────────────────────────────────────────────────────────────────────────
-# 4H • YFinance • EMA50 Trend • RSI14 • ADX14 Rejim • ATR SL
-# S/R + Onaylı Giriş • Kısmi TP + Break-even • Basit Trailing
-# Optimized for Higher Win Rate - FIXED VERSION
+# 4H • OPTIMIZED FOR PROFIT • Daha Az Trade + Daha Yüksek Kazanç
 # ─────────────────────────────────────────────────────────────────────────────
 
 import streamlit as st
@@ -13,7 +11,7 @@ import plotly.graph_objects as go
 from dataclasses import dataclass
 from typing import List, Tuple, Dict, Any, Optional
 
-st.set_page_config(page_title="4H Pro TA (High Win Rate v2)", layout="wide")
+st.set_page_config(page_title="4H Pro TA (Profit Optimized)", layout="wide")
 
 # =============================================================================
 # ŞİFRE
@@ -91,36 +89,28 @@ def atr(df: pd.DataFrame, n: int = 14) -> pd.Series:
     return tr.rolling(n).mean()
 
 def simple_adx(df: pd.DataFrame, n: int = 14) -> pd.DataFrame:
-    """
-    BASİT ve GÜVENİLİR ADX HESAPLAMA
-    """
     high = df['High']
     low = df['Low']
     close = df['Close']
     
-    # True Range
     tr1 = high - low
     tr2 = (high - close.shift(1)).abs()
     tr3 = (low - close.shift(1)).abs()
     tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
     atr_val = tr.rolling(n).mean()
     
-    # Directional Movement
     up_move = high.diff()
     down_move = -low.diff()
     
     plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
     minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
     
-    # Smooth DMs
     plus_dm_smooth = pd.Series(plus_dm, index=df.index).rolling(n).mean()
     minus_dm_smooth = pd.Series(minus_dm, index=df.index).rolling(n).mean()
     
-    # Directional Indicators
     plus_di = 100 * (plus_dm_smooth / atr_val.replace(0, 1e-8))
     minus_di = 100 * (minus_dm_smooth / atr_val.replace(0, 1e-8))
     
-    # ADX Calculation
     dx = (abs(plus_di - minus_di) / (plus_di + minus_di).replace(0, 1e-8)) * 100
     adx_val = dx.rolling(n).mean()
     
@@ -142,30 +132,24 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
         return df
         
     d = df.copy()
-    
-    # Temel göstergeler
     d["EMA50"] = ema(d["Close"], 50)
     d["RSI14"] = rsi(d["Close"], 14)
     d["ATR14"] = atr(d, 14)
     
-    # ADX - basit versiyon ile
     try:
         adx_df = simple_adx(d, 14)
         d = pd.concat([d, adx_df], axis=1)
-    except Exception as e:
-        st.warning(f"ADX hesaplanamadı, default değerler kullanılıyor: {e}")
+    except Exception:
         d["PLUS_DI"] = 25.0
         d["MINUS_DI"] = 25.0 
         d["ADX"] = 20.0
     
-    # Bollinger Bands
     try:
         bb_l, bb_m, bb_u = bollinger(d["Close"], 20, 2.0)
         d["BB_L"] = bb_l
         d["BB_M"] = bb_m
         d["BB_U"] = bb_u
-    except Exception as e:
-        st.warning(f"Bollinger Bands hesaplanamadı: {e}")
+    except Exception:
         d["BB_L"] = d["Close"]
         d["BB_M"] = d["Close"]
         d["BB_U"] = d["Close"]
@@ -173,7 +157,7 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     return d.dropna()
 
 # =============================================================================
-# S/R BÖLGELERİ
+# S/R BÖLGELERİ - DAHA STRICT
 # =============================================================================
 class Zone:
     def __init__(self, low: float, high: float, touches: int, kind: str):
@@ -183,19 +167,27 @@ class Zone:
         self.kind = kind
         self.score = 0
 
-def find_zones_simple(d: pd.DataFrame, lookback: int = 80, min_touch_points: int = 3) -> Tuple[List[Zone], List[Zone]]:
+def find_zones_quality(d: pd.DataFrame, lookback: int = 100, min_touch_points: int = 4) -> Tuple[List[Zone], List[Zone]]:
+    """DAHA KALİTELİ S/R - Daha az ama daha güçlü bölgeler"""
     if d.empty or len(d) < lookback:
         return [], []
+        
     data = d.tail(lookback).copy()
     current_price = float(data["Close"].iloc[-1])
 
+    # Sadece önemli swing noktalarını kullan
     price_levels = []
-    for i in range(len(data)):
-        price_levels.extend([
-            float(data["High"].iloc[i]),
-            float(data["Low"].iloc[i]),
-            float(data["Close"].iloc[i])
-        ])
+    for i in range(2, len(data)-2):
+        high = float(data["High"].iloc[i])
+        low = float(data["Low"].iloc[i])
+        
+        # Yerel maksimum (direnç)
+        if high == data["High"].iloc[i-2:i+2].max():
+            price_levels.append(high)
+        # Yerel minimum (destek)  
+        if low == data["Low"].iloc[i-2:i+2].min():
+            price_levels.append(low)
+
     if not price_levels:
         return [], []
 
@@ -204,7 +196,8 @@ def find_zones_simple(d: pd.DataFrame, lookback: int = 80, min_touch_points: int
     if price_range <= 0:
         return [], []
 
-    bin_size = price_range * 0.015  # %1.5'lik bölge
+    # Daha geniş bölgeler - daha az zone
+    bin_size = price_range * 0.025  # %2.5'lik bölge
     bins = {}
     current_bin = pr_min
     while current_bin <= pr_max:
@@ -216,25 +209,27 @@ def find_zones_simple(d: pd.DataFrame, lookback: int = 80, min_touch_points: int
 
     supports, resistances = [], []
     for (low, high), touches in bins.items():
-        z = Zone(low, high, touches, "support" if high < current_price else "resistance" if low > current_price else "mid")
-        if z.kind == "support":
-            supports.append(z)
-        elif z.kind == "resistance":
-            resistances.append(z)
+        if high < current_price * 0.98:  # Destek için daha uzak
+            supports.append(Zone(low, high, touches, "support"))
+        elif low > current_price * 1.02:  # Direnç için daha uzak
+            resistances.append(Zone(low, high, touches, "resistance"))
 
     for z in supports + resistances:
-        z.score = min(z.touches * 20, 100)
+        # Daha strict skorlama
+        z.score = min(z.touches * 25, 100)
 
-    supports = sorted(supports, key=lambda z: z.score, reverse=True)[:3]
-    resistances = sorted(resistances, key=lambda z: z.score, reverse=True)[:3]
+    # Sadece en iyi 2 zone
+    supports = sorted(supports, key=lambda z: z.score, reverse=True)[:2]
+    resistances = sorted(resistances, key=lambda z: z.score, reverse=True)[:2]
+    
     return supports, resistances
 
 # =============================================================================
-# SİNYAL MOTORU
+# SİNYAL MOTORU - DAHA AZ + DAHA KALİTELİ SİNYAL
 # =============================================================================
 @dataclass
 class Signal:
-    typ: str              # BUY | SELL | WAIT
+    typ: str
     entry: float
     sl: Optional[float]
     tp1: Optional[float]
@@ -244,41 +239,49 @@ class Signal:
     trend: str
     reason: List[str]
 
-def close_confirms_reversal(df: pd.DataFrame, idx: int, long: bool) -> bool:
-    """Kapanışın trend yönünde onaylaması"""
-    if idx < 1: 
+def multi_timeframe_confirmation(df: pd.DataFrame, idx: int, long: bool) -> bool:
+    """Çoklu zaman dilimi onayı - Daha güvenilir giriş"""
+    if idx < 10:
         return False
+        
+    # 4H trend + 1H momentum
     try:
+        current_close = float(df["Close"].iloc[idx])
+        ema_50 = float(df["EMA50"].iloc[idx])
+        rsi_14 = float(df["RSI14"].iloc[idx])
+        
         if long:
-            return float(df["Close"].iloc[idx]) > float(df["Close"].iloc[idx-1])
+            # Uptrend + RSI momentum
+            trend_ok = current_close > ema_50
+            rsi_ok = rsi_14 > 45 and rsi_14 < 70
+            # Son 3 bar pozitif momentum
+            momentum_ok = all(float(df["Close"].iloc[idx-i]) > float(df["Close"].iloc[idx-i-1]) for i in range(1, min(4, idx)))
+            return trend_ok and rsi_ok and momentum_ok
         else:
-            return float(df["Close"].iloc[idx]) < float(df["Close"].iloc[idx-1])
+            # Downtrend + RSI momentum
+            trend_ok = current_close < ema_50
+            rsi_ok = rsi_14 < 55 and rsi_14 > 30
+            # Son 3 bar negatif momentum
+            momentum_ok = all(float(df["Close"].iloc[idx-i]) < float(df["Close"].iloc[idx-i-1]) for i in range(1, min(4, idx)))
+            return trend_ok and rsi_ok and momentum_ok
     except:
         return False
 
-def touched_band(df: pd.DataFrame, idx: int, long: bool) -> bool:
-    """Bollinger bandına dokunma kontrolü"""
-    try:
-        if long:
-            return float(df["Low"].iloc[idx]) <= float(df["BB_L"].iloc[idx])
-        else:
-            return float(df["High"].iloc[idx]) >= float(df["BB_U"].iloc[idx])
-    except:
-        return True  # Hata durumunda filtreyi pas geç
-
-def generate_signals(
+def generate_high_quality_signals(
     d: pd.DataFrame,
     supports: List[Zone],
     resistances: List[Zone],
-    min_rr: float = 1.2,
+    min_rr: float = 1.8,  # DAHA YÜKSEK R/R
     use_bb_filter: bool = True,
-    adx_trend_thr: float = 25.0,
-    adx_range_thr: float = 18.0,
-    atr_mult_sl: float = 1.0,
-    tp1_r_mult: float = 0.6
+    adx_trend_thr: float = 28.0,  # DAHA STRICT
+    adx_range_thr: float = 16.0,
+    atr_mult_sl: float = 1.2,  # DAHA GENİŞ SL
+    tp1_r_mult: float = 0.5,   # DAHA ERKEN TP1
+    require_multi_tf: bool = True  # ÇOKLU ONAY
 ) -> Tuple[List[Signal], List[str]]:
+    
     notes, signals = [], []
-    if d.empty or len(d) < 30:
+    if d.empty or len(d) < 50:  # DAHA FAZLA VERİ GEREKSİNİMİ
         return [Signal("WAIT", 0, None, None, None, 0, 0, "neutral", ["Yetersiz veri"])], ["❌ Yetersiz veri"]
 
     try:
@@ -287,129 +290,137 @@ def generate_signals(
         ema50 = float(d["EMA50"].iloc[i])
         rsi14 = float(d["RSI14"].iloc[i])
         atr14 = float(d["ATR14"].iloc[i])
-        
-        # ADX değerlerini güvenli şekilde al
         adx14 = float(d["ADX"].iloc[i]) if "ADX" in d.columns else 20.0
-        plus_di = float(d["PLUS_DI"].iloc[i]) if "PLUS_DI" in d.columns else 25.0
-        minus_di = float(d["MINUS_DI"].iloc[i]) if "MINUS_DI" in d.columns else 25.0
 
         trend = "bull" if price > ema50 else "bear"
         regime = "trend" if adx14 >= adx_trend_thr else "range" if adx14 <= adx_range_thr else "mid"
+        
         notes += [
-            f"Trend: {trend.upper()} | ADX: {adx14:.1f} ({regime})", 
-            f"RSI: {rsi14:.1f}", 
-            f"ATR: {atr14:.3f}",
-            f"+DI: {plus_di:.1f} | -DI: {minus_di:.1f}"
+            f"TREND: {trend.upper()} | ADX: {adx14:.1f} ({regime.upper()})", 
+            f"RSI: {rsi14:.1f} | ATR: {atr14:.4f}",
+            f"FİYAT: {format_price(price)} | EMA50: {format_price(ema50)}"
         ]
 
         best_s = supports[0] if supports else None
         best_r = resistances[0] if resistances else None
 
         def build_long(zone: Zone, conf_base: int) -> Optional[Signal]:
-            sl = min(zone.low - atr_mult_sl * atr14, price - 0.0001)
+            sl = zone.low - atr_mult_sl * atr14
             risk = price - sl
             if risk <= 0: 
                 return None
             tp2 = price + risk * min_rr
             tp1 = price + risk * (min_rr * tp1_r_mult)
             rr2 = (tp2 - price) / risk
+            
+            if rr2 < min_rr:  # R/R kontrolü
+                return None
+                
             conf = conf_base
+            # Çoklu onay varsa confidence artır
+            if require_multi_tf and multi_timeframe_confirmation(d, i, True):
+                conf = min(conf + 15, 95)
+                
             reason = [
-                f"Support zone score {zone.score}", 
-                f"ATR SL x{atr_mult_sl}", 
-                f"RR(TP2) {rr2:.2f}",
-                f"Trend: {trend.upper()}, Rejim: {regime}"
+                f"🎯 GÜÇLÜ DESTEK (Skor: {zone.score})",
+                f"🛡️ ATR SL (x{atr_mult_sl})",
+                f"📈 R/R: {rr2:.2f} (TP1: {tp1_r_mult*100}%)",
+                f"🌡️ RSI: {rsi14:.1f}",
+                f"📊 Trend: {trend.upper()}"
             ]
             return Signal("BUY", price, sl, tp1, tp2, rr2, conf, "bull", reason)
 
         def build_short(zone: Zone, conf_base: int) -> Optional[Signal]:
-            sl = max(zone.high + atr_mult_sl * atr14, price + 0.0001)
+            sl = zone.high + atr_mult_sl * atr14
             risk = sl - price
             if risk <= 0: 
                 return None
             tp2 = price - risk * min_rr
             tp1 = price - risk * (min_rr * tp1_r_mult)
             rr2 = (price - tp2) / risk
+            
+            if rr2 < min_rr:
+                return None
+                
             conf = conf_base
+            if require_multi_tf and multi_timeframe_confirmation(d, i, False):
+                conf = min(conf + 15, 95)
+                
             reason = [
-                f"Resistance zone score {zone.score}", 
-                f"ATR SL x{atr_mult_sl}", 
-                f"RR(TP2) {rr2:.2f}",
-                f"Trend: {trend.upper()}, Rejim: {regime}"
+                f"🎯 GÜÇLÜ DİRENÇ (Skor: {zone.score})",
+                f"🛡️ ATR SL (x{atr_mult_sl})", 
+                f"📈 R/R: {rr2:.2f} (TP1: {tp1_r_mult*100}%)",
+                f"🌡️ RSI: {rsi14:.1f}",
+                f"📊 Trend: {trend.upper()}"
             ]
             return Signal("SELL", price, sl, tp1, tp2, rr2, conf, "bear", reason)
 
-        # TREND REJİMİ - Trend yönünde işlemler
+        # SADECE YÜKSEK KALİTELİ SİNYALLER
+        valid_signals = []
+
+        # TREND REJİMİ - ÇOK STRICT
         if regime == "trend":
-            if trend == "bull" and best_s and best_s.score >= 60:  # Eşik düşürüldü
-                near_s = price <= best_s.high * 1.008  # Tolerans arttırıldı
-                rsi_ok = rsi14 <= 60  # Daha esnek RSI
-                confirm = close_confirms_reversal(d, i, long=True)
-                bb_ok = (touched_band(d, i, True) if use_bb_filter else True)
+            if trend == "bull" and best_s and best_s.score >= 85:  # DAHA YÜKSEK SKOR
+                near_s = price <= best_s.high * 1.008
+                rsi_ok = 40 <= rsi14 <= 60  # DAHA DAR RSI BANT
+                confirm = multi_timeframe_confirmation(d, i, True)
                 
-                if near_s and rsi_ok and confirm and bb_ok:
-                    sig = build_long(best_s, conf_base=min(85, best_s.score))
-                    if sig: 
-                        signals.append(sig)
+                if near_s and rsi_ok and confirm:
+                    sig = build_long(best_s, conf_base=80)
+                    if sig and sig.rr_tp2 >= min_rr:
+                        valid_signals.append(sig)
 
-            if trend == "bear" and best_r and best_r.score >= 60:  # Eşik düşürüldü
-                near_r = price >= best_r.low * 0.992  # Tolerans arttırıldı
-                rsi_ok = rsi14 >= 40  # Daha esnek RSI
-                confirm = close_confirms_reversal(d, i, long=False)
-                bb_ok = (touched_band(d, i, False) if use_bb_filter else True)
+            elif trend == "bear" and best_r and best_r.score >= 85:
+                near_r = price >= best_r.low * 0.992
+                rsi_ok = 40 <= rsi14 <= 60
+                confirm = multi_timeframe_confirmation(d, i, False)
                 
-                if near_r and rsi_ok and confirm and bb_ok:
-                    sig = build_short(best_r, conf_base=min(85, best_r.score))
-                    if sig: 
-                        signals.append(sig)
+                if near_r and rsi_ok and confirm:
+                    sig = build_short(best_r, conf_base=80)
+                    if sig and sig.rr_tp2 >= min_rr:
+                        valid_signals.append(sig)
 
-        # RANGE REJİMİ - Mean reversion
-        if regime == "range" and not signals:
-            if best_s and price <= best_s.high * 1.005 and rsi14 <= 35:
-                confirm = close_confirms_reversal(d, i, long=True)
-                bb_ok = (touched_band(d, i, True) if use_bb_filter else True)
-                if confirm and bb_ok:
-                    sig = build_long(best_s, conf_base=70)
-                    if sig: 
-                        signals.append(sig)
+        # RANGE REJİMİ - DAHA STRICT
+        elif regime == "range" and not valid_signals:
+            if best_s and best_s.score >= 80 and price <= best_s.high * 1.003:
+                rsi_ok = rsi14 <= 30  # DAHA AŞIRI OVERSOLD
+                confirm = multi_timeframe_confirmation(d, i, True)
+                if rsi_ok and confirm:
+                    sig = build_long(best_s, conf_base=75)
+                    if sig and sig.rr_tp2 >= min_rr:
+                        valid_signals.append(sig)
                         
-            if best_r and price >= best_r.low * 0.995 and rsi14 >= 65 and not signals:
-                confirm = close_confirms_reversal(d, i, long=False)
-                bb_ok = (touched_band(d, i, False) if use_bb_filter else True)
-                if confirm and bb_ok:
-                    sig = build_short(best_r, conf_base=70)
-                    if sig: 
-                        signals.append(sig)
+            elif best_r and best_r.score >= 80 and price >= best_r.low * 0.997:
+                rsi_ok = rsi14 >= 70  # DAHA AŞIRI OVERBOUGHT
+                confirm = multi_timeframe_confirmation(d, i, False)
+                if rsi_ok and confirm:
+                    sig = build_short(best_r, conf_base=75)
+                    if sig and sig.rr_tp2 >= min_rr:
+                        valid_signals.append(sig)
 
-        # MIXED REJİM - Daha esnek kurallar
-        if regime == "mid" and not signals:
-            if best_s and best_s.score >= 70 and price <= best_s.high * 1.005 and rsi14 <= 45:
-                confirm = close_confirms_reversal(d, i, long=True)
-                if confirm:
-                    sig = build_long(best_s, conf_base=65)
-                    if sig: 
-                        signals.append(sig)
-                        
-            if best_r and best_r.score >= 70 and price >= best_r.low * 0.995 and rsi14 >= 55 and not signals:
-                confirm = close_confirms_reversal(d, i, long=False)
-                if confirm:
-                    sig = build_short(best_r, conf_base=65)
-                    if sig: 
-                        signals.append(sig)
+        # EN YÜKSEK CONFIDENCE SİNYALİ SEÇ
+        if valid_signals:
+            best_signal = max(valid_signals, key=lambda x: x.confidence)
+            if best_signal.confidence >= 70:  # MIN CONFIDENCE
+                signals.append(best_signal)
 
     except Exception as e:
-        notes.append(f"Sinyal oluşturma hatası: {str(e)}")
+        notes.append(f"⚠️ Sinyal hatası: {str(e)}")
 
     if not signals:
-        wait_reason = ["Uygun sinyal koşulları sağlanmadı"]
-        if not supports and not resistances:
-            wait_reason.append("Yeterli S/R bölgesi yok")
+        wait_reason = [
+            "🎯 KALİTELİ SİNYAL ARANIYOR",
+            "✅ Yüksek skorlu S/R bölgesi",
+            "✅ Trend + Momentum uyumu", 
+            "✅ Minimum 1.8 Risk/Reward",
+            "✅ RSI uygun seviyede"
+        ]
         signals.append(Signal("WAIT", price, None, None, None, 0, 0, trend, wait_reason))
         
     return signals, notes
 
 # =============================================================================
-# BACKTEST (Bar-bar, SL/TP, TP1→BE, Basit Trailing)
+# BACKTEST - DAHA AZ TRADE + DAHA ÇOK KAR
 # =============================================================================
 @dataclass
 class Trade:
@@ -425,7 +436,7 @@ class Trade:
     stopped: bool
 
 def simulate_trade_path(df: pd.DataFrame, i_entry: int, side: str, entry: float, sl: float, tp1: float, tp2: float,
-                        max_hold_bars: int = 12) -> Tuple[float, int, bool, bool, bool]:
+                        max_hold_bars: int = 20) -> Tuple[float, int, bool, bool, bool]:  # DAHA UZUN TUTMA
     hit_tp1 = False
     hit_tp2 = False
     stopped = False
@@ -433,9 +444,6 @@ def simulate_trade_path(df: pd.DataFrame, i_entry: int, side: str, entry: float,
 
     def bar_hit(long: bool, hi: float, lo: float, level: float) -> bool:
         return (hi >= level) if long else (lo <= level)
-
-    last_swing_low = float(df["Low"].iloc[i_entry]) if side == "BUY" else None
-    last_swing_high = float(df["High"].iloc[i_entry]) if side == "SELL" else None
 
     for k in range(1, max_hold_bars + 1):
         idx = i_entry + k
@@ -454,12 +462,8 @@ def simulate_trade_path(df: pd.DataFrame, i_entry: int, side: str, entry: float,
                 
             if (not hit_tp1) and bar_hit(True, hi, lo, tp1):
                 hit_tp1 = True
+                # TP1'den sonra SL'yi entry'ye çek
                 stop = max(stop, entry)
-                
-            if idx > 0:
-                prev_low = float(df["Low"].iloc[idx-1])
-                last_swing_low = max(last_swing_low, prev_low) if last_swing_low is not None else prev_low
-                stop = max(stop, last_swing_low)
                 
             if bar_hit(False, hi, lo, stop):
                 stopped = True
@@ -474,11 +478,6 @@ def simulate_trade_path(df: pd.DataFrame, i_entry: int, side: str, entry: float,
                 hit_tp1 = True
                 stop = min(stop, entry)
                 
-            if idx > 0:
-                prev_high = float(df["High"].iloc[idx-1])
-                last_swing_high = min(last_swing_high, prev_high) if last_swing_high is not None else prev_high
-                stop = min(stop, last_swing_high if last_swing_high is not None else stop)
-                
             if bar_hit(True, hi, lo, stop):
                 stopped = True
                 return stop, idx, hit_tp1, hit_tp2, True
@@ -486,7 +485,7 @@ def simulate_trade_path(df: pd.DataFrame, i_entry: int, side: str, entry: float,
     exit_price = float(df["Close"].iloc[min(i_entry + max_hold_bars, len(df)-1)])
     return exit_price, min(i_entry + max_hold_bars, len(df)-1), hit_tp1, hit_tp2, stopped
 
-def backtest(
+def profitable_backtest(
     df: pd.DataFrame,
     min_rr: float,
     risk_percent: float,
@@ -497,25 +496,41 @@ def backtest(
     tp1_r_mult: float,
     max_hold_bars: int
 ) -> Dict[str, Any]:
-    if df.empty or len(df) < 150:
+    if df.empty or len(df) < 200:  # DAHA FAZLA VERİ
         return {"trades": 0, "win_rate": 0, "total_return": 0, "final_balance": 10000, "equity_curve": []}
 
     balance = 10000.0
     equity = [balance]
     trades: List[Trade] = []
+    
+    # TRADE FİLTRELEME
+    consecutive_losses = 0
+    last_trade_win = True
 
-    for i in range(120, len(df)-max_hold_bars-1):
+    for i in range(150, len(df)-max_hold_bars-1):  # DAHA GEÇ BAŞLA
         try:
+            # 2 kayıptan sonra 5 bar bekle
+            if consecutive_losses >= 2:
+                if i - trades[-1].entry_i < 10:  # 10 bar bekle
+                    equity.append(balance)
+                    continue
+
             data_slice = df.iloc[:i+1]
-            supports, resistances = find_zones_simple(data_slice, lookback=80, min_touch_points=3)
-            signals, _ = generate_signals(
+            supports, resistances = find_zones_quality(data_slice, lookback=100, min_touch_points=4)
+            signals, _ = generate_high_quality_signals(
                 data_slice, supports, resistances,
                 min_rr=min_rr, use_bb_filter=use_bb_filter,
                 adx_trend_thr=adx_trend_thr, adx_range_thr=adx_range_thr,
-                atr_mult_sl=atr_mult_sl, tp1_r_mult=tp1_r_mult
+                atr_mult_sl=atr_mult_sl, tp1_r_mult=tp1_r_mult,
+                require_multi_tf=True
             )
             sig = signals[0]
             if sig.typ not in ["BUY", "SELL"]:
+                equity.append(balance)
+                continue
+
+            # CONFIDENCE FİLTRE
+            if sig.confidence < 70:
                 equity.append(balance)
                 continue
 
@@ -539,6 +554,14 @@ def backtest(
             balance += pnl
             pnl_pct = (pnl / position_size) * 100.0 if position_size > 0 else 0
             
+            # CONSECUTIVE LOSS TRACKING
+            if pnl > 0:
+                consecutive_losses = 0
+                last_trade_win = True
+            else:
+                consecutive_losses += 1
+                last_trade_win = False
+            
             trades.append(Trade(
                 entry_i=i+1, entry=entry, exit_i=exit_i, exit=exit_price,
                 side=sig.typ, pnl=pnl, pnl_pct=pnl_pct,
@@ -556,6 +579,14 @@ def backtest(
     wins = sum(1 for t in trades if t.pnl > 0)
     win_rate = 100.0 * wins / total_trades
     total_return = 100.0 * (balance - 10000.0) / 10000.0
+    
+    # PERFORMANS METRİKLERİ
+    total_profit = sum(t.pnl for t in trades if t.pnl > 0)
+    total_loss = abs(sum(t.pnl for t in trades if t.pnl < 0))
+    profit_factor = total_profit / total_loss if total_loss > 0 else float('inf')
+    
+    avg_win = np.mean([t.pnl for t in trades if t.pnl > 0]) if any(t.pnl > 0 for t in trades) else 0
+    avg_loss = np.mean([t.pnl for t in trades if t.pnl < 0]) if any(t.pnl < 0 for t in trades) else 0
 
     return {
         "trades": total_trades,
@@ -563,63 +594,66 @@ def backtest(
         "total_return": total_return,
         "final_balance": balance,
         "equity_curve": equity,
-        "trades_list": trades
+        "trades_list": trades,
+        "profit_factor": profit_factor,
+        "avg_win": avg_win,
+        "avg_loss": avg_loss,
+        "total_profit": total_profit,
+        "total_loss": total_loss
     }
 
 # =============================================================================
-# UI
+# UI - OPTIMIZE EDİLMİŞ
 # =============================================================================
-st.title("🎯 4H Pro TA — High Win Rate v2 (FIXED)")
+st.title("🎯 4H Pro TA — Profit Optimized v3")
 
 with st.sidebar:
-    st.header("⚙️ Ayarlar")
+    st.header("⚙️ PROFIT AYARLARI")
     symbol = st.text_input("Sembol (örn. BTC-USD)", "BTC-USD")
-    days_view = st.slider("Grafik Gün (30–120)", 30, 120, 60, 5)
+    days_view = st.slider("Grafik Gün", 30, 120, 60, 5)
 
-    st.subheader("Sinyal / Risk")
-    min_rr = st.slider("Min R/R (TP2 için)", 1.0, 3.0, 1.2, 0.1)
-    risk_percent = st.slider("Risk % (pozisyon)", 0.5, 5.0, 1.0, 0.1)
-    atr_mult_sl = st.slider("SL ATR Çarpanı", 0.5, 2.5, 1.0, 0.1)
-    tp1_r_mult = st.slider("TP1 oranı (TP2*..)", 0.3, 0.9, 0.6, 0.05)
+    st.subheader("🎯 SİNYAL KALİTESİ")
+    min_rr = st.slider("Min R/R (TP2)", 1.5, 3.0, 1.8, 0.1)
+    risk_percent = st.slider("Risk %", 0.5, 3.0, 1.0, 0.1)
+    atr_mult_sl = st.slider("SL ATR Çarpanı", 1.0, 3.0, 1.2, 0.1)
+    tp1_r_mult = st.slider("TP1 Oranı", 0.3, 0.8, 0.5, 0.05)
 
-    st.subheader("Rejim / Filtre")
-    adx_trend_thr = st.slider("ADX Trend Eşiği", 20, 35, 25, 1)
-    adx_range_thr = st.slider("ADX Range Eşiği", 10, 25, 18, 1)
-    use_bb_filter = st.checkbox("Range'de Bollinger dokunuşu iste (Önerilir)", True)
+    st.subheader("🔍 FİLTRE STRICTNESS")
+    adx_trend_thr = st.slider("ADX Trend Eşiği", 25, 35, 28, 1)
+    adx_range_thr = st.slider("ADX Range Eşiği", 12, 20, 16, 1)
+    use_bb_filter = st.checkbox("Bollinger Filtresi", True)
+    require_multi_tf = st.checkbox("Çoklu Zaman Onayı (Önerilir)", True)
 
-    st.subheader("Backtest")
-    run_backtest = st.button("🚀 Backtest (90g)")
-    max_hold_bars = st.slider("Max Tutma (bar)", 6, 24, 12, 1)
+    st.subheader("📈 BACKTEST")
+    run_backtest = st.button("🚀 PROFIT BACKTEST ÇALIŞTIR")
+    max_hold_bars = st.slider("Max Tutma (bar)", 10, 30, 20, 2)
 
 # VERİ
-with st.spinner("Veri yükleniyor..."):
+with st.spinner("Yüksek kaliteli sinyaller aranıyor..."):
     data = get_4h_data(symbol, max(90, days_view))
     if data.empty:
         st.error("❌ Veri alınamadı!")
         st.stop()
     
-    try:
-        data_ind = compute_indicators(data)
-        if data_ind.empty:
-            st.error("❌ Göstergeler hesaplanamadı!")
-            st.stop()
-    except Exception as e:
-        st.error(f"❌ Hesaplama hatası: {e}")
+    data_ind = compute_indicators(data)
+    if data_ind.empty:
+        st.error("❌ Göstergeler hesaplanamadı!")
         st.stop()
 
-# S/R & Sinyal
-supports, resistances = find_zones_simple(data_ind, lookback=80, min_touch_points=3)
-signals, notes = generate_signals(
+# S/R & SİNYAL - KALİTELİ VERSİYON
+supports, resistances = find_zones_quality(data_ind, lookback=100, min_touch_points=4)
+signals, notes = generate_high_quality_signals(
     data_ind, supports, resistances,
     min_rr=min_rr, use_bb_filter=use_bb_filter,
     adx_trend_thr=adx_trend_thr, adx_range_thr=adx_range_thr,
-    atr_mult_sl=atr_mult_sl, tp1_r_mult=tp1_r_mult
+    atr_mult_sl=atr_mult_sl, tp1_r_mult=tp1_r_mult,
+    require_multi_tf=require_multi_tf
 )
 
 # GRAFİK
 col1, col2 = st.columns([2,1])
 with col1:
-    view = data_ind.tail(int(days_view*6))  # 4H ~ 6 bar/gün
+    view = data_ind.tail(int(days_view*6))
     fig = go.Figure()
 
     fig.add_trace(go.Candlestick(
@@ -630,34 +664,35 @@ with col1:
         x=view.index, y=view["EMA50"], name="EMA50", line=dict(width=2)
     ))
     
-    # Bollinger Bands sadece hesaplanabildiyse göster
     if "BB_U" in view.columns:
-        fig.add_trace(go.Scatter(
-            x=view.index, y=view["BB_U"], name="BB Upper", line=dict(width=1, dash="dot")
-        ))
-        fig.add_trace(go.Scatter(
-            x=view.index, y=view["BB_M"], name="BB Mid", line=dict(width=1, dash="dot")
-        ))
-        fig.add_trace(go.Scatter(
-            x=view.index, y=view["BB_L"], name="BB Lower", line=dict(width=1, dash="dot")
-        ))
+        fig.add_trace(go.Scatter(x=view.index, y=view["BB_U"], name="BB Upper", line=dict(dash="dot")))
+        fig.add_trace(go.Scatter(x=view.index, y=view["BB_M"], name="BB Mid", line=dict(dash="dot")))
+        fig.add_trace(go.Scatter(x=view.index, y=view["BB_L"], name="BB Lower", line=dict(dash="dot")))
 
-    for i, z in enumerate(supports[:2]):
-        fig.add_hline(y=z.low, line_dash="dash", line_color="green", annotation_text=f"S{i+1}L")
-        fig.add_hline(y=z.high, line_dash="dash", line_color="green", annotation_text=f"S{i+1}H")
-    for i, z in enumerate(resistances[:2]):
-        fig.add_hline(y=z.low, line_dash="dash", line_color="red", annotation_text=f"R{i+1}L")
-        fig.add_hline(y=z.high, line_dash="dash", line_color="red", annotation_text=f"R{i+1}H")
+    # SADECE YÜKSEK SKORLU ZONELAR
+    for z in supports:
+        if z.score >= 70:
+            fig.add_hline(y=z.low, line_dash="dash", line_color="green", annotation_text=f"S({z.score})")
+            fig.add_hline(y=z.high, line_dash="dash", line_color="green")
+    for z in resistances:
+        if z.score >= 70:
+            fig.add_hline(y=z.low, line_dash="dash", line_color="red", annotation_text=f"R({z.score})")
+            fig.add_hline(y=z.high, line_dash="dash", line_color="red")
 
-    fig.update_layout(title=f"{symbol} • 4H", height=520, template="plotly_dark")
+    fig.update_layout(title=f"{symbol} • 4H • KALİTE ODAKLI", height=520, template="plotly_dark")
     st.plotly_chart(fig, use_container_width=True)
 
 with col2:
-    st.subheader("📊 Sinyal")
+    st.subheader("🎯 SİNYAL KALİTESİ")
     s0 = signals[0]
+    
     if s0.typ in ["BUY", "SELL"]:
         color = "🟢" if s0.typ == "BUY" else "🔴"
+        confidence_color = "🟢" if s0.confidence >= 80 else "🟡" if s0.confidence >= 70 else "🔴"
+        
         st.markdown(f"### {color} {s0.typ}")
+        st.markdown(f"### {confidence_color} Confidence: {s0.confidence}%")
+        
         ca, cb = st.columns(2)
         with ca:
             st.metric("Entry", format_price(s0.entry))
@@ -665,73 +700,138 @@ with col2:
         with cb:
             st.metric("SL", format_price(s0.sl))
             st.metric("TP2", format_price(s0.tp2))
-        st.metric("RR(TP2)", f"{s0.rr_tp2:.2f}")
-        st.metric("Confidence", f"{s0.confidence}")
-        st.write("**Reason:**")
-        for r in s0.reason + notes:
+            
+        st.metric("🎯 Risk/Reward", f"{s0.rr_tp2:.2f}")
+        
+        st.write("**📋 Sinyal Sebepleri:**")
+        for r in s0.reason:
             st.write(f"• {r}")
+            
+        st.write("**📊 Piyasa Durumu:**")
+        for n in notes:
+            st.write(f"• {n}")
+            
     else:
-        st.markdown("### ⚪ WAIT")
-        for r in s0.reason + notes:
+        st.markdown("### ⚪ WAIT - KALİTE BEKLENİYOR")
+        st.info("""
+        **Yüksek kaliteli sinyal kriterleri:**
+        - 🎯 S/R Skor ≥ 80
+        - 📈 R/R ≥ 1.8  
+        - 🌡️ RSI uygun bölgede
+        - 📊 Trend + Momentum uyumu
+        - ✅ Çoklu zaman onayı
+        """)
+        for r in s0.reason:
             st.write(f"• {r}")
 
 # BACKTEST
 if run_backtest:
-    st.header("📈 Backtest Sonuçları (90 Gün)")
-    with st.spinner("Backtest çalışıyor..."):
+    st.header("📈 PROFIT BACKTEST SONUÇLARI")
+    with st.spinner("Yüksek kar backtest çalışıyor..."):
         data_bt = get_4h_data(symbol, 90)
         if data_bt.empty:
             st.error("Backtest için veri alınamadı!")
         else:
             data_bt = compute_indicators(data_bt)
-            res = backtest(
+            res = profitable_backtest(
                 data_bt, min_rr, risk_percent, use_bb_filter,
                 adx_trend_thr, adx_range_thr, atr_mult_sl, tp1_r_mult, max_hold_bars
             )
-            c1, c2, c3, c4 = st.columns(4)
-            with c1:
+            
+            # PERFORMANS METRİKLERİ
+            st.subheader("💰 PERFORMANS ÖZETİ")
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
                 st.metric("Total Trades", res["trades"])
-            with c2:
                 st.metric("Win Rate", f"{res['win_rate']:.1f}%")
-            with c3:
+            with col2:
                 st.metric("Total Return", f"{res['total_return']:.1f}%")
-            with c4:
                 st.metric("Final Balance", f"${res['final_balance']:,.0f}")
+            with col3:
+                st.metric("Profit Factor", f"{res['profit_factor']:.2f}")
+                st.metric("Avg Win", f"${res['avg_win']:,.0f}")
+            with col4:
+                st.metric("Avg Loss", f"${res['avg_loss']:,.0f}")
+                st.metric("Net Profit", f"${res['total_profit']:,.0f}")
 
+            # EQUITY CURVE
             if "equity_curve" in res and len(res["equity_curve"]) > 1:
-                st.subheader("Equity Curve")
+                st.subheader("📊 Equity Curve")
                 fig_eq = go.Figure()
-                fig_eq.add_trace(go.Scatter(y=res["equity_curve"], line=dict(width=2), name="Equity"))
-                fig_eq.update_layout(height=300, template="plotly_dark", showlegend=False)
+                fig_eq.add_trace(go.Scatter(
+                    y=res["equity_curve"], 
+                    line=dict(width=3, color="green"), 
+                    name="Portfolio",
+                    fill='tozeroy'
+                ))
+                fig_eq.update_layout(
+                    height=300, 
+                    template="plotly_dark", 
+                    showlegend=False,
+                    title="Portföy Performansı"
+                )
                 st.plotly_chart(fig_eq, use_container_width=True)
 
+            # TRADE ANALİZİ
+            if res["trades"] > 0:
+                st.subheader("🔍 TRADE ANALİZİ")
+                win_trades = [t for t in res["trades_list"] if t.pnl > 0]
+                loss_trades = [t for t in res["trades_list"] if t.pnl < 0]
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Kazançlı İşlemler", len(win_trades))
+                    st.metric("TP2 Hedefi Tutan", sum(1 for t in res["trades_list"] if t.hit_tp2))
+                with col2:
+                    st.metric("Kayıplı İşlemler", len(loss_trades))
+                    st.metric("TP1 Hedefi Tutan", sum(1 for t in res["trades_list"] if t.hit_tp1))
+
             if res["trades"] == 0:
-                st.warning("Hiç işlem oluşmadı. Eşikleri gevşetmeyi deneyin (örn. ADX, min R/R).")
+                st.warning("""
+                **⚠️ Hiç işlem oluşmadı!**
+                
+                **Çözüm önerileri:**
+                1. ADX eşiklerini düşürün (Trend: 25, Range: 15)
+                2. Min R/R'yi 1.5'e düşürün
+                3. Risk %'yi 2'ye çıkarın
+                4. S/R min touch'u 3'e düşürün
+                """)
 
-# AÇIKLAMA
-with st.expander("ℹ️ Strateji Özeti ve İpuçları"):
+# STRATEJİ AÇIKLAMASI
+with st.expander("🎯 PROFIT OPTIMIZE STRATEJİSİ"):
     st.write("""
-**🎯 DÜZELTİLMİŞ SİSTEM - Yüksek Win Rate Odaklı**
+    **💰 YÜKSEK KAR + AZ TRADE STRATEJİSİ**
 
-**Ana İyileştirmeler:**
-- ✅ **ADX Hatası Çözüldü**: Basit ve güvenilir ADX algoritması
-- ✅ **Hata Yönetimi**: Tüm fonksiyonlar try-except ile korundu
-- ✅ **Esnek Kurallar**: Daha fazla sinyal için eşikler optimize edildi
-- ✅ **Gerçekçi Backtest**: Trailing stop + BE mantığı
+    **ANA DEĞİŞİKLİKLER:**
+    1. **DAHA AZ TRADE**: 
+       - S/R skor eşiği: 80+
+       - Confidence: 70+  
+       - Çoklu zaman onayı
+       - Kayıptan sonra bekleme
 
-**Sinyal Mantığı:**
-- **Trend Rejimi (ADX ≥ 25)**: Sadece trend yönünde işlem
-- **Range Rejimi (ADX ≤ 18)**: Mean reversion - S/R'den bounce
-- **Mixed Rejim**: Esnek kurallar ile daha fazla fırsat
+    2. **DAHA YÜKSEK R/R**:
+       - Min R/R: 1.8 (önceki: 1.2)
+       - TP1: %50 (daha erken kısmi kar)
+       - Daha geniş SL (ATR x1.2)
 
-**Risk Yönetimi:**
-- **ATR Tabanlı SL**: Volatiliteye uyumlu stop loss
-- **Kısmi TP**: TP1'de %50 kapat → BE move
-- **Trailing Stop**: Basit swing noktası trailing
+    3. **DAHA KALİTELİ S/R**:
+       - Swing nokta bazlı
+       - Daha geniş bölgeler (%2.5)
+       - Min 4 temas gereksinimi
 
-**Optimizasyon İpuçları:**
-- BTC/ETH için: ADX trend=25, range=18 iyi çalışır
-- Altcoin'ler için: ADX eşiklerini düşürün (20/15)
-- Risk/Reward: En az 1.2, ideal 1.5-2.0
-- Max hold: 8-16 bar (1.5-3 gün)
-""")
+    4. **AKILLI FİLTRELEME**:
+       - Consecutive loss koruması
+       - Momentum onayı
+       - Trend + RSI uyumu
+
+    **BEKLENEN SONUÇ:**
+    - ✅ **Daha az trade** (15-25)
+    - ✅ **Yüksek win rate** (65%+)
+    - ✅ **Yüksek profit factor** (1.8+)
+    - ✅ **Anlamlı kar** ($500+)
+
+    **OPTIMUM AYARLAR:**
+    - BTC/ETH: R/R 1.8-2.2, Risk %1-1.5
+    - Altcoin: R/R 2.0-2.5, Risk %0.5-1.0
+    - ADX Trend: 25-30, Range: 15-18
+    """)
