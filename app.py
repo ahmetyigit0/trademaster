@@ -329,319 +329,161 @@ if st.button("🎯 Backtest Simülasyonunu Başlat", type="primary", use_contain
                 data_with_signals = strategy.generate_signals(data_with_indicators)
                 
                 status_text.text("Strateji backtest ediliyor...")
-                results =Strateji backtest ediliyor...")
-                results = strategy strategy.backtest_strategy(data.backtest_strategy(data_with_with_signals, progress_bar)
-_signals, progress_bar)
+                results = strategy.backtest_strategy(data_with_signals, progress_bar)
                 
-                               
                 end_time = time.time()
- end_time = time.time()
-                calculation_time = end                calculation_time = end_time_time - start_time
+                calculation_time = end_time - start_time
                 
-                - start_time
-                
-                # İ # İlerlelerlememe çubuğunu tamamla
-                çubuğunu tamamla
+                # İlerleme çubuğunu tamamla
                 progress_bar.progress(1.0)
                 status_text.empty()
                 
- progress_bar.progress(1.0)
-                status_text.empty()
+                st.success(f"✅ Simülasyon hesaplaması {calculation_time:.2f} saniye içinde tamamlandı!")
                 
-                st.success                st.success(f"✅ Simülasyon hesaplamas(f"✅ Simülasyon hesaplaması {calculation_time:.2f} sı {calculation_time:.2f} sanianiye içinde tamamlandı!")
-ye içinde tamamlandı!")
+                # Sonuçları göster
+                st.subheader("📊 Simülasyon Sonuçları")
                 
-                               
-                # Sonuç # Sonuçları göları göster
-                stster
-                st.subheader("📊 Sim.subheader("📊 Simülülasyon Sonuçları")
+                col1, col2, col3, col4 = st.columns(4)
                 
-asyon Sonuçları")
-                
-                col                col1, col2,1, col2, col col3, col4 = st3, col4 = st.columns.columns(4)
-                
-               (4)
-                
-                with with col1:
-                    col1:
-                    st.metric st.metric(
-                        "Baş(
-                        "Başlanglangıç Sermayesiıç Sermayesi",
-                        f",
-                        f"${results"${results['initial_c['initial_capital']:,.2apital']:,.2f}"
-                    )
-                
-f}"
-                    )
-                
-                with                with col2:
-                    col2:
-                    st.metric st.metric(
-                        "(
-                        "Son SermayeSon Sermaye", 
-                        f"", 
-                        f"${results['final_capital']:${results['final_capital']:,.2f},.2f}",
-                       ",
-                        delta=f"{results delta=f"{results['total_return['total_return']:+.2f']:+.2f}%}%"
-                    )
-                
-"
-                    )
-                
-                with                with col3:
-                    col3:
+                with col1:
                     st.metric(
-                        "Toplam İş st.metric(
+                        "Başlangıç Sermayesi",
+                        f"${results['initial_capital']:,.2f}"
+                    )
+                
+                with col2:
+                    st.metric(
+                        "Son Sermaye", 
+                        f"${results['final_capital']:,.2f}",
+                        delta=f"{results['total_return']:+.2f}%"
+                    )
+                
+                with col3:
+                    st.metric(
                         "Toplam İşlem",
-lem",
-                        f"{                        f"{results['total_tradesresults['total_trades']}"
-']}"
+                        f"{results['total_trades']}"
                     )
                 
-                                   )
-                
-                with with col4:
-                    col4:
+                with col4:
                     st.metric(
-                        st.metric(
-                        "Win "Win Rate",
-                        f Rate"{results['win_rate']:.",
-                        f"{results['win1_rate']:.1f}%f}%"
-                    )
-"
+                        "Win Rate",
+                        f"{results['win_rate']:.1f}%"
                     )
                 
-                # Ek                
-                # Ek met metrikler
-               rikler
-                col5 col5, col6 = st, col6 = st.columns(2.columns(2)
+                # Ek metrikler
+                col5, col6 = st.columns(2)
                 
-)
-                
-                with col5                with col5:
-                    st:
-                    st.metric.metric(
-                        "Karl(
-                        "Karlı İşlemı İşlem Say Sayısısı",
-                        f"{results['ı",
-                        f"{results['winningwinning_trades']}"
-_trades']}"
+                with col5:
+                    st.metric(
+                        "Karlı İşlem Sayısı",
+                        f"{results['winning_trades']}"
                     )
                 
                 with col6:
-                    profit_factor = results['profit                    )
-                
-                with col6:
-                    profit_factor_factor']
-                    pf_display = f"{profit_factor:.2 = results['profit_factor']
-                    pf_display = f"{profit_factor:.2ff}" if profit}" if profit_factor_factor != != float('inf') else "∞"
-                    st float('inf') else "∞"
-                    st.m.metric(
-                        "Profit Factor",
-                        pf_displayetric(
+                    profit_factor = results['profit_factor']
+                    pf_display = f"{profit_factor:.2f}" if profit_factor != float('inf') else "∞"
+                    st.metric(
                         "Profit Factor",
                         pf_display
                     )
                 
-                # Equity
-                    )
-                
                 # Equity curve
- curve
-                if not results                if not results['equity_curve'].empty:
+                if not results['equity_curve'].empty:
                     st.subheader("📈 Equity Curve")
                     
                     fig = go.Figure()
-                    fig.add['equity_curve'].empty:
-                    st.subheader("📈 Equity Curve")
-                    
-                    fig = go.Figure_trace(()
                     fig.add_trace(go.Scatter(
-go.Scatter(
-                        x=results['equity                        x=results['equity_curve']['Date'],
-_curve']['Date'],
-                        y=                        y=results['equresults['equity_ity_curve']['Equitycurve']['Equity'],
-                        mode=''],
+                        x=results['equity_curve']['Date'],
+                        y=results['equity_curve']['Equity'],
                         mode='lines',
-                        namelines',
-                        name='Portfö='Portföy Değeri',
-                        line=dicty Değeri',
+                        name='Portföy Değeri',
                         line=dict(color='blue', width=2)
-(color='blue', width=2)
                     ))
                     
-                    fig.add                    ))
-                    
-                    fig.add_hline_hline(
+                    fig.add_hline(
                         y=initial_capital, 
-                        line(
-                        y=initial_capital, 
-                        line_dash="_dash="dashdash", 
-                        line", 
+                        line_dash="dash", 
                         line_color="red",
-_color="red",
-                        annotation_text                        annotation_text="Baş="Başlangıç Sermayesi"
-                    )
-                    
-langıç Sermayesi"
+                        annotation_text="Başlangıç Sermayesi"
                     )
                     
                     fig.update_layout(
-                                           fig.update_layout(
-                        title title="Portföy Performans="Portföy Performansıı",
-                        xaxis_title="",
-                        xaxis_title="TariTarih",
-h",
-                        yaxis_title="                        yaxis_title="PortföyPortföy Değeri (USD)",
-                        Değeri (USD)",
-                        height= height=400
-                    )
-400
+                        title="Portföy Performansı",
+                        xaxis_title="Tarih",
+                        yaxis_title="Portföy Değeri (USD)",
+                        height=400
                     )
                     
-                                       
-                    st.plotly_ch st.plotly_chart(fart(fig, use_containerig, use_container_width=True)
+                    st.plotly_chart(fig, use_container_width=True)
                 
-_width=True)
-                
-                # İş                # İşlem detlem detayları
-               ayları
-                if results if results['trades']['trades']:
-                   :
-                    st.subheader("📋 st.subheader("📋 İş İşlem Detaylarılem Detayları")
+                # İşlem detayları
+                if results['trades']:
+                    st.subheader("📋 İşlem Detayları")
                     
-")
+                    trades_df = pd.DataFrame(results['trades'])
+                    # Sadece kapanan işlemleri göster
+                    closed_trades = trades_df[trades_df['status'] == 'CLOSED']
                     
-                    trades_df =                    trades_df = pd.DataFrame pd.DataFrame(results['trades(results['trades'])
-                    # Sadece'])
-                    # Sadece kapanan i kapanan işlemleri göşlemleri göster
-ster
-                    closed_trades                    closed_trades = trades_df = trades_df[trades_df[trades_df['status'] ==['status'] == 'CLOSED 'CLOSED']
-                    
-']
-                    
-                    if not closed                    if not closed_trades_trades.empty:
-                        # DataFrame'i dü.empty:
-                        # DataFrame'i düzenzenlele
-                        display_df = closed_trades[
-                        display_df = closed_trades[['entry['entry_time', 'exit_time', 'position', 'entry_time', 'exit_time', 'position', 'entry_price', 'exit_price', '_price', 'exit_price', 'entry_capital', 'entry_capital', 'pnl', 'pnl_perpnl', 'pnl_percent']]
-                        display_dfcent']]
-                        display_df = display = display_df.rename(_df.rename(columns={
-                           columns={
+                    if not closed_trades.empty:
+                        # DataFrame'i düzenle
+                        display_df = closed_trades[['entry_time', 'exit_time', 'position', 'entry_price', 'exit_price', 'entry_capital', 'pnl', 'pnl_percent']]
+                        display_df = display_df.rename(columns={
                             'entry_time': 'Giriş Tarihi',
-                            'entry_time': 'Giriş Tarihi',
-                            'exit_time 'exit_time': '': 'Çıkış Tarihi',
-                            'Çıkış Tarihi',
-                            'position': 'Pozisposition': 'Pozisyonyon',
-                            'entry_price':',
-                            'entry_price': ' 'Giriş FiyatGiriş Fiyatı',
-                            'exit_priceı',
-                            'exit_price':': 'Çıkış F 'Çıkış Fiyatı',
-iyatı',
-                            '                            'entry_capital': 'İentry_capital':şlem Büyüklüğ 'İşlem Büyüklüü',
-                            'pnlğü',
-                            'pnl': 'Kar/Zarar ($': 'Kar/Zarar)',
-                            'pnl ($)',
-                            'pnl_percent': 'Kar/Z_percent': 'Kar/Zarar (%)'
-                        })
-arar (%)'
+                            'exit_time': 'Çıkış Tarihi',
+                            'position': 'Pozisyon',
+                            'entry_price': 'Giriş Fiyatı',
+                            'exit_price': 'Çıkış Fiyatı',
+                            'entry_capital': 'İşlem Büyüklüğü',
+                            'pnl': 'Kar/Zarar ($)',
+                            'pnl_percent': 'Kar/Zarar (%)'
                         })
                         
-                                               
-                        # Renkli gö # Renkli göstersterim
-                        def colorim
-                        def color_p_pnl(val):
-                           nl(val):
-                            if ' if 'Kar/ZarKar/Zarar'ar' in val.name:
-                                if val > in val.name:
+                        # Renkli gösterim
+                        def color_pnl(val):
+                            if 'Kar/Zarar' in val.name:
                                 if val > 0:
-                                    0:
                                     return 'color: green'
- return 'color: green'
-                                elif                                elif val < 0 val < 0:
-                                   :
+                                elif val < 0:
                                     return 'color: red'
- return 'color: red'
-                            return                            return ''
+                            return ''
                         
-                        ''
-                        
-                        styled_df = display_df.style.format styled_df = display_df.style.format({
-                           ({
+                        styled_df = display_df.style.format({
                             'Giriş Fiyatı': '{:.2f}',
-                            ' 'Giriş Fiyatı': '{:.2f}',
-                            'Çıkış Fiyatı': '{:.2f}Çıkış Fiyatı': '{:.2f}',
-                            'İş',
-                            'İşlem Bülem Büyüklüğüyüklüğü': '{:.2f}': '{:.2f}',
-',
-                            'Kar/Zar                            'Kar/Zararar ($)': '{:.2 ($)': '{:.2ff}',
-                            'Kar}',
-                            'Kar/Z/Zarar (%)': '{arar (%)': '{:.2:.2f}%'
-                       f}%'
-                        }).apply }).apply(color_pnl, subset(color_pnl, subset=['Kar/Zarar ($=['Kar/Zarar ($)', 'Kar/Z)', 'Kar/Zararar (%))'])
+                            'Çıkış Fiyatı': '{:.2f}',
+                            'İşlem Büyüklüğü': '{:.2f}',
+                            'Kar/Zarar ($)': '{:.2f}',
+                            'Kar/Zarar (%)': '{:.2f}%'
+                        }).apply(color_pnl, subset=['Kar/Zarar ($)', 'Kar/Zarar (%)'])
                         
-                        st.dataar (%))'])
-                        
-                       frame(styled_df, use_container_width=True)
-                        
-                        st.dataframe(styled_df, use_container_width=True # İstatistikler
-                        st.subheader)
+                        st.dataframe(styled_df, use_container_width=True)
                         
                         # İstatistikler
-                        st("📈 İşlem İstatistikleri")
-                       .subheader("📈 İşlem İstatistikleri avg_profit = closed_t")
-                        avg_profit = closed_trades['pnl'].meanrades['pnl'].mean()
-                        max_profit = closed_t()
-                        max_profit = closed_trades['pnl'].rades['pnl'].max()
-                        max_loss = closed_tmax()
-                        max_loss = closedrades['pnl'].min()
-_trades['pnl'].                        
-                        stat_col1min()
+                        st.subheader("📈 İşlem İstatistikleri")
+                        avg_profit = closed_trades['pnl'].mean()
+                        max_profit = closed_trades['pnl'].max()
+                        max_loss = closed_trades['pnl'].min()
                         
-                        stat_col1, stat_col2, stat, stat_col2, stat_col3 = st.columns(3)
+                        stat_col1, stat_col2, stat_col3 = st.columns(3)
                         with stat_col1:
-_col3 = st.columns(3)
-                        with stat_col1:
-                                                       st st.metric.metric("Ortalama Kar/Zar("Ortalama Kar/Zarar",ar", f"${avg_profit f"${avg_profit:.2f}")
-                        with:.2f}")
-                        with stat_col stat_col2:
-                            st.m2:
-                            st.metric("Maksimum Kar", fetric("Maksimum Kar", f"${max"${max_profit:.2f_profit:.2f}")
-                        with stat_col}")
+                            st.metric("Ortalama Kar/Zarar", f"${avg_profit:.2f}")
+                        with stat_col2:
+                            st.metric("Maksimum Kar", f"${max_profit:.2f}")
                         with stat_col3:
-                            st.metric3:
-                            st.metric("M("Maksimum Zararaksimum Zarar", f", f"${max_loss:.2f}")
-                        
-                    else"${max_loss:.2f}")
+                            st.metric("Maksimum Zarar", f"${max_loss:.2f}")
                         
                     else:
-                        st.info:
-                        st.info("Kapanan işlem bulunamad("Kapanan işlem bulunamadı.")
-               ı.")
+                        st.info("Kapanan işlem bulunamadı.")
                 else:
-                    st.info(" else:
-                    st.info("Hiç işlem yapıHiç işlem yaplmadı.")
+                    st.info("Hiç işlem yapılmadı.")
                     
-            exceptılmadı.")
-                    
-            Exception as e:
-                st.error except Exception as e:
-               (f"Simülasyon s st.error(f"Simülasyon sırasında hata oırasında hata oluştu: {str(e)}luştu: {str")
+            except Exception as e:
+                st.error(f"Simülasyon sırasında hata oluştu: {str(e)}")
     else:
-        st(e)}")
-    else:
-.error("Veri yük        st.error("Veri yüklenemedi. Lütlenemedi. Lütfen önce kripto para vefen önce kripto tarih seçin.")
-
- para ve tarih seçin.")
+        st.error("Veri yüklenemedi. Lütfen önce kripto para ve tarih seçin.")
 
 # Bilgi
-st.mark# Bilgi
-st.markdown("down("---")
-st.info(""---")
+st.markdown("---")
 st.info("""
-**"
-**⚠️⚠️ U Uyarı:** Bu simülasyon syarı:** Bu simülasyon sadeceadece eğitim eğitim amaçlıdır. Gerç amaçlıdır. Gerçek tradingek trading için kullanmay için kullanmayın.ın. 
- 
-GeGeçmiş performans gelecek sonuçların garantisi değildir.
-çmiş performans gelecek sonuçların garantisi değildir.
+**⚠️ Uyarı:** Bu simülasyon sadece eğitim amaçlıdır. Gerçek trading için kullanmayın. 
+Geçmiş performans gelecek sonuçların garantisi değildir.
 """)
