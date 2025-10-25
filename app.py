@@ -282,519 +282,255 @@ with col1:
     if data is not None:
         # Strateji uygula
         strategy = CryptoStrategy(initial_capital)
-        data_with_indicators = strategy.calculate_indicators çekilemedi. Lütfen farklı bir tarih aralığı deneyin.")
-                return None
-            return data
-        except Exception as e:
-            st.error(f"Veri yüklenirken hata oluştu: {e}")
-            return None
-
-    data = load_data(symbol, start_date, end_date)
-    
-    if data is not None:
-        # Strateji uygula
-        strategy = CryptoStrategy(initial_capital)
-        data_with_indicators = strategy.calculate_(data)
-        data_with_signindicators(data)
-als = strategy.generate_signals        data_with_signals = strategy.generate_signals(data_with_indic(data_with_indicators)
-ators)
+        data_with_indicators = strategy.calculate_indicators(data)
+        data_with_signals = strategy.generate_signals(data_with_indicators)
         
-               
-        # Grafik o # Grafik oluştluştur
-        figur
-        fig = make = make_subplots(
-           _subplots(
-            rows= rows=2, cols=1,
-           2, cols=1,
-            sub subplotplot_titles=_titles=('Fiyat ve S('Fiyat ve Sinyaller',inyaller', 'RS 'RSI'),
-            verticalI'),
-            vertical_spacing=_spacing=00.1,
-            row_heights.1,
-            row_heights=[0.7, =[0.7, 0.30.3]
-       ]
+        # Grafik oluştur
+        fig = make_subplots(
+            rows=2, cols=1,
+            subplot_titles=('Fiyat ve Sinyaller', 'RSI'),
+            vertical_spacing=0.1,
+            row_heights=[0.7, 0.3]
         )
         
-        # F )
-        
-        # Fiyat graiyat grafiğifiği
-        fig
-        fig.add_trace.add_trace(
-            go(
-            go.Candlest.Candlestick(
-                xick(
-                x=data.index=data.index,
-                open=data,
-                open=data['Open['Open'],
-               '],
+        # Fiyat grafiği
+        fig.add_trace(
+            go.Candlestick(
+                x=data.index,
+                open=data['Open'],
                 high=data['High'],
- high=data['High'],
-                low=data                low=data['Low'],
-['Low'],
-                close                close=data['=data['Close'],
-               Close'],
-                name='Fiy name='Fiyat'
-at'
+                low=data['Low'],
+                close=data['Close'],
+                name='Fiyat'
             ),
-            row            ),
-            row=1=1, col=1, col=1
-       
+            row=1, col=1
         )
         
-        )
-        
-        # Bollinger # Bollinger Bantları Bantları
-        fig.add_trace(
-
+        # Bollinger Bantları
         fig.add_trace(
             go.Scatter(
-                           go.Scatter(
-                x=data_with_ x=data_with_indicators.index,
-indicators.index,
-                y                y=data_with_indic=data_with_indicators['ators['BBBB_Upper'],
-_Upper'],
-                line=dict                line=dict(color='(color='rgba(255rgba(255, , 0, 00, 0,, 0.3) 0.3)'),
-               '),
-                name='BB Upper name='BB Upper'
-           '
+                x=data_with_indicators.index,
+                y=data_with_indicators['BB_Upper'],
+                line=dict(color='rgba(255, 0, 0, 0.3)'),
+                name='BB Upper'
             ),
-            row= ),
-            row=1, col1, col=1
+            row=1, col=1
         )
         
-=1
-        )
-        
-        fig.add_trace        fig.add_trace(
-           (
+        fig.add_trace(
             go.Scatter(
-                x=data_with go.Scatter(
-                x=data_with_indicators_indicators.index,
-                y=data_with_.index,
-                y=data_with_indicators['indicators['BB_Lower'],
-                line=dictBB_Lower'],
-                line=dict(color='rgba(color='rgba(0, 255, (0, 255, 0, 00, 0.3)'),
-.3)'),
+                x=data_with_indicators.index,
+                y=data_with_indicators['BB_Lower'],
+                line=dict(color='rgba(0, 255, 0, 0.3)'),
                 name='BB Lower',
-                fill='                name='BB Lower',
                 fill='tonexty'
-           tonexty'
             ),
-            row=1, col=1
- ),
             row=1, col=1
         )
         
-               )
-        
-        # Alım sin # Alım sinyyallalleri
-        long_signeri
-        long_signalsals = data_with_signals = data_with_signals[data[data_with_signals['Signal_with_signals['Signal'] =='] == 1]
-        if not 1]
+        # Alım sinyalleri
+        long_signals = data_with_signals[data_with_signals['Signal'] == 1]
         if not long_signals.empty:
-            long_signals.empty:
             fig.add_trace(
                 go.Scatter(
-                    x= fig.add_trace(
-                go.Scatter(
-                    x=long_signlong_signals.index,
-                    y=long_signals['Closeals.index,
+                    x=long_signals.index,
                     y=long_signals['Close'],
-                    mode='markers'],
                     mode='markers',
-                    marker=dict(color',
-                    marker=dict(color='green', size=10='green', size=10,, symbol='triangle-up'),
-                    name symbol='triangle-up'),
+                    marker=dict(color='green', size=10, symbol='triangle-up'),
                     name='Long Sinyal'
-='Long Sinyal'
-                               ),
-                row=1 ),
-                row=1, col, col=1
-           =1
+                ),
+                row=1, col=1
             )
         
-        # Satım )
-        
-        # Satım sin sinyalleri
-       yalleri
-        short_sign short_signals = data_with_signalsals = data_with_signals[data_with_signals['[data_with_signals['SignalSignal'] == -1]
-'] == -1]
-        if        if not short_signals not short_signals.empty:
-.empty:
-            fig.add_t            fig.add_trace(
-race(
-                go.Scatter                go.Scatter(
-                    x=short_sign(
+        # Satım sinyalleri
+        short_signals = data_with_signals[data_with_signals['Signal'] == -1]
+        if not short_signals.empty:
+            fig.add_trace(
+                go.Scatter(
                     x=short_signals.index,
-                    y=als.index,
-                    y=shortshort_signals['Close'],
-_signals['Close'],
+                    y=short_signals['Close'],
                     mode='markers',
-                    marker                    mode='markers',
-=dict(color='red',                    marker=dict(color='red', size=10, symbol size=10, symbol='='triangle-down'),
-                    nametriangle-down'),
-                    name='='Short Sinyal'
+                    marker=dict(color='red', size=10, symbol='triangle-down'),
+                    name='Short Sinyal'
                 ),
-Short Sinyal'
-                ),
-                row=1,                row=1, col col=1
-            )
-=1
+                row=1, col=1
             )
         
         # RSI
-        
-        # RSI
         fig.add_trace(
-        fig.add_trace(
-                       go.Scatter(
-                x=data go.Scatter(
-                x=data_with_indic_with_indicators.index,
-                y=data_with_indicators['RSI'],
-                line=dict(color='purple'),
-                name='RSators.index,
+            go.Scatter(
+                x=data_with_indicators.index,
                 y=data_with_indicators['RSI'],
                 line=dict(color='purple'),
                 name='RSI'
             ),
-            rowI'
-            ),
-            row=2, col=1=2, col=1
+            row=2, col=1
         )
         
-
-        )
-        
-        #        # RSI sevi RSI seviyeleryeleri
-       i
-        fig.add_ fig.add_hline(y=hline(y=70, line70, line_dash="d_dash="dash",ash", line_color="red line_color="red", row=2", row=2, col, col=1)
-       =1)
-        fig.add fig.add_hline(y=30,_hline(y=30, line_dash=" line_dash="dash", linedash", line_color="_color="green",green", row=2, col=1)
-        fig.add_hline(y=50, line_dash="dot", line row=2, col=1)
-        fig.add_hline(y=50, line_dash="dot", line_color="gray", row=_color="gray", row=2, col=2, col=1)
+        # RSI seviyeleri
+        fig.add_hline(y=70, line_dash="dash", line_color="red", row=2, col=1)
+        fig.add_hline(y=30, line_dash="dash", line_color="green", row=2, col=1)
+        fig.add_hline(y=50, line_dash="dot", line_color="gray", row=2, col=1)
         
         fig.update_layout(
-            height1)
-        
-        fig.update_layout(
-           =600,
-            showlegend height=600,
+            height=600,
             showlegend=True,
-            xaxis_r=True,
-            xaxis_rangeslider_visible=Falseangeslider_visible=False
+            xaxis_rangeslider_visible=False
         )
         
-        st.plot
-        )
-        
-        stly_chart(fig, use.plotly_chart(fig, use_container_width=True_container_width=True)
-
-)
+        st.plotly_chart(fig, use_container_width=True)
 
 with col2:
-    stwith col2:
-    st.sub.subheader("🎯 Strateheader("🎯 Stratejiji Bilgileri")
- Bilgileri")
+    st.subheader("🎯 Strateji Bilgileri")
     
-    
-    st.markdown(""    st.markdown("""
-    **Kullanı"
+    st.markdown("""
     **Kullanılan Strateji:**
-lan Strateji:**
-       - RSI + MAC - RSI + MACDD + Bollinger + Bollinger Bant Bantları
-    - Çokluları
-    - Çoklu zaman zaman periyodu anal periyodu analizi
+    - RSI + MACD + Bollinger Bantları
+    - Çoklu zaman periyodu analizi
     
-    **Long Koizi
-    
-    **Long Koşullşulları:**
-   arı:**
-    - - RSI < 35 (Oversold)
+    **Long Koşulları:**
+    - RSI < 35 (Oversold)
     - MACD > MACD Signal
-    - Fiy RSI < 35 (Oversold)
-    - MACD > MACD Signal
-at BB Alt Bandı altında
     - Fiyat BB Alt Bandı altında
-    -    - EMA( EMA(99) > EMA(21) > EMA(21)
-)
+    - EMA(9) > EMA(21)
     
-    
-    **Short    **Short Koşulları:**
+    **Short Koşulları:**
     - RSI > 65 (Overbought)  
-    - Koşulları:**
-    - RSI > 65 (Overbought)  
- MACD < MACD Signal
-    - Fiy    - MACD < MACD Signal
-    - Fat BB Üst Bandı üiyat BB Üst Bandı üstünde
-    -stünde
-    - EMA(9) EMA(9) < EMA(21)
+    - MACD < MACD Signal
+    - Fiyat BB Üst Bandı üstünde
+    - EMA(9) < EMA(21)
     
- < EMA(21)
-    
-       **Risk Yönet **Risk Yönetimiimi:**
-    - %:**
-    - %55 Stop Loss
-    - Stop Loss
-    - %10 %10 Take Profit
-    - Take Profit
+    **Risk Yönetimi:**
+    - %5 Stop Loss
+    - %10 Take Profit
     - %10 Pozisyon Büyüklüğü
- %10 Pozisyon Büyüklüğü
-    ""    """)
+    """)
 
-# Simül")
-
-# Simülasyon butasyon butonu
-st.markdownonu
-st.markdown("---("---")
-st.sub")
+# Simülasyon butonu
+st.markdown("---")
 st.subheader("🚀 Backtest Simülasyonu")
 
-if st.button("header("🚀 Backtest Simülasyonu")
-
-if st.button("🎯 Backtest Simülasyonunu🎯 Backtest Simülasyonunu Başlat Başlat", type", type="primary"):
+if st.button("🎯 Backtest Simülasyonunu Başlat", type="primary"):
     if data is not None:
-="primary"):
-    if data is not None:
-        with st.spinner("Simülasyon çalış        with st.spinner("Simülasyon çalışıyor..."):
-            start_time =ıyor..."):
+        with st.spinner("Simülasyon çalışıyor..."):
             start_time = time.time()
             
-            # time.time()
-            
-            # İlerleme çubuğu İlerleme çubuğu
-
-            progress_bar = st            progress_bar = st.pro.progress(0)
-           gress(0)
+            # İlerleme çubuğu
+            progress_bar = st.progress(0)
             status_text = st.empty()
- status_text = st.empty()
             
-            # Stratejiyi ç            
-            # Stratejialıştır
-yi çalıştır
-            strategy = CryptoStrategy            strategy = CryptoStrategy(initial(initial_capital_capital)
-)
-            data_with_indicators = strategy            data_with_indicators = strategy.calculate.calculate_indicators(data)
-_indicators(data)
-            data            data_with_signals =_with_signals = strategy.generate strategy.generate_signals(data_with_signals(data_with_indicators)
-_indicators)
+            # Stratejiyi çalıştır
+            strategy = CryptoStrategy(initial_capital)
+            data_with_indicators = strategy.calculate_indicators(data)
+            data_with_signals = strategy.generate_signals(data_with_indicators)
             
-            status_text.text("Strateji            
-            status_text.text("St backtest edrateji backtest ediliyor...")
-            resultsiliyor...")
-            results = strategy.back = strategy.backtest_strategy(data_withtest_strategy(data_with_signals_signals, progress_bar)
-, progress_bar)
+            status_text.text("Strateji backtest ediliyor...")
+            results = strategy.backtest_strategy(data_with_signals, progress_bar)
             
             end_time = time.time()
-            calculation_time = end_time            
-            end_time = time.time()
-            calculation_time = end_time - start - start_time
+            calculation_time = end_time - start_time
             
-            # İ_time
+            # İlerleme çubuğunu tamamla
+            progress_bar.progress(1.0)
             
-            # İlerlerlemeleme ç çubuğunu tamamla
-ubuğunu tamamla
-            progress_bar            progress_bar.progress(1.0)
+            st.success(f"✅ Simülasyon hesaplaması {calculation_time:.2f} saniye içinde tamamlandı!")
             
-.progress(1.0)
+            # Sonuçları göster
+            st.subheader("📊 Simülasyon Sonuçları")
             
-            st.success            st.success(f"✅ Simülasyon(f"✅ Simülasyon hesa hesaplaması {plaması {calculation_timecalculation_time:.2f}:.2f} sani saniye içinde tamye içinde tamamlandamlandı!")
+            col1, col2, col3, col4 = st.columns(4)
             
-           ı!")
-            
-            # Son # Sonuçları göuçları göster
-ster
-            st.subheader            st.subheader("📊 Simülasyon Son("📊 Simülasyon Sonuuçları")
-            
-            colçları")
-            
-            col1,1, col2 col2, col3,, col3, col4 col4 = st.columns( = st.columns(4)
-4)
-            
-            with col            
             with col1:
-                st1:
                 st.metric(
-.metric(
-                    "Ba                    "Başlangıçşlangıç Sermay Sermayesi",
-                    fesi",
-                    f"${results['initial"${results['_capital']:,.2finitial_capital']:,.2f}"
+                    "Başlangıç Sermayesi",
+                    f"${results['initial_capital']:,.2f}"
                 )
             
-            with col}"
-                )
-            
-            with col22:
-                st.m:
+            with col2:
                 st.metric(
-etric(
-                    "Son Serm                    "Son Sermaye",aye", 
-                    f"${results['final_capital']: 
+                    "Son Sermaye", 
                     f"${results['final_capital']:,.2f}",
-                   ,.2f}",
-                    delta=f"{results['total delta=f"{results['total_return']_return']:+.2f}%"
-               :+.2f}%"
+                    delta=f"{results['total_return']:+.2f}%"
                 )
- )
-            
-            with col3:
             
             with col3:
                 st.metric(
-                    "Toplam İş                st.metric(
-                    "Toplam İlem",
-                    f"{resultsşlem",
+                    "Toplam İşlem",
                     f"{results['total_trades']}"
-['total_trades']}"
                 )
             
             with col4:
-                )
-            
-            with col                st.metric(
-                   4:
                 st.metric(
                     "Win Rate",
-                    f "Win Rate",
-                    f"{results['win_rate']"{results['win_rate']:.1f}%"
-:.1f}%"
+                    f"{results['win_rate']:.1f}%"
                 )
-            
-                           )
             
             # Equity curve
-            if # Equity curve
-            if not not results['equity_ results['equity_curve'].empty:
-                stcurve'].empty:
-                st.subheader("📈 Equity.subheader("📈 Equity Curve")
-                equity_fig Curve")
+            if not results['equity_curve'].empty:
+                st.subheader("📈 Equity Curve")
                 equity_fig = go.Figure()
                 
-                = go.Figure()
-                
- equity_fig.add_trace(
-                equity_fig.add_t                    go.Scatterrace(
+                equity_fig.add_trace(
                     go.Scatter(
-(
-                                               x=results x=results['equ['equity_curve']['Date'],
-ity_curve']['Date'],
-                        y=results['equity_curve                        y=results['equity_curve']['Equity'],
-                       ']['Equity'],
+                        x=results['equity_curve']['Date'],
+                        y=results['equity_curve']['Equity'],
                         line=dict(color='blue'),
- line=dict(color='blue'),
-                        name='Portföy De                        name='Portföy Değğeri'
-                    )
-eri'
+                        name='Portföy Değeri'
                     )
                 )
                 
-                equity                )
-                
-                equity_fig.add_fig.add_hline(
+                equity_fig.add_hline(
                     y=initial_capital,
-                    line_hline(
-                    y=initial_capital,
-                    line_dash="dash_dash="dash",
+                    line_dash="dash",
                     line_color="red",
-                    annotation",
-                    line_color="red",
-                   _text="Başlang annotation_text="Başlangıç Sermayesiıç Sermayesi"
-                )
-                
-                equity"
+                    annotation_text="Başlangıç Sermayesi"
                 )
                 
                 equity_fig.update_layout(
-                   _fig.update_layout(
                     height=400,
-                    show height=400,
                     showlegend=True,
-                    xaxis_title="Tlegend=True,
                     xaxis_title="Tarih",
-                    yaxis_title="Portföyarih",
                     yaxis_title="Portföy Değeri (USD)"
- Değeri (USD)"
-                )
                 )
                 
-                st.plot                
-                st.plotly_chly_chart(equityart(equity_fig, use_fig, use_container_width=True)
+                st.plotly_chart(equity_fig, use_container_width=True)
             
-            # İ_container_width=True)
-            
-           şlem detayları
- # İşlem detayları
+            # İşlem detayları
             if results['trades']:
-                st            if results['trades']:
-                st.subheader("📋 İ.subheader("📋 İşlem Detşlem Detayları")
-                
-                trades_df = pd.DataFrameayları")
+                st.subheader("📋 İşlem Detayları")
                 
                 trades_df = pd.DataFrame(results['trades'])
-                # Sadece kapan(results['trades'])
-                # Sadece kapanan işan işlemlerilemleri göster
- göster
-                closed_trades =                closed_trades = trades_df trades_df[trades[trades_df['exit_time'].notna()]
-_df['exit_time'].notna()]
+                # Sadece kapanan işlemleri göster
+                closed_trades = trades_df[trades_df['exit_time'].notna()]
                 
-                               
                 if not closed_trades.empty:
-                    closed_t if not closed_trades.empty:
-                    closed_trades['rades['pnl_percent']pnl_percent'] = (closed_trades['pnl'] = (closed_trades['pn / closed_trades['entryl'] / closed_trades['entry_capital']) * _capital']) * 100100
-
+                    closed_trades['pnl_percent'] = (closed_trades['pnl'] / closed_trades['entry_capital']) * 100
                     
-                                       
-                    # Renkli P # Renkli PNL sNL sütunuütunu
-                    def color
+                    # Renkli PNL sütunu
                     def color_pnl(val):
-                        color = 'green' if val_pnl(val):
-                        color > 0 else 'red = 'green' if val > 0 else 'red' if' if val < val < 0 0 else else 'gray'
- 'gray'
-                                               return f'color: {color}'
+                        color = 'green' if val > 0 else 'red' if val < 0 else 'gray'
+                        return f'color: {color}'
                     
-                    styled_trades = return f'color: {color}'
-                    
-                    styled closed_trades.style.format({
-                        'entry_price': '{:.2_trades = closed_trades.style.format({
+                    styled_trades = closed_trades.style.format({
                         'entry_price': '{:.2f}',
-                        'exit_price': '{f}',
-                        'exit_price': '{:.2f:.2f}', 
-                        '}', 
-                        'entry_centry_capital': '{:.2apital': '{:.2ff}',
-                        'pnl}',
-                        'pnl': '{': '{:.2f}',
-                        'pnl_per:.2f}',
-                        'pnl_percentcent': '{:.': '{:.2f}%2f}%'
-                    }).'
-                    }).applymap(color_pnlapplymap(color_pnl, subset=['pnl', 'pn, subset=['pnl', 'pnl_percent'])
+                        'exit_price': '{:.2f}', 
+                        'entry_capital': '{:.2f}',
+                        'pnl': '{:.2f}',
+                        'pnl_percent': '{:.2f}%'
+                    }).applymap(color_pnl, subset=['pnl', 'pnl_percent'])
                     
-l_percent'])
-                    
-                                       st.dataframe(styled st.dataframe(styled_t_trades, use_container_width=Truerades, use_container_width=True)
+                    st.dataframe(styled_trades, use_container_width=True)
                 else:
-                    st.info)
-                else:
-                    st("Kapanan iş.info("Kapanan ilem bulunamadı.")
-şlem bulunamadı.")
-            else            else:
-                st.info:
-                st.info("Hiç i("Hiç işşlem yaplem yapılmadı.")
+                    st.info("Kapanan işlem bulunamadı.")
+            else:
+                st.info("Hiç işlem yapılmadı.")
 
     else:
-       ılmadı.")
+        st.error("Veri yüklenemedi. Lütfen simülasyon ayarlarını kontrol edin.")
 
-    else:
-        st st.error("Veri y.error("Veri yüklenemediüklenemedi. Lüt. Lütfen simfen simülasyon ayarlarınıülasyon ayarlarını kontrol edin.")
-
- kontrol edin.")
-
-# Bilgi
 # Bilgi
 st.markdown("---")
-st.infost.markdown("---")
 st.info("""
-**⚠️("""
-**⚠️ Uyar Uyarı:**ı:** Bu simülasyon Bu simülasyon sade sadece ece eğitim amaçğitim amaçlıdır. Gerçek trading için klıdır. Gerullanmayın. 
-Geçek trading için kullanmayın. 
-Geçmiş performansçmiş performans gelecek gelecek sonuç sonuçların garantların garantisi değildisi değildir.
-""")
-```ir.
+**⚠️ Uyarı:** Bu simülasyon sadece eğitim amaçlıdır. Gerçek trading için kullanmayın. 
+Geçmiş performans gelecek sonuçların garantisi değildir.
 """)
