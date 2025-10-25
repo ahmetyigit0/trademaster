@@ -18,77 +18,68 @@ st.set_page_config(
 st.title("📈 Kripto Vadeli İşlem Strateji Simülasyonu")
 st.markdown("---")
 
-# Strateji sınıfı
+# Basit Strateji sınıfı
 class CryptoStrategy:
     def __init__(self, initial_capital: float = 10000):
         self.initial_capital = initial_capital
         self.results = {}
         
-    def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Teknik göstergeleri hesapla"""
+    def calculate_simple_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Basit teknik göstergeleri hesapla"""
         df = df.copy()
         
-        try:
-            # RSI
-            delta = df['Close'].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-            rs = gain / loss
-            df.loc[:, 'RSI'] = 100 - (100 / (1 + rs))
-            
-            # MACD
-            exp1 = df['Close'].ewm(span=12).mean()
-            exp2 = df['Close'].ewm(span=26).mean()
-            df.loc[:, 'MACD'] = exp1 - exp2
-            df.loc[:, 'MACD_Signal'] = df['MACD'].ewm(span=9).mean()
-            df.loc[:, 'MACD_Histogram'] = df['MACD'] - df['MACD_Signal']
-            
-            # Bollinger Bantları
-            df.loc[:, 'BB_Middle'] = df['Close'].rolling(window=20).mean()
-            bb_std = df['Close'].rolling(window=20).std()
-            df.loc[:, 'BB_Upper'] = df['BB_Middle'] + (bb_std * 2)
-            df.loc[:, 'BB_Lower'] = df['BB_Middle'] - (bb_std * 2)
-            
-            # EMA'lar
-            df.loc[:, 'EMA_9'] = df['Close'].ewm(span=9).mean()
-            df.loc[:, 'EMA_21'] = df['Close'].ewm(span=21).mean()
-            
-        except Exception as e:
-            st.error(f"Göstergeler hesaplanırken hata: {e}")
-            
-        return df
+        # Basit RSI hesaplama
+        delta = df['Close'].diff()
+        gain = delta.where(delta > 0, 0)
+        loss = -delta.where(delta < 0, 0)
+        avg_gain = gain.rolling(window=14).mean()
+        avg_loss = loss.rolling(window=14).mean()
+        rs = avg_gain / avg_loss
+        df['RSI'] = 100 - (100 / (1 + rs))
+        
+        # Basit EMA'lar
+        df['EMA_9'] = df['Close'].ewm(span=9, adjust=False).mean()
+        df['EMA_21'] = df['Close'].ewm(span=21, adjust=False).mean()
+        
+        # Basit fiyat hareketi
+        df['Price_Change'] = df['Close'].pct_change()
+        df['Volatility'] = df['Price_Change'].rolling(window=20).std()
+        
+        return df.fillna(0)
     
-    def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Alım-satım sinyalleri oluştur"""
+    def generate_simple_signals(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Basit alım-satım sinyalleri oluştur"""
         df = df.copy()
         df['Signal'] = 0  # 0: Bekle, 1: Long, -1: Short
         
         try:
-            # Strateji kuralları
+            # NaN değerleri temizle
+            df = df.fillna(0)
+            
+            # Basit strateji kuralları
+            # Long: RSI düşük ve EMA9 > EMA21
             long_condition = (
-                (df['RSI'] < 35) &  # RSI oversold
-                (df['MACD'] > df['MACD_Signal']) &  # MACD yukarı kesiyor
-                (df['Close'] < df['BB_Lower']) &  # Fiyat Bollinger alt bandında
+                (df['RSI'] < 40) &  # RSI oversold
                 (df['EMA_9'] > df['EMA_21'])  # Kısa EMA uzun EMA'nın üstünde
             )
             
+            # Short: RSI yüksek ve EMA9 < EMA21
             short_condition = (
-                (df['RSI'] > 65) &  # RSI overbought
-                (df['MACD'] < df['MACD_Signal']) &  # MACD aşağı kesiyor
-                (df['Close'] > df['BB_Upper']) &  # Fiyat Bollinger üst bandında
+                (df['RSI'] > 60) &  # RSI overbought
                 (df['EMA_9'] < df['EMA_21'])  # Kısa EMA uzun EMA'nın altında
             )
             
+            # Koşulları kontrol et ve sinyalleri ayarla
             df.loc[long_condition, 'Signal'] = 1
             df.loc[short_condition, 'Signal'] = -1
             
         except Exception as e:
-            st.error(f"Sinyal oluşturulurken hata: {e}")
+            st.error(f"Sinyal oluşturma hatası: {e}")
         
         return df
     
-    def backtest_strategy(self, df: pd.DataFrame, progress_bar) -> Dict:
-        """Stratejiyi backtest et"""
+    def backtest_simple_strategy(self, df: pd.DataFrame, progress_bar) -> Dict:
+        """Basit stratejiyi backtest et"""
         capital = self.initial_capital
         position = 0  # 0: Pozisyon yok, 1: Long, -1: Short
         entry_price = 0
@@ -101,8 +92,8 @@ class CryptoStrategy:
         
         for i, (index, row) in enumerate(df.iterrows()):
             # İlerleme çubuğunu güncelle
-            if i % 10 == 0:
-                progress_bar.progress(i / total_rows)
+            if i % 10 == 0 and total_rows > 0:
+                progress_bar.progress(min(i / total_rows, 1.0))
             
             current_price = row['Close']
             signal = row['Signal']
@@ -112,7 +103,7 @@ class CryptoStrategy:
                 # Yeni pozisyon aç
                 position = signal
                 entry_price = current_price
-                trade_size = capital * 0.1  # %10 risk
+                trade_size = min(capital * 0.1, capital)  # %10 risk, sermayeyi aşmamak için
                 entry_capital = trade_size
                 total_trades += 1
                 
@@ -124,19 +115,27 @@ class CryptoStrategy:
                     'exit_time': None,
                     'exit_price': None,
                     'pnl': 0,
-                    'status': 'OPEN'
+                    'status': 'OPEN',
+                    'pnl_percent': 0
                 })
                 
-            elif position != 0:
+            elif position != 0 and len(trades) > 0:
                 current_trade = trades[-1]
                 
                 # Kar alma/zarar kesme
                 if position == 1:  # Long pozisyon
                     pnl_percent = (current_price - entry_price) / entry_price
                     stop_loss = -0.05  # %5 stop loss
-                    take_profit = 0.10  # %10 take profit
+                    take_profit = 0.08  # %8 take profit
                     
-                    if pnl_percent <= stop_loss or pnl_percent >= take_profit or signal == -1:
+                    # Pozisyon kapatma koşulları
+                    close_condition = (
+                        pnl_percent <= stop_loss or 
+                        pnl_percent >= take_profit or 
+                        signal == -1
+                    )
+                    
+                    if close_condition:
                         # Pozisyonu kapat
                         pnl_amount = current_trade['entry_capital'] * pnl_percent
                         capital += pnl_amount
@@ -152,13 +151,21 @@ class CryptoStrategy:
                             'pnl_percent': pnl_percent * 100
                         })
                         position = 0
+                        entry_price = 0
                         
                 elif position == -1:  # Short pozisyon
                     pnl_percent = (entry_price - current_price) / entry_price
                     stop_loss = -0.05  # %5 stop loss
-                    take_profit = 0.10  # %10 take profit
+                    take_profit = 0.08  # %8 take profit
                     
-                    if pnl_percent <= stop_loss or pnl_percent >= take_profit or signal == 1:
+                    # Pozisyon kapatma koşulları
+                    close_condition = (
+                        pnl_percent <= stop_loss or 
+                        pnl_percent >= take_profit or 
+                        signal == 1
+                    )
+                    
+                    if close_condition:
                         # Pozisyonu kapat
                         pnl_amount = current_trade['entry_capital'] * pnl_percent
                         capital += pnl_amount
@@ -174,11 +181,12 @@ class CryptoStrategy:
                             'pnl_percent': pnl_percent * 100
                         })
                         position = 0
+                        entry_price = 0
         
-        # Açık pozisyonları kapat
-        if position != 0 and trades:
+        # Son işlemde açık pozisyon varsa kapat
+        if position != 0 and len(trades) > 0:
             current_trade = trades[-1]
-            if current_trade['exit_time'] is None:
+            if current_trade['status'] == 'OPEN':
                 last_price = df['Close'].iloc[-1]
                 if position == 1:
                     pnl_percent = (last_price - entry_price) / entry_price
@@ -200,7 +208,7 @@ class CryptoStrategy:
                 })
         
         # Sonuçları hesapla
-        final_capital = capital
+        final_capital = max(capital, 0)  # Sermaye negatif olamaz
         total_return = ((final_capital - self.initial_capital) / self.initial_capital) * 100
         win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
         
@@ -218,15 +226,18 @@ class CryptoStrategy:
             'win_rate': win_rate,
             'profit_factor': profit_factor,
             'trades': trades,
-            'equity_curve': self.calculate_equity_curve(trades, df)
+            'equity_curve': self.calculate_equity_curve(trades)
         }
         
         return self.results
     
-    def calculate_equity_curve(self, trades: List[Dict], df: pd.DataFrame) -> pd.DataFrame:
+    def calculate_equity_curve(self, trades: List[Dict]) -> pd.DataFrame:
         """Equity curve hesapla"""
+        if not trades:
+            return pd.DataFrame({'Date': [], 'Equity': []})
+            
         equity = [self.initial_capital]
-        dates = [df.index[0]]
+        dates = [trades[0]['entry_time']]  # İlk işlem tarihi
         
         current_capital = self.initial_capital
         
@@ -280,26 +291,23 @@ initial_capital = st.sidebar.number_input(
 st.subheader("🎯 Strateji Bilgileri")
     
 st.markdown("""
-**Kullanılan Strateji:**
-- RSI + MACD + Bollinger Bantları
-- Çoklu zaman periyodu analizi
+**Basit ve Etkili Strateji:**
+- RSI + EMA kombinasyonu
+- Trend takip sistemi
 
 **Long Koşulları:**
-- RSI < 35 (Oversold)
-- MACD > MACD Signal
-- Fiyat BB Alt Bandı altında
-- EMA(9) > EMA(21)
+- RSI < 40 (Oversold bölgesi)
+- EMA(9) > EMA(21) (Yükseliş trendi)
 
 **Short Koşulları:**
-- RSI > 65 (Overbought)  
-- MACD < MACD Signal
-- Fiyat BB Üst Bandı üstünde
-- EMA(9) < EMA(21)
+- RSI > 60 (Overbought bölgesi)  
+- EMA(9) < EMA(21) (Düşüş trendi)
 
 **Risk Yönetimi:**
 - %5 Stop Loss
-- %10 Take Profit
+- %8 Take Profit
 - %10 Pozisyon Büyüklüğü
+- Maksimum %10 risk per trade
 """)
 
 # Simülasyon butonu
@@ -319,8 +327,25 @@ def load_data(symbol, start_date, end_date):
         st.error(f"Veri yüklenirken hata oluştu: {e}")
         return None
 
+# Uygulama başladığında veriyi yükle
 data = load_data(symbol, start_date, end_date)
 
+if data is not None:
+    st.success(f"✅ {selected_crypto} verisi yüklendi: {len(data)} günlük veri")
+    
+    # Temel bilgileri göster
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("İlk Fiyat", f"${data['Close'].iloc[0]:.2f}")
+    with col2:
+        st.metric("Son Fiyat", f"${data['Close'].iloc[-1]:.2f}")
+    with col3:
+        price_change = ((data['Close'].iloc[-1] - data['Close'].iloc[0]) / data['Close'].iloc[0]) * 100
+        st.metric("Dönem Değişim", f"{price_change:+.2f}%")
+    with col4:
+        st.metric("Veri Sayısı", len(data))
+
+# Simülasyon butonu
 if st.button("🎯 Backtest Simülasyonunu Başlat", type="primary", use_container_width=True):
     if data is not None and not data.empty:
         with st.spinner("Simülasyon çalışıyor..."):
@@ -336,15 +361,15 @@ if st.button("🎯 Backtest Simülasyonunu Başlat", type="primary", use_contain
                 
                 # Göstergeleri hesapla
                 status_text.text("Teknik göstergeler hesaplanıyor...")
-                data_with_indicators = strategy.calculate_indicators(data)
+                data_with_indicators = strategy.calculate_simple_indicators(data)
                 
                 # Sinyalleri oluştur
                 status_text.text("Alım-satım sinyalleri oluşturuluyor...")
-                data_with_signals = strategy.generate_signals(data_with_indicators)
+                data_with_signals = strategy.generate_simple_signals(data_with_indicators)
                 
                 # Backtest yap
                 status_text.text("Strateji backtest ediliyor...")
-                results = strategy.backtest_strategy(data_with_signals, progress_bar)
+                results = strategy.backtest_simple_strategy(data_with_signals, progress_bar)
                 
                 end_time = time.time()
                 calculation_time = end_time - start_time
@@ -410,11 +435,13 @@ if st.button("🎯 Backtest Simülasyonunu Başlat", type="primary", use_contain
                     fig.add_trace(go.Scatter(
                         x=results['equity_curve']['Date'],
                         y=results['equity_curve']['Equity'],
-                        mode='lines',
+                        mode='lines+markers',
                         name='Portföy Değeri',
-                        line=dict(color='blue', width=2)
+                        line=dict(color='blue', width=3),
+                        marker=dict(size=4)
                     ))
                     
+                    # Başlangıç sermayesi çizgisi
                     fig.add_hline(
                         y=initial_capital, 
                         line_dash="dash", 
@@ -423,25 +450,26 @@ if st.button("🎯 Backtest Simülasyonunu Başlat", type="primary", use_contain
                     )
                     
                     fig.update_layout(
-                        title="Portföy Performansı",
+                        title="Portföy Performans Grafiği",
                         xaxis_title="Tarih",
                         yaxis_title="Portföy Değeri (USD)",
-                        height=400
+                        height=500,
+                        showlegend=True
                     )
                     
                     st.plotly_chart(fig, use_container_width=True)
                 
                 # İşlem detayları
                 if results['trades']:
-                    st.subheader("📋 İşlem Detayları")
+                    closed_trades = [t for t in results['trades'] if t['status'] == 'CLOSED']
                     
-                    trades_df = pd.DataFrame(results['trades'])
-                    # Sadece kapanan işlemleri göster
-                    closed_trades = trades_df[trades_df['status'] == 'CLOSED']
-                    
-                    if not closed_trades.empty:
+                    if closed_trades:
+                        st.subheader("📋 İşlem Detayları")
+                        
+                        trades_df = pd.DataFrame(closed_trades)
+                        
                         # DataFrame'i düzenle
-                        display_df = closed_trades[['entry_time', 'exit_time', 'position', 'entry_price', 'exit_price', 'entry_capital', 'pnl', 'pnl_percent']]
+                        display_df = trades_df[['entry_time', 'exit_time', 'position', 'entry_price', 'exit_price', 'entry_capital', 'pnl', 'pnl_percent']]
                         display_df = display_df.rename(columns={
                             'entry_time': 'Giriş Tarihi',
                             'exit_time': 'Çıkış Tarihi',
@@ -453,38 +481,48 @@ if st.button("🎯 Backtest Simülasyonunu Başlat", type="primary", use_contain
                             'pnl_percent': 'Kar/Zarar (%)'
                         })
                         
-                        # Renkli gösterim
-                        def color_pnl(val):
-                            if 'Kar/Zarar' in val.name:
-                                if val > 0:
-                                    return 'color: green'
-                                elif val < 0:
-                                    return 'color: red'
-                            return ''
+                        # Renkli gösterim fonksiyonu
+                        def color_pnl(row):
+                            colors = []
+                            for val in row:
+                                if isinstance(val, (int, float)):
+                                    if val > 0:
+                                        colors.append('color: green')
+                                    elif val < 0:
+                                        colors.append('color: red')
+                                    else:
+                                        colors.append('color: black')
+                                else:
+                                    colors.append('color: black')
+                            return colors
                         
+                        # Sayısal sütunları formatla
                         styled_df = display_df.style.format({
                             'Giriş Fiyatı': '{:.2f}',
                             'Çıkış Fiyatı': '{:.2f}',
                             'İşlem Büyüklüğü': '{:.2f}',
                             'Kar/Zarar ($)': '{:.2f}',
                             'Kar/Zarar (%)': '{:.2f}%'
-                        }).apply(color_pnl, subset=['Kar/Zarar ($)', 'Kar/Zarar (%)'])
+                        }).apply(color_pnl, subset=['Kar/Zarar ($)', 'Kar/Zarar (%)'], axis=1)
                         
-                        st.dataframe(styled_df, use_container_width=True)
+                        st.dataframe(styled_df, use_container_width=True, height=400)
                         
                         # İstatistikler
                         st.subheader("📈 İşlem İstatistikleri")
-                        avg_profit = closed_trades['pnl'].mean()
-                        max_profit = closed_trades['pnl'].max()
-                        max_loss = closed_trades['pnl'].min()
+                        avg_profit = trades_df['pnl'].mean()
+                        max_profit = trades_df['pnl'].max()
+                        max_loss = trades_df['pnl'].min()
+                        total_pnl = trades_df['pnl'].sum()
                         
-                        stat_col1, stat_col2, stat_col3 = st.columns(3)
+                        stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
                         with stat_col1:
                             st.metric("Ortalama Kar/Zarar", f"${avg_profit:.2f}")
                         with stat_col2:
                             st.metric("Maksimum Kar", f"${max_profit:.2f}")
                         with stat_col3:
                             st.metric("Maksimum Zarar", f"${max_loss:.2f}")
+                        with stat_col4:
+                            st.metric("Toplam Kar/Zarar", f"${total_pnl:.2f}")
                         
                     else:
                         st.info("Kapanan işlem bulunamadı.")
@@ -501,4 +539,10 @@ st.markdown("---")
 st.info("""
 **⚠️ Uyarı:** Bu simülasyon sadece eğitim amaçlıdır. Gerçek trading için kullanmayın. 
 Geçmiş performans gelecek sonuçların garantisi değildir.
+
+**📊 Strateji Notları:**
+- Basit RSI + EMA stratejisi kullanılmaktadır
+- Her işlemde maksimum %10 risk
+- Otomatik stop loss ve take profit
+- Trend takip sistemi
 """)
