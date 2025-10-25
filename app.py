@@ -3,10 +3,9 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import datetime
 import time
-from typing import Tuple, List, Dict
+from typing import Dict, List
 
 # Sayfa ayarı
 st.set_page_config(
@@ -48,12 +47,10 @@ class CryptoStrategy:
         bb_std = df['Close'].rolling(window=20).std()
         df['BB_Upper'] = df['BB_Middle'] + (bb_std * 2)
         df['BB_Lower'] = df['BB_Middle'] - (bb_std * 2)
-        df['BB_Width'] = (df['BB_Upper'] - df['BB_Lower']) / df['BB_Middle']
         
         # EMA'lar
         df['EMA_9'] = df['Close'].ewm(span=9).mean()
         df['EMA_21'] = df['Close'].ewm(span=21).mean()
-        df['EMA_50'] = df['Close'].ewm(span=50).mean()
         
         return df
     
@@ -96,7 +93,7 @@ class CryptoStrategy:
         
         for i, (index, row) in enumerate(df.iterrows()):
             # İlerleme çubuğunu güncelle
-            if i % 10 == 0:  # Her 10 işlemde bir güncelle
+            if i % 10 == 0:
                 progress_bar.progress(i / total_rows)
             
             current_price = row['Close']
@@ -114,11 +111,12 @@ class CryptoStrategy:
                 trades.append({
                     'entry_time': index,
                     'entry_price': entry_price,
-                    'position': position,
+                    'position': 'LONG' if position == 1 else 'SHORT',
                     'entry_capital': entry_capital,
                     'exit_time': None,
                     'exit_price': None,
-                    'pnl': 0
+                    'pnl': 0,
+                    'status': 'OPEN'
                 })
                 
             elif position != 0:
@@ -141,7 +139,9 @@ class CryptoStrategy:
                         trades[-1].update({
                             'exit_time': index,
                             'exit_price': current_price,
-                            'pnl': pnl_amount
+                            'pnl': pnl_amount,
+                            'status': 'CLOSED',
+                            'pnl_percent': pnl_percent * 100
                         })
                         position = 0
                         
@@ -161,7 +161,9 @@ class CryptoStrategy:
                         trades[-1].update({
                             'exit_time': index,
                             'exit_price': current_price,
-                            'pnl': pnl_amount
+                            'pnl': pnl_amount,
+                            'status': 'CLOSED',
+                            'pnl_percent': pnl_percent * 100
                         })
                         position = 0
         
@@ -184,13 +186,20 @@ class CryptoStrategy:
                 trades[-1].update({
                     'exit_time': df.index[-1],
                     'exit_price': last_price,
-                    'pnl': pnl_amount
+                    'pnl': pnl_amount,
+                    'status': 'CLOSED',
+                    'pnl_percent': pnl_percent * 100
                 })
         
         # Sonuçları hesapla
         final_capital = capital
         total_return = ((final_capital - self.initial_capital) / self.initial_capital) * 100
         win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
+        
+        # Profit factor
+        total_profit = sum(trade['pnl'] for trade in trades if trade['pnl'] > 0)
+        total_loss = abs(sum(trade['pnl'] for trade in trades if trade['pnl'] < 0))
+        profit_factor = total_profit / total_loss if total_loss > 0 else float('inf')
         
         self.results = {
             'initial_capital': self.initial_capital,
@@ -199,6 +208,7 @@ class CryptoStrategy:
             'total_trades': total_trades,
             'winning_trades': winning_trades,
             'win_rate': win_rate,
+            'profit_factor': profit_factor,
             'trades': trades,
             'equity_curve': self.calculate_equity_curve(trades, df)
         }
@@ -213,7 +223,7 @@ class CryptoStrategy:
         current_capital = self.initial_capital
         
         for trade in trades:
-            if trade['exit_time'] is not None:
+            if trade['status'] == 'CLOSED':
                 current_capital += trade['pnl']
                 equity.append(current_capital)
                 dates.append(trade['exit_time'])
@@ -259,165 +269,51 @@ initial_capital = st.sidebar.number_input(
 )
 
 # Ana içerik
-col1, col2 = st.columns([2, 1])
+st.subheader("🎯 Strateji Bilgileri")
+    
+st.markdown("""
+**Kullanılan Strateji:**
+- RSI + MACD + Bollinger Bantları
+- Çoklu zaman periyodu analizi
 
-with col1:
-    st.subheader("📊 Fiyat Grafiği ve Sinyaller")
-    
-    # Veri yükleme
-    @st.cache_data
-    def load_data(symbol, start_date, end_date):
-        try:
-            data = yf.download(symbol, start=start_date, end=end_date, progress=False)
-            if data.empty:
-                st.error("Veri çekilemedi. Lütfen farklı bir tarih aralığı deneyin.")
-                return None
-            return data
-        except Exception as e:
-            st.error(f"Veri yüklenirken hata oluştu: {e}")
-            return None
+**Long Koşulları:**
+- RSI < 35 (Oversold)
+- MACD > MACD Signal
+- Fiyat BB Alt Bandı altında
+- EMA(9) > EMA(21)
 
-    data = load_data(symbol, start_date, end_date)
-    
-    if data is not None and not data.empty:
-        try:
-            # Strateji uygula
-            strategy = CryptoStrategy(initial_capital)
-            data_with_indicators = strategy.calculate_indicators(data)
-            data_with_signals = strategy.generate_signals(data_with_indicators)
-            
-            # Grafik oluştur
-            fig = make_subplots(
-                rows=2, cols=1,
-                subplot_titles=('Fiyat ve Sinyaller', 'RSI'),
-                vertical_spacing=0.1,
-                row_heights=[0.7, 0.3]
-            )
-            
-            # Fiyat grafiği
-            fig.add_trace(
-                go.Candlestick(
-                    x=data.index,
-                    open=data['Open'],
-                    high=data['High'],
-                    low=data['Low'],
-                    close=data['Close'],
-                    name='Fiyat'
-                ),
-                row=1, col=1
-            )
-            
-            # Bollinger Bantları
-            fig.add_trace(
-                go.Scatter(
-                    x=data_with_indicators.index,
-                    y=data_with_indicators['BB_Upper'],
-                    line=dict(color='rgba(255, 0, 0, 0.3)'),
-                    name='BB Upper'
-                ),
-                row=1, col=1
-            )
-            
-            fig.add_trace(
-                go.Scatter(
-                    x=data_with_indicators.index,
-                    y=data_with_indicators['BB_Lower'],
-                    line=dict(color='rgba(0, 255, 0, 0.3)'),
-                    name='BB Lower',
-                    fill='tonexty'
-                ),
-                row=1, col=1
-            )
-            
-            # Alım sinyalleri
-            long_signals = data_with_signals[data_with_signals['Signal'] == 1]
-            if not long_signals.empty:
-                fig.add_trace(
-                    go.Scatter(
-                        x=long_signals.index,
-                        y=long_signals['Close'],
-                        mode='markers',
-                        marker=dict(color='green', size=10, symbol='triangle-up'),
-                        name='Long Sinyal'
-                    ),
-                    row=1, col=1
-                )
-            
-            # Satım sinyalleri
-            short_signals = data_with_signals[data_with_signals['Signal'] == -1]
-            if not short_signals.empty:
-                fig.add_trace(
-                    go.Scatter(
-                        x=short_signals.index,
-                        y=short_signals['Close'],
-                        mode='markers',
-                        marker=dict(color='red', size=10, symbol='triangle-down'),
-                        name='Short Sinyal'
-                    ),
-                    row=1, col=1
-                )
-            
-            # RSI
-            fig.add_trace(
-                go.Scatter(
-                    x=data_with_indicators.index,
-                    y=data_with_indicators['RSI'],
-                    line=dict(color='purple'),
-                    name='RSI'
-                ),
-                row=2, col=1
-            )
-            
-            # RSI seviyeleri
-            fig.add_hline(y=70, line_dash="dash", line_color="red", row=2, col=1)
-            fig.add_hline(y=30, line_dash="dash", line_color="green", row=2, col=1)
-            fig.add_hline(y=50, line_dash="dot", line_color="gray", row=2, col=1)
-            
-            fig.update_layout(
-                height=600,
-                showlegend=True,
-                xaxis_rangeslider_visible=False
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
-        except Exception as e:
-            st.error(f"Grafik oluşturulurken hata oluştu: {e}")
-    else:
-        st.warning("Veri yüklenemedi. Lütfen tarih aralığını kontrol edin.")
+**Short Koşulları:**
+- RSI > 65 (Overbought)  
+- MACD < MACD Signal
+- Fiyat BB Üst Bandı üstünde
+- EMA(9) < EMA(21)
 
-with col2:
-    st.subheader("🎯 Strateji Bilgileri")
-    
-    st.markdown("""
-    **Kullanılan Strateji:**
-    - RSI + MACD + Bollinger Bantları
-    - Çoklu zaman periyodu analizi
-    
-    **Long Koşulları:**
-    - RSI < 35 (Oversold)
-    - MACD > MACD Signal
-    - Fiyat BB Alt Bandı altında
-    - EMA(9) > EMA(21)
-    
-    **Short Koşulları:**
-    - RSI > 65 (Overbought)  
-    - MACD < MACD Signal
-    - Fiyat BB Üst Bandı üstünde
-    - EMA(9) < EMA(21)
-    
-    **Risk Yönetimi:**
-    - %5 Stop Loss
-    - %10 Take Profit
-    - %10 Pozisyon Büyüklüğü
-    """)
+**Risk Yönetimi:**
+- %5 Stop Loss
+- %10 Take Profit
+- %10 Pozisyon Büyüklüğü
+""")
 
-# Simülasyon butonu - HER ZAMAN GÖRÜNÜR
+# Simülasyon butonu
 st.markdown("---")
 st.subheader("🚀 Backtest Simülasyonu")
 
-# Buton her zaman görünsün
-if st.button("🎯 Backtest Simülasyonunu Başlat", type="primary", key="backtest_button"):
+# Veri yükleme
+@st.cache_data
+def load_data(symbol, start_date, end_date):
+    try:
+        data = yf.download(symbol, start=start_date, end=end_date, progress=False)
+        if data.empty:
+            st.error("Veri çekilemedi. Lütfen farklı bir tarih aralığı deneyin.")
+            return None
+        return data
+    except Exception as e:
+        st.error(f"Veri yüklenirken hata oluştu: {e}")
+        return None
+
+data = load_data(symbol, start_date, end_date)
+
+if st.button("🎯 Backtest Simülasyonunu Başlat", type="primary", use_container_width=True):
     if data is not None and not data.empty:
         with st.spinner("Simülasyon çalışıyor..."):
             start_time = time.time()
@@ -433,114 +329,319 @@ if st.button("🎯 Backtest Simülasyonunu Başlat", type="primary", key="backte
                 data_with_signals = strategy.generate_signals(data_with_indicators)
                 
                 status_text.text("Strateji backtest ediliyor...")
-                results = strategy.backtest_strategy(data_with_signals, progress_bar)
+                results =Strateji backtest ediliyor...")
+                results = strategy strategy.backtest_strategy(data.backtest_strategy(data_with_with_signals, progress_bar)
+_signals, progress_bar)
                 
+                               
                 end_time = time.time()
-                calculation_time = end_time - start_time
+ end_time = time.time()
+                calculation_time = end                calculation_time = end_time_time - start_time
                 
-                # İlerleme çubuğunu tamamla
+                - start_time
+                
+                # İ # İlerlelerlememe çubuğunu tamamla
+                çubuğunu tamamla
                 progress_bar.progress(1.0)
+                status_text.empty()
                 
-                st.success(f"✅ Simülasyon hesaplaması {calculation_time:.2f} saniye içinde tamamlandı!")
+ progress_bar.progress(1.0)
+                status_text.empty()
                 
-                # Sonuçları göster
-                st.subheader("📊 Simülasyon Sonuçları")
+                st.success                st.success(f"✅ Simülasyon hesaplamas(f"✅ Simülasyon hesaplaması {calculation_time:.2f} sı {calculation_time:.2f} sanianiye içinde tamamlandı!")
+ye içinde tamamlandı!")
                 
-                col1, col2, col3, col4 = st.columns(4)
+                               
+                # Sonuç # Sonuçları göları göster
+                stster
+                st.subheader("📊 Sim.subheader("📊 Simülülasyon Sonuçları")
                 
-                with col1:
-                    st.metric(
-                        "Başlangıç Sermayesi",
-                        f"${results['initial_capital']:,.2f}"
+asyon Sonuçları")
+                
+                col                col1, col2,1, col2, col col3, col4 = st3, col4 = st.columns.columns(4)
+                
+               (4)
+                
+                with with col1:
+                    col1:
+                    st.metric st.metric(
+                        "Baş(
+                        "Başlanglangıç Sermayesiıç Sermayesi",
+                        f",
+                        f"${results"${results['initial_c['initial_capital']:,.2apital']:,.2f}"
                     )
                 
-                with col2:
-                    st.metric(
-                        "Son Sermaye", 
-                        f"${results['final_capital']:,.2f}",
-                        delta=f"{results['total_return']:+.2f}%"
+f}"
                     )
                 
-                with col3:
+                with                with col2:
+                    col2:
+                    st.metric st.metric(
+                        "(
+                        "Son SermayeSon Sermaye", 
+                        f"", 
+                        f"${results['final_capital']:${results['final_capital']:,.2f},.2f}",
+                       ",
+                        delta=f"{results delta=f"{results['total_return['total_return']:+.2f']:+.2f}%}%"
+                    )
+                
+"
+                    )
+                
+                with                with col3:
+                    col3:
                     st.metric(
+                        "Toplam İş st.metric(
                         "Toplam İşlem",
-                        f"{results['total_trades']}"
+lem",
+                        f"{                        f"{results['total_tradesresults['total_trades']}"
+']}"
                     )
                 
-                with col4:
+                                   )
+                
+                with with col4:
+                    col4:
                     st.metric(
-                        "Win Rate",
-                        f"{results['win_rate']:.1f}%"
+                        st.metric(
+                        "Win "Win Rate",
+                        f Rate"{results['win_rate']:.",
+                        f"{results['win1_rate']:.1f}%f}%"
+                    )
+"
+                    )
+                
+                # Ek                
+                # Ek met metrikler
+               rikler
+                col5 col5, col6 = st, col6 = st.columns(2.columns(2)
+                
+)
+                
+                with col5                with col5:
+                    st:
+                    st.metric.metric(
+                        "Karl(
+                        "Karlı İşlemı İşlem Say Sayısısı",
+                        f"{results['ı",
+                        f"{results['winningwinning_trades']}"
+_trades']}"
+                    )
+                
+                with col6:
+                    profit_factor = results['profit                    )
+                
+                with col6:
+                    profit_factor_factor']
+                    pf_display = f"{profit_factor:.2 = results['profit_factor']
+                    pf_display = f"{profit_factor:.2ff}" if profit}" if profit_factor_factor != != float('inf') else "∞"
+                    st float('inf') else "∞"
+                    st.m.metric(
+                        "Profit Factor",
+                        pf_displayetric(
+                        "Profit Factor",
+                        pf_display
+                    )
+                
+                # Equity
                     )
                 
                 # Equity curve
-                if not results['equity_curve'].empty:
+ curve
+                if not results                if not results['equity_curve'].empty:
                     st.subheader("📈 Equity Curve")
-                    equity_fig = go.Figure()
                     
-                    equity_fig.add_trace(
-                        go.Scatter(
-                            x=results['equity_curve']['Date'],
-                            y=results['equity_curve']['Equity'],
-                            line=dict(color='blue'),
-                            name='Portföy Değeri'
-                        )
-                    )
+                    fig = go.Figure()
+                    fig.add['equity_curve'].empty:
+                    st.subheader("📈 Equity Curve")
                     
-                    equity_fig.add_hline(
-                        y=initial_capital,
-                        line_dash="dash",
+                    fig = go.Figure_trace(()
+                    fig.add_trace(go.Scatter(
+go.Scatter(
+                        x=results['equity                        x=results['equity_curve']['Date'],
+_curve']['Date'],
+                        y=                        y=results['equresults['equity_ity_curve']['Equitycurve']['Equity'],
+                        mode=''],
+                        mode='lines',
+                        namelines',
+                        name='Portfö='Portföy Değeri',
+                        line=dicty Değeri',
+                        line=dict(color='blue', width=2)
+(color='blue', width=2)
+                    ))
+                    
+                    fig.add                    ))
+                    
+                    fig.add_hline_hline(
+                        y=initial_capital, 
+                        line(
+                        y=initial_capital, 
+                        line_dash="_dash="dashdash", 
+                        line", 
                         line_color="red",
-                        annotation_text="Başlangıç Sermayesi"
+_color="red",
+                        annotation_text                        annotation_text="Baş="Başlangıç Sermayesi"
                     )
                     
-                    equity_fig.update_layout(
-                        height=400,
-                        showlegend=True,
-                        xaxis_title="Tarih",
-                        yaxis_title="Portföy Değeri (USD)"
+langıç Sermayesi"
                     )
                     
-                    st.plotly_chart(equity_fig, use_container_width=True)
+                    fig.update_layout(
+                                           fig.update_layout(
+                        title title="Portföy Performans="Portföy Performansıı",
+                        xaxis_title="",
+                        xaxis_title="TariTarih",
+h",
+                        yaxis_title="                        yaxis_title="PortföyPortföy Değeri (USD)",
+                        Değeri (USD)",
+                        height= height=400
+                    )
+400
+                    )
+                    
+                                       
+                    st.plotly_ch st.plotly_chart(fart(fig, use_containerig, use_container_width=True)
                 
-                # İşlem detayları
-                if results['trades']:
-                    st.subheader("📋 İşlem Detayları")
+_width=True)
+                
+                # İş                # İşlem detlem detayları
+               ayları
+                if results if results['trades']['trades']:
+                   :
+                    st.subheader("📋 st.subheader("📋 İş İşlem Detaylarılem Detayları")
                     
-                    trades_df = pd.DataFrame(results['trades'])
-                    # Sadece kapanan işlemleri göster
-                    closed_trades = trades_df[trades_df['exit_time'].notna()]
+")
                     
-                    if not closed_trades.empty:
-                        closed_trades['pnl_percent'] = (closed_trades['pnl'] / closed_trades['entry_capital']) * 100
+                    trades_df =                    trades_df = pd.DataFrame pd.DataFrame(results['trades(results['trades'])
+                    # Sadece'])
+                    # Sadece kapanan i kapanan işlemleri göşlemleri göster
+ster
+                    closed_trades                    closed_trades = trades_df = trades_df[trades_df[trades_df['status'] ==['status'] == 'CLOSED 'CLOSED']
+                    
+']
+                    
+                    if not closed                    if not closed_trades_trades.empty:
+                        # DataFrame'i dü.empty:
+                        # DataFrame'i düzenzenlele
+                        display_df = closed_trades[
+                        display_df = closed_trades[['entry['entry_time', 'exit_time', 'position', 'entry_time', 'exit_time', 'position', 'entry_price', 'exit_price', '_price', 'exit_price', 'entry_capital', 'entry_capital', 'pnl', 'pnl_perpnl', 'pnl_percent']]
+                        display_dfcent']]
+                        display_df = display = display_df.rename(_df.rename(columns={
+                           columns={
+                            'entry_time': 'Giriş Tarihi',
+                            'entry_time': 'Giriş Tarihi',
+                            'exit_time 'exit_time': '': 'Çıkış Tarihi',
+                            'Çıkış Tarihi',
+                            'position': 'Pozisposition': 'Pozisyonyon',
+                            'entry_price':',
+                            'entry_price': ' 'Giriş FiyatGiriş Fiyatı',
+                            'exit_priceı',
+                            'exit_price':': 'Çıkış F 'Çıkış Fiyatı',
+iyatı',
+                            '                            'entry_capital': 'İentry_capital':şlem Büyüklüğ 'İşlem Büyüklüü',
+                            'pnlğü',
+                            'pnl': 'Kar/Zarar ($': 'Kar/Zarar)',
+                            'pnl ($)',
+                            'pnl_percent': 'Kar/Z_percent': 'Kar/Zarar (%)'
+                        })
+arar (%)'
+                        })
                         
-                        # Renkli PNL sütunu
-                        def color_pnl(val):
-                            color = 'green' if val > 0 else 'red' if val < 0 else 'gray'
-                            return f'color: {color}'
+                                               
+                        # Renkli gö # Renkli göstersterim
+                        def colorim
+                        def color_p_pnl(val):
+                           nl(val):
+                            if ' if 'Kar/ZarKar/Zarar'ar' in val.name:
+                                if val > in val.name:
+                                if val > 0:
+                                    0:
+                                    return 'color: green'
+ return 'color: green'
+                                elif                                elif val < 0 val < 0:
+                                   :
+                                    return 'color: red'
+ return 'color: red'
+                            return                            return ''
                         
-                        styled_trades = closed_trades.style.format({
-                            'entry_price': '{:.2f}',
-                            'exit_price': '{:.2f}', 
-                            'entry_capital': '{:.2f}',
-                            'pnl': '{:.2f}',
-                            'pnl_percent': '{:.2f}%'
-                        }).applymap(color_pnl, subset=['pnl', 'pnl_percent'])
+                        ''
                         
-                        st.dataframe(styled_trades, use_container_width=True)
+                        styled_df = display_df.style.format styled_df = display_df.style.format({
+                           ({
+                            'Giriş Fiyatı': '{:.2f}',
+                            ' 'Giriş Fiyatı': '{:.2f}',
+                            'Çıkış Fiyatı': '{:.2f}Çıkış Fiyatı': '{:.2f}',
+                            'İş',
+                            'İşlem Bülem Büyüklüğüyüklüğü': '{:.2f}': '{:.2f}',
+',
+                            'Kar/Zar                            'Kar/Zararar ($)': '{:.2 ($)': '{:.2ff}',
+                            'Kar}',
+                            'Kar/Z/Zarar (%)': '{arar (%)': '{:.2:.2f}%'
+                       f}%'
+                        }).apply }).apply(color_pnl, subset(color_pnl, subset=['Kar/Zarar ($=['Kar/Zarar ($)', 'Kar/Z)', 'Kar/Zararar (%))'])
+                        
+                        st.dataar (%))'])
+                        
+                       frame(styled_df, use_container_width=True)
+                        
+                        st.dataframe(styled_df, use_container_width=True # İstatistikler
+                        st.subheader)
+                        
+                        # İstatistikler
+                        st("📈 İşlem İstatistikleri")
+                       .subheader("📈 İşlem İstatistikleri avg_profit = closed_t")
+                        avg_profit = closed_trades['pnl'].meanrades['pnl'].mean()
+                        max_profit = closed_t()
+                        max_profit = closed_trades['pnl'].rades['pnl'].max()
+                        max_loss = closed_tmax()
+                        max_loss = closedrades['pnl'].min()
+_trades['pnl'].                        
+                        stat_col1min()
+                        
+                        stat_col1, stat_col2, stat, stat_col2, stat_col3 = st.columns(3)
+                        with stat_col1:
+_col3 = st.columns(3)
+                        with stat_col1:
+                                                       st st.metric.metric("Ortalama Kar/Zar("Ortalama Kar/Zarar",ar", f"${avg_profit f"${avg_profit:.2f}")
+                        with:.2f}")
+                        with stat_col stat_col2:
+                            st.m2:
+                            st.metric("Maksimum Kar", fetric("Maksimum Kar", f"${max"${max_profit:.2f_profit:.2f}")
+                        with stat_col}")
+                        with stat_col3:
+                            st.metric3:
+                            st.metric("M("Maksimum Zararaksimum Zarar", f", f"${max_loss:.2f}")
+                        
+                    else"${max_loss:.2f}")
+                        
                     else:
-                        st.info("Kapanan işlem bulunamadı.")
+                        st.info:
+                        st.info("Kapanan işlem bulunamad("Kapanan işlem bulunamadı.")
+               ı.")
                 else:
-                    st.info("Hiç işlem yapılmadı.")
+                    st.info(" else:
+                    st.info("Hiç işlem yapıHiç işlem yaplmadı.")
                     
-            except Exception as e:
-                st.error(f"Simülasyon sırasında hata oluştu: {e}")
+            exceptılmadı.")
+                    
+            Exception as e:
+                st.error except Exception as e:
+               (f"Simülasyon s st.error(f"Simülasyon sırasında hata oırasında hata oluştu: {str(e)}luştu: {str")
     else:
-        st.error("Veri yüklenemedi. Lütfen önce kripto para ve tarih seçin.")
+        st(e)}")
+    else:
+.error("Veri yük        st.error("Veri yüklenemedi. Lütlenemedi. Lütfen önce kripto para vefen önce kripto tarih seçin.")
+
+ para ve tarih seçin.")
 
 # Bilgi
-st.markdown("---")
+st.mark# Bilgi
+st.markdown("down("---")
+st.info(""---")
 st.info("""
-**⚠️ Uyarı:** Bu simülasyon sadece eğitim amaçlıdır. Gerçek trading için kullanmayın. 
-Geçmiş performans gelecek sonuçların garantisi değildir.
+**"
+**⚠️⚠️ U Uyarı:** Bu simülasyon syarı:** Bu simülasyon sadeceadece eğitim eğitim amaçlıdır. Gerç amaçlıdır. Gerçek tradingek trading için kullanmay için kullanmayın.ın. 
+ 
+GeGeçmiş performans gelecek sonuçların garantisi değildir.
+çmiş performans gelecek sonuçların garantisi değildir.
 """)
