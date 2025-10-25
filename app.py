@@ -74,58 +74,6 @@ def _apply_cost(price, fee, slip, side, is_entry):
     else:
         return price - adj if is_entry else price + adj
 
-def generate_signal_at_bar(df_slice, params):
-    """
-    df_slice: t dahil (t'ye kadar). Sadece df_slice kullan; geleceğe bakma.
-    Return: None ya da {'type','entry','sl','tp1','tp2'}
-    """
-    try:
-        signals, _ = generate_trading_signals(
-            df_slice, 
-            params['support_zones'], 
-            params['resistance_zones'], 
-            ema_period=params['ema_period'], 
-            min_rr_ratio=params['min_rr_ratio']
-        )
-        
-        if not signals or signals[0]["type"] == "WAIT":
-            return None
-            
-        s = signals[0]
-        
-        if s['type'] == 'BUY':
-            # LONG için: SL < Entry < TP1 < TP2
-            tp1 = s.get('tp1', s['entry'] + (s['entry'] - s['sl']) * params['min_rr_ratio'] * 0.5)
-            tp2 = s.get('tp2', s['entry'] + (s['entry'] - s['sl']) * params['min_rr_ratio'])
-            tp1, tp2 = sorted([tp1, tp2])
-            
-            return {
-                'type': 'LONG', 
-                'sl': s['sl'], 
-                'tp1': tp1, 
-                'tp2': tp2,
-                'entry_price': s['entry']
-            }
-            
-        elif s['type'] == 'SELL':
-            # SHORT için: TP2 < TP1 < Entry < SL
-            tp1 = s.get('tp1', s['entry'] - (s['sl'] - s['entry']) * params['min_rr_ratio'] * 0.5)
-            tp2 = s.get('tp2', s['entry'] - (s['sl'] - s['entry']) * params['min_rr_ratio'])
-            tp1, tp2 = sorted([tp1, tp2], reverse=True)
-            
-            return {
-                'type': 'SHORT', 
-                'sl': s['sl'], 
-                'tp1': tp1, 
-                'tp2': tp2,
-                'entry_price': s['entry']
-            }
-            
-    except Exception as e:
-        return None
-    
-    return None
-
 # =============================================================================
 # OPTİMİZE EDİLMİŞ BACKTEST SİSTEMİ
 # =============================================================================
@@ -1151,20 +1099,22 @@ def main():
             else:
                 st.error("Backtest için veri yüklenemedi!")
 
-    # Detaylı bant listesi
+    # Detaylı bant listesi - DEĞİŞKENLERİ DOĞRU ŞEKİLDE KULLAN
     with st.expander("📋 Tüm Bant Detayları"):
         col1, col2 = st.columns(2)
         
         with col1:
             st.write("**Destek Bantları**")
-            for i, zone in enumerate(all_support):
+            # all_support değişkenini doğru şekilde kullan
+            for i, zone in enumerate(support_zones):  # support_zones kullan
                 status_icon = "🟢" if zone.status == "valid" else "🟠" if zone.status == "fake" else "⚫"
                 st.write(f"{status_icon} S{i+1}: {format_price(zone.low)}-{format_price(zone.high)}")
                 st.caption(f"Skor: {zone.score}, Temas: {zone.touches}")
         
         with col2:
             st.write("**Direnç Bantları**")
-            for i, zone in enumerate(all_resistance):
+            # all_resistance değişkenini doğru şekilde kullan
+            for i, zone in enumerate(resistance_zones):  # resistance_zones kullan
                 status_icon = "🔴" if zone.status == "valid" else "🟠" if zone.status == "fake" else "⚫"
                 st.write(f"{status_icon} R{i+1}: {format_price(zone.low)}-{format_price(zone.high)}")
                 st.caption(f"Skor: {zone.score}, Temas: {zone.touches}")
