@@ -28,7 +28,7 @@ class MLTradingStrategy:
         self.is_trained = False
         
     def create_advanced_features(self, df):
-        """ML için gelişmiş özellikler oluştur - HATA DÜZELTİLDİ"""
+        """ML için gelişmiş özellikler oluştur"""
         try:
             features = pd.DataFrame(index=df.index)
             
@@ -39,19 +39,19 @@ class MLTradingStrategy:
             features['volume_ratio'] = df['Volume_Ratio']
             features['momentum'] = df['Momentum']
             
-            # Fiyat-based özellikler - TEK TEK EKLE
+            # Fiyat-based özellikler
             features['price_trend_5'] = df['Close'].pct_change(5)
             features['price_trend_10'] = df['Close'].pct_change(10)
             features['volatility_20'] = df['Close'].rolling(20).std()
             
-            # ATR hesapla - TEK SÜTUN OLARAK
+            # ATR hesapla
             high_low = df['High'] - df['Low']
             high_close = np.abs(df['High'] - df['Close'].shift())
             low_close = np.abs(df['Low'] - df['Close'].shift())
             true_range = np.maximum(np.maximum(high_low, high_close), low_close)
             features['atr'] = true_range.rolling(14).mean() / df['Close']
             
-            # Support/resistance benzeri özellikler - TEK TEK
+            # Support/resistance benzeri özellikler
             features['high_20_ratio'] = (df['High'].rolling(20).max() / df['Close']) - 1
             features['low_20_ratio'] = (df['Low'].rolling(20).min() / df['Close']) - 1
             
@@ -59,7 +59,7 @@ class MLTradingStrategy:
             features['volume_trend'] = df['Volume'].pct_change(5)
             features['volume_volatility'] = df['Volume'].rolling(10).std()
             
-            # Mean reversion özellikleri - TEK SÜTUN
+            # Mean reversion özellikleri
             features['price_vs_ema'] = (df['Close'] - df['EMA_Short']) / df['EMA_Short']
             features['rsi_deviation'] = (df['RSI'] - 50) / 50
             
@@ -69,7 +69,7 @@ class MLTradingStrategy:
             return pd.DataFrame(index=df.index)
     
     def create_target_variable(self, df, horizon=3, threshold=0.015):
-        """Hedef değişken oluştur - HATA DÜZELTİLDİ"""
+        """Hedef değişken oluştur"""
         try:
             # Horizon gün sonraki getiri
             future_return = (df['Close'].shift(-horizon) / df['Close']) - 1
@@ -100,7 +100,7 @@ class MLTradingStrategy:
             
             if len(features) < 100:
                 st.warning("Eğitim için yeterli veri yok")
-                return 0, ""
+                return 0, pd.DataFrame()
             
             # Train-test split (zaman serisi uyumlu)
             split_idx = int(len(features) * (1 - test_size))
@@ -516,5 +516,337 @@ class CryptoStrategy:
         except:
             return pd.DataFrame({'Date': [], 'Equity': []})
 
-# Streamlit arayüzü - sidebar ve diğer kodlar aynı kalacak
-# ... (sidebar ve geri kalan kod buraya gelecek) ...
+# Sidebar - Tüm Ayarlar
+st.sidebar.header("⚙️ Simülasyon Ayarları")
+
+# Kripto seçimi
+crypto_symbols = {
+    "Bitcoin (BTC-USD)": "BTC-USD",
+    "Ethereum (ETH-USD)": "ETH-USD", 
+    "Binance Coin (BNB-USD)": "BNB-USD",
+    "Cardano (ADA-USD)": "ADA-USD",
+    "Solana (SOL-USD)": "SOL-USD",
+    "Ripple (XRP-USD)": "XRP-USD",
+    "Dogecoin (DOGE-USD)": "DOGE-USD"
+}
+
+selected_crypto = st.sidebar.selectbox(
+    "Kripto Para Seçin:",
+    list(crypto_symbols.keys())
+)
+
+symbol = crypto_symbols[selected_crypto]
+
+# ML Ayarları
+st.sidebar.subheader("🤖 ML Ayarları")
+enable_ml = st.sidebar.checkbox("Machine Learning Modelini Etkinleştir", value=True)
+
+# Tarih ayarları
+st.sidebar.subheader("📅 Tarih Ayarları")
+end_date = st.sidebar.date_input(
+    "Simülasyon Bitiş Tarihi:",
+    datetime.date.today() - datetime.timedelta(days=1)
+)
+
+period_days = st.sidebar.slider(
+    "Simülasyon Süresi (Gün):",
+    min_value=90,
+    max_value=365,
+    value=180,
+    step=30
+)
+
+start_date = end_date - datetime.timedelta(days=period_days)
+
+st.sidebar.info(f"Simülasyon Aralığı: {start_date.strftime('%d.%m.%Y')} - {end_date.strftime('%d.%m.%Y')}")
+
+# Sermaye ayarları
+st.sidebar.subheader("💰 Sermaye Ayarları")
+initial_capital = st.sidebar.number_input(
+    "Başlangıç Sermayesi (USD):",
+    min_value=1000,
+    max_value=100000,
+    value=10000,
+    step=1000
+)
+
+position_size = st.sidebar.slider(
+    "İşlem Büyüklüğü (%):",
+    min_value=10,
+    max_value=100,
+    value=100,
+    step=5
+)
+
+# Gösterge ayarları
+st.sidebar.subheader("📊 Teknik Gösterge Ayarları")
+rsi_period = st.sidebar.slider("RSI Periyodu:", 5, 30, 14)
+ema_short = st.sidebar.slider("Kısa EMA Periyodu:", 5, 20, 9)
+ema_long = st.sidebar.slider("Uzun EMA Periyodu:", 15, 50, 21)
+macd_fast = st.sidebar.slider("MACD Hızlı Periyot:", 8, 20, 12)
+macd_slow = st.sidebar.slider("MACD Yavaş Periyot:", 20, 35, 26)
+macd_signal = st.sidebar.slider("MACD Sinyal Periyotu:", 5, 15, 9)
+
+# Sinyal ayarları
+st.sidebar.subheader("🎯 Sinyal Ayarları")
+rsi_oversold = st.sidebar.slider("RSI Oversold Seviyesi:", 20, 45, 40)
+rsi_overbought = st.sidebar.slider("RSI Overbought Seviyesi:", 55, 80, 60)
+volume_threshold = st.sidebar.slider("Volume Eşik Değeri:", 0.5, 3.0, 1.2, 0.1)
+signal_threshold = st.sidebar.slider("Sinyal Eşik Değeri:", 0.5, 3.0, 1.5, 0.1)
+
+# Risk yönetimi ayarları
+st.sidebar.subheader("🛡️ Risk Yönetimi")
+stop_loss = st.sidebar.slider("Stop Loss (%):", 1, 10, 3)
+take_profit = st.sidebar.slider("Take Profit (%):", 1, 20, 6)
+max_profit = st.sidebar.slider("Maksimum Kar (%):", 5, 30, 15)
+
+# Ana içerik
+st.subheader("🎯 Gelişmiş Strateji Bilgileri")
+
+if enable_ml:
+    st.success("🤖 **ML DESTEKLİ MODE AKTİF** - Random Forest ile akıllı sinyal tahmini")
+else:
+    st.info("📊 **GELENEKSEL MODE** - Sadece teknik göstergeler")
+
+st.markdown(f"""
+**Strateji Detayları:**
+- RSI ({rsi_period}) + EMA ({ema_short}/{ema_long}) + MACD ({macd_fast}/{macd_slow}/{macd_signal})
+- Volume ve Momentum onayı
+- {f"🤖 ML Model entegrasyonu" if enable_ml else "📊 Geleneksel analiz"}
+
+**Risk Yönetimi:**
+- %{stop_loss} Stop Loss
+- %{take_profit} Take Profit  
+- %{position_size} İşlem Büyüklüğü
+- Maksimum %{max_profit} kar sınırı
+""")
+
+# Veri yükleme
+@st.cache_data
+def load_data(symbol, start_date, end_date):
+    try:
+        data = yf.download(symbol, start=start_date, end=end_date, progress=False)
+        if data.empty:
+            return None
+        return data
+    except Exception as e:
+        st.error(f"Veri yüklenirken hata oluştu: {e}")
+        return None
+
+# Simülasyon butonu
+st.markdown("---")
+st.subheader("🚀 Backtest Simülasyonu")
+
+data = load_data(symbol, start_date, end_date)
+
+if data is not None and not data.empty:
+    try:
+        first_price = float(data['Close'].iloc[0])
+        last_price = float(data['Close'].iloc[-1])
+        price_change = ((last_price - first_price) / first_price) * 100
+        data_count = len(data)
+        
+        st.success(f"✅ {selected_crypto} verisi yüklendi: {data_count} günlük veri")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("İlk Fiyat", f"${first_price:.2f}")
+        with col2:
+            st.metric("Son Fiyat", f"${last_price:.2f}")
+        with col3:
+            st.metric("Dönem Değişim", f"{price_change:+.2f}%")
+        with col4:
+            st.metric("Veri Sayısı", data_count)
+    except Exception as e:
+        st.error(f"Veri gösterilirken hata: {e}")
+else:
+    st.warning("⚠️ Veri yüklenemedi. Lütfen tarih aralığını kontrol edin.")
+
+# Simülasyon butonu
+if st.button("🎯 Backtest Simülasyonunu Başlat", type="primary", use_container_width=True):
+    if data is not None and not data.empty:
+        with st.spinner("Simülasyon çalışıyor..."):
+            start_time = time.time()
+            
+            # İlerleme çubuğu
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            try:
+                # Stratejiyi çalıştır
+                strategy = CryptoStrategy(initial_capital, enable_ml=enable_ml)
+                
+                # Göstergeleri hesapla
+                status_text.text("Teknik göstergeler hesaplanıyor...")
+                data_with_indicators = strategy.calculate_advanced_indicators(
+                    data, rsi_period, ema_short, ema_long, macd_fast, macd_slow, macd_signal
+                )
+                
+                # Sinyalleri oluştur
+                status_text.text("Sinyal sistemi oluşturuluyor...")
+                data_with_signals = strategy.generate_advanced_signals(
+                    data_with_indicators, rsi_oversold, rsi_overbought, volume_threshold, signal_threshold
+                )
+                
+                # Backtest yap
+                status_text.text("Strateji backtest ediliyor...")
+                results = strategy.backtest_advanced_strategy(
+                    data_with_signals, progress_bar, position_size, stop_loss, take_profit, max_profit
+                )
+                
+                end_time = time.time()
+                calculation_time = end_time - start_time
+                
+                # İlerleme çubuğunu tamamla
+                progress_bar.progress(1.0)
+                status_text.empty()
+                
+                st.success(f"✅ Simülasyon {calculation_time:.2f} saniyede tamamlandı!")
+                
+                # Sonuçları göster
+                st.subheader("📊 Simülasyon Sonuçları")
+                
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric(
+                        "Başlangıç Sermayesi",
+                        f"${results['initial_capital']:,.2f}"
+                    )
+                
+                with col2:
+                    st.metric(
+                        "Son Sermaye", 
+                        f"${results['final_capital']:,.2f}",
+                        delta=f"{results['total_return']:+.2f}%"
+                    )
+                
+                with col3:
+                    st.metric(
+                        "Toplam İşlem",
+                        f"{results['total_trades']}",
+                        delta=f"+{results['total_trades']}" if results['total_trades'] > 0 else "0"
+                    )
+                
+                with col4:
+                    st.metric(
+                        "Win Rate",
+                        f"{results['win_rate']:.1f}%"
+                    )
+                
+                # Ek metrikler
+                col5, col6, col7, col8 = st.columns(4)
+                
+                with col5:
+                    st.metric(
+                        "Karlı İşlem Sayısı",
+                        f"{results['winning_trades']}"
+                    )
+                
+                with col6:
+                    profit_factor = results['profit_factor']
+                    pf_display = f"{profit_factor:.2f}" if profit_factor != float('inf') else "∞"
+                    st.metric(
+                        "Profit Factor",
+                        pf_display
+                    )
+                
+                with col7:
+                    st.metric(
+                        "Sharpe Ratio",
+                        f"{results['sharpe_ratio']:.2f}"
+                    )
+                
+                with col8:
+                    st.metric(
+                        "Max Drawdown",
+                        f"{results['max_drawdown']:.1f}%"
+                    )
+                
+                # Equity curve
+                if not results['equity_curve'].empty:
+                    st.subheader("📈 Portföy Performansı")
+                    
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=results['equity_curve']['Date'],
+                        y=results['equity_curve']['Equity'],
+                        mode='lines+markers',
+                        name='Portföy Değeri',
+                        line=dict(color='blue', width=3),
+                        marker=dict(size=4)
+                    ))
+                    
+                    # Başlangıç sermayesi çizgisi
+                    fig.add_hline(
+                        y=initial_capital, 
+                        line_dash="dash", 
+                        line_color="red",
+                        annotation_text="Başlangıç Sermayesi"
+                    )
+                    
+                    fig.update_layout(
+                        title="Portföy Performans Grafiği",
+                        xaxis_title="Tarih",
+                        yaxis_title="Portföy Değeri (USD)",
+                        height=500,
+                        showlegend=True
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                # İşlem detayları
+                if results['trades']:
+                    closed_trades = [t for t in results['trades'] if t['status'] == 'CLOSED']
+                    
+                    if closed_trades:
+                        st.subheader("📋 İşlem Detayları")
+                        
+                        trades_df = pd.DataFrame(closed_trades)
+                        
+                        # Renk fonksiyonu
+                        def color_pnl(val):
+                            color = 'color: green' if val > 0 else 'color: red' if val < 0 else 'color: black'
+                            return color
+                        
+                        # DataFrame'i düzenle
+                        display_df = trades_df[['entry_time', 'exit_time', 'position', 'entry_price', 'exit_price', 'entry_capital', 'pnl', 'pnl_percent']]
+                        display_df = display_df.rename(columns={
+                            'entry_time': 'Giriş Tarihi',
+                            'exit_time': 'Çıkış Tarihi',
+                            'position': 'Pozisyon',
+                            'entry_price': 'Giriş Fiyatı',
+                            'exit_price': 'Çıkış Fiyatı',
+                            'entry_capital': 'İşlem Büyüklüğü',
+                            'pnl': 'Kar/Zarar ($)',
+                            'pnl_percent': 'Kar/Zarar (%)'
+                        })
+                        
+                        # Sayısal sütunları formatla
+                        styled_df = display_df.style.format({
+                            'Giriş Fiyatı': '{:.2f}',
+                            'Çıkış Fiyatı': '{:.2f}',
+                            'İşlem Büyüklüğü': '{:.2f}',
+                            'Kar/Zarar ($)': '{:.2f}',
+                            'Kar/Zarar (%)': '{:.2f}%'
+                        }).applymap(color_pnl, subset=['Kar/Zarar ($)', 'Kar/Zarar (%)'])
+                        
+                        st.dataframe(styled_df, use_container_width=True, height=400)
+                        
+            except Exception as e:
+                st.error(f"Simülasyon sırasında hata: {str(e)}")
+    else:
+        st.error("Veri yüklenemedi. Lütfen önce kripto para ve tarih seçin.")
+
+# Bilgi
+st.markdown("---")
+st.info("""
+**⚠️ Uyarı:** Bu simülasyon sadece eğitim amaçlıdır. Gerçek trading için kullanmayın. 
+Geçmiş performans gelecek sonuçların garantisi değildir.
+
+**🤖 ML Entegrasyonu:** 
+- Random Forest classifier ile sinyal tahmini
+- 15+ teknik ve istatistiksel özellik
+- Otomatik pattern tanıma
+- Feature importance analizi
+""")
