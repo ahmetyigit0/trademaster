@@ -320,16 +320,16 @@ class DeepSeekTradingStrategy:
         total_high_conviction = high_conviction_mask.sum()
         total_medium_conviction = medium_conviction_mask.sum()
         
-        st.info(f"**🎯 High Conviction Signals:** {total_high_conviction}")
-        st.info(f"**📊 Medium Conviction Signals:** {total_medium_conviction}")
-                
-        return df
-        
+            st.info(f"**🎯 High Conviction Signals:** {total_high_conviction}")
+            st.info(f"**📊 Medium Conviction Signals:** {total_medium_conviction}")
+                    
+            return df
+            
         except Exception as e:
-        st.error(f"Signal generation error: {e}")
-        df['Signal'] = 0
-        df['Final_Signal'] = 0
-        return df
+            st.error(f"Signal generation error: {e}")
+            df['Signal'] = 0
+            df['Final_Signal'] = 0
+            return df
     
     def backtest_deepseek_strategy(self, df: pd.DataFrame, progress_bar,
                                  position_size: float, stop_loss: float, 
