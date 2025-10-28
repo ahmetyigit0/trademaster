@@ -559,12 +559,18 @@ if data is not None and not data.empty:
     last_price = float(close_prices.iloc[-1])
     price_change = ((last_price - first_price) / first_price) * 100
     
-    # SAFE VOLATILITY CALCULATION
+    # SAFE VOLATILITY CALCULATION - FIXED
     price_changes = close_prices.pct_change().dropna()
-    if len(price_changes) > 0 and not price_changes.isna().all():
-        volatility = price_changes.std() * np.sqrt(365 * 24) * 100
-        if not np.isnan(volatility):
-            volatility_display = f"{volatility:.1f}%"
+    
+    # Use .empty instead of len() > 0 for pandas Series
+    if not price_changes.empty:
+        # Check if all values are NaN using proper pandas method
+        if not price_changes.isna().all():
+            volatility = price_changes.std() * np.sqrt(365 * 24) * 100
+            if not np.isnan(volatility):
+                volatility_display = f"{volatility:.1f}%"
+            else:
+                volatility_display = "N/A"
         else:
             volatility_display = "N/A"
     else:
