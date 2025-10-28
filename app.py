@@ -27,6 +27,7 @@ class DeepSeekInspiredStrategy:
         self.performance_history = []
         
     def calculate_advanced_indicators(self, df):
+        """DeepSeek'in kullandığı gelişmiş göstergeler"""
         df = df.copy()
         
         # Multi-timeframe RSI
@@ -41,12 +42,15 @@ class DeepSeekInspiredStrategy:
         df['MOMENTUM_4H'] = df['Close'].pct_change(4)
         df['MOMENTUM_1D'] = df['Close'].pct_change(24)
         
-        # Volume analizi - FIXED
-        df['VOLUME_SMA_20'] = df['Volume'].rolling(20).mean()
-        df['VOLUME_RATIO'] = df['Volume'] / df['VOLUME_SMA_20'].replace(0, 1)
+        # Volume analizi - TAMAMEN YENİ YAKLAŞIM
+        df['VOLUME_SMA_20'] = df['Volume'].rolling(20).mean().fillna(0)
+        # VOLUME_RATIO'yu basitleştir - Series olarak hesapla
+        volume_ratio_series = df['Volume'] / df['VOLUME_SMA_20'].replace(0, 1)
+        df['VOLUME_RATIO'] = volume_ratio_series
+        
         df['VOLUME_RSI'] = self.calculate_rsi(df['Volume'], 14)
         
-        # Support/Resistance seviyeleri - FIXED
+        # Support/Resistance seviyeleri
         df['RESISTANCE_20'] = df['High'].rolling(20).max()
         df['SUPPORT_20'] = df['Low'].rolling(20).min()
         df['DISTANCE_TO_RESISTANCE'] = (df['RESISTANCE_20'] - df['Close']) / df['Close']
@@ -60,7 +64,7 @@ class DeepSeekInspiredStrategy:
         df['ADX'] = self.calculate_adx(df)
         
         return df.fillna(method='bfill').fillna(0)
-
+    
     def calculate_rsi(self, prices, window=14):
         """RSI hesapla"""
         delta = prices.diff()
@@ -73,7 +77,7 @@ class DeepSeekInspiredStrategy:
         rs = avg_gain / avg_loss.replace(0, np.nan)
         rs = rs.fillna(1)
         return 100 - (100 / (1 + rs))
-
+    
     def calculate_atr(self, df, period=14):
         """Average True Range"""
         high_low = df['High'] - df['Low']
@@ -82,11 +86,10 @@ class DeepSeekInspiredStrategy:
         
         true_range = np.maximum(high_low, np.maximum(high_close, low_close))
         return true_range.rolling(period).mean().fillna(0)
-
+    
     def calculate_adx(self, df, period=14):
         """Average Directional Index"""
         try:
-            # Basitleştirilmiş ADX hesaplama
             up_move = df['High'].diff()
             down_move = -df['Low'].diff()
             
@@ -101,8 +104,84 @@ class DeepSeekInspiredStrategy:
             return dx.rolling(period).mean().fillna(0)
         except:
             return pd.Series(0, index=df.index)
-
-    # EKSİK METODU EKLEDİM - train_model
+    
+    def create_deepseek_features(self, df):
+        """DeepSeek'in çoklu onay sistemine dayalı özellikler"""
+        try:
+            features = pd.DataFrame(index=df.index)
+            
+            # 1. MOMENTUM ONAYI
+            features['MOMENTUM_CONFIRMATION'] = (
+                (df['RSI_6'] < 35) & 
+                (df['MOMENTUM_4H'] > 0) &
+                (df['EMA_8'] > df['EMA_21'])
+            ).astype(int)
+            
+            # 2. VOLUME ONAYI
+            features['VOLUME_CONFIRMATION'] = (
+                (df['VOLUME_RATIO'] > 1.2) &
+                (df['VOLUME_RSI'] > 40)
+            ).astype(int)
+            
+            # 3. TREND ONAYI
+            features['TREND_CONFIRMATION'] = (
+                (df['EMA_8'] > df['EMA_21']) &
+                (df['EMA_21'] > df['EMA_50']) &
+                (df['ADX'] > 25)
+            ).astype(int)
+            
+            # 4. SUPPORT/RESISTANCE ONAYI
+            features['SR_CONFIRMATION'] = (
+                (df['DISTANCE_TO_SUPPORT'] < 0.02) |
+                (df['DISTANCE_TO_RESISTANCE'] > 0.05)
+            ).astype(int)
+            
+            # 5. VOLATILITY ADJUSTMENT
+            volatility_threshold = df['VOLATILITY_20'].quantile(0.7) if len(df) > 0 else 0.1
+            features['LOW_VOLATILITY_ZONE'] = (
+                df['VOLATILITY_20'] < volatility_threshold
+            ).astype(int)
+            
+            # Toplam onay sayısı
+            features['TOTAL_CONFIRMATIONS'] = (
+                features['MOMENTUM_CONFIRMATION'] +
+                features['VOLUME_CONFIRMATION'] + 
+                features['TREND_CONFIRMATION'] +
+                features['SR_CONFIRMATION'] +
+                features['LOW_VOLATILITY_ZONE']
+            )
+            
+            # Sayısal özellikler
+            features['RSI_COMBO'] = (df['RSI_6'] + df['RSI_14']) / 2
+            features['EMA_STRENGTH'] = (df['EMA_8'] - df['EMA_50']) / df['Close'].replace(0, 1)
+            features['VOLUME_MOMENTUM'] = df['VOLUME_RATIO'] * df['MOMENTUM_4H']
+            
+            return features.fillna(0).replace([np.inf, -np.inf], 0)
+            
+        except Exception as e:
+            # Fallback features
+            features = pd.DataFrame(index=df.index)
+            features['TOTAL_CONFIRMATIONS'] = 0
+            features['RSI_COMBO'] = 50
+            return features.fillna(0)
+    
+    def create_conviction_target(self, df, horizon=4):
+        """DeepSeek'in yüksek güven hedefi"""
+        try:
+            future_return = df['Close'].shift(-horizon) / df['Close'] - 1
+            
+            target = np.zeros(len(df))
+            target[future_return > 0.015] = 2    # Yüksek güven LONG
+            target[(future_return > 0.008) & (future_return <= 0.015)] = 1  # Orta güven LONG
+            target[future_return < -0.015] = -2   # Yüksek güven SHORT
+            target[(future_return < -0.008) & (future_return >= -0.015)] = -1  # Orta güven SHORT
+            
+            return pd.Series(target, index=df.index, dtype=int)
+            
+        except Exception as e:
+            return pd.Series(np.zeros(len(df)), index=df.index, dtype=int)
+    
+    # EKSİK METOD - train_model
     def train_model(self, df):
         """DeepSeek tarzı güven tabanlı model"""
         try:
@@ -151,91 +230,8 @@ class DeepSeekInspiredStrategy:
             return accuracy, feature_importance
             
         except Exception as e:
-            st.error(f"Training error: {e}")
             return 0, None
-
-    def create_deepseek_features(self, df):
-        """DeepSeek'in çoklu onay sistemine dayalı özellikler"""
-        try:
-            features = pd.DataFrame(index=df.index)
-            
-            # 1. MOMENTUM ONAYI (DeepSeek'in agresif girişleri)
-            features['MOMENTUM_CONFIRMATION'] = (
-                (df['RSI_6'] < 35) & 
-                (df['MOMENTUM_4H'] > 0) &
-                (df['EMA_8'] > df['EMA_21'])
-            ).astype(int)
-            
-            # 2. VOLUME ONAYI
-            features['VOLUME_CONFIRMATION'] = (
-                (df['VOLUME_RATIO'] > 1.2) &
-                (df['VOLUME_RSI'] > 40)
-            ).astype(int)
-            
-            # 3. TREND ONAYI
-            features['TREND_CONFIRMATION'] = (
-                (df['EMA_8'] > df['EMA_21']) &
-                (df['EMA_21'] > df['EMA_50']) &
-                (df['ADX'] > 25)
-            ).astype(int)
-            
-            # 4. SUPPORT/RESISTANCE ONAYI
-            features['SR_CONFIRMATION'] = (
-                (df['DISTANCE_TO_SUPPORT'] < 0.02) |
-                (df['DISTANCE_TO_RESISTANCE'] > 0.05)
-            ).astype(int)
-            
-            # 5. VOLATILITY ADJUSTMENT
-            volatility_threshold = df['VOLATILITY_20'].quantile(0.7) if len(df) > 0 else 0.1
-            features['LOW_VOLATILITY_ZONE'] = (
-                df['VOLATILITY_20'] < volatility_threshold
-            ).astype(int)
-            
-            # Toplam onay sayısı (DeepSeek'in çoklu sinyal sistemi)
-            features['TOTAL_CONFIRMATIONS'] = (
-                features['MOMENTUM_CONFIRMATION'] +
-                features['VOLUME_CONFIRMATION'] + 
-                features['TREND_CONFIRMATION'] +
-                features['SR_CONFIRMATION'] +
-                features['LOW_VOLATILITY_ZONE']
-            )
-            
-            # Sayısal özellikler
-            features['RSI_COMBO'] = (df['RSI_6'] + df['RSI_14']) / 2
-            features['EMA_STRENGTH'] = (df['EMA_8'] - df['EMA_50']) / df['Close'].replace(0, 1)
-            features['VOLUME_MOMENTUM'] = df['VOLUME_RATIO'] * df['MOMENTUM_4H']
-            
-            return features.fillna(0).replace([np.inf, -np.inf], 0)
-            
-        except Exception as e:
-            st.error(f"Feature creation error: {e}")
-            # Fallback features
-            features = pd.DataFrame(index=df.index)
-            features['TOTAL_CONFIRMATIONS'] = 0
-            features['RSI_COMBO'] = 50
-            return features
-
-    def create_conviction_target(self, df, horizon=4):
-        """DeepSeek'in yüksek güven hedefi"""
-        try:
-            future_return = df['Close'].shift(-horizon) / df['Close'] - 1
-            
-            # DeepSeek'in agresif ama kontrollü yaklaşımı
-            target = np.zeros(len(df))
-            
-            # Yüksek güven LONG (çoklu onay gerektirir)
-            target[future_return > 0.015] = 2    # Yüksek güven LONG
-            target[(future_return > 0.008) & (future_return <= 0.015)] = 1  # Orta güven LONG
-            
-            # Yüksek güven SHORT  
-            target[future_return < -0.015] = -2   # Yüksek güven SHORT
-            target[(future_return < -0.008) & (future_return >= -0.015)] = -1  # Orta güven SHORT
-            
-            return pd.Series(target, index=df.index, dtype=int)
-            
-        except Exception as e:
-            return pd.Series(np.zeros(len(df)), index=df.index, dtype=int)
-
+    
     def generate_conviction_signals(self, df, current_confirmation_threshold=3):
         """DeepSeek'in güven tabanlı sinyal sistemi"""
         try:
@@ -246,13 +242,11 @@ class DeepSeekInspiredStrategy:
             features = self.create_deepseek_features(df_with_indicators)
             features = features.fillna(0)
             
-            # Model tahminleri
             predictions = self.model.predict(features)
             
-            # Onay sayısına göre filtrele (DeepSeek'in çoklu onay sistemi)
+            # Onay sayısına göre filtrele
             confirmation_filter = features['TOTAL_CONFIRMATIONS'] >= current_confirmation_threshold
             
-            # Final sinyaller
             final_signals = np.zeros(len(df))
             final_signals[confirmation_filter] = predictions[confirmation_filter]
             
