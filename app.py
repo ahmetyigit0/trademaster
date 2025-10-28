@@ -322,7 +322,7 @@ class DeepSeekTradingStrategy:
         
             st.info(f"**🎯 High Conviction Signals:** {total_high_conviction}")
             st.info(f"**📊 Medium Conviction Signals:** {total_medium_conviction}")
-                    
+            
             return df
             
         except Exception as e:
