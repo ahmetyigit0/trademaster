@@ -42,7 +42,7 @@ class DeepSeekInspiredStrategy:
         df['MOMENTUM_4H'] = df['Close'] / df['Close'].shift(4) - 1
         df['MOMENTUM_1D'] = df['Close'] / df['Close'].shift(24) - 1
         
-        def calculate_advanced_indicators(self, df):
+       def calculate_advanced_indicators(self, df):
     """DeepSeek'in kullandığı gelişmiş göstergeler"""
     df = df.copy()
     
@@ -77,28 +77,6 @@ class DeepSeekInspiredStrategy:
     df['ADX'] = self.calculate_adx(df)
     
     return df.fillna(method='bfill').fillna(0)
-    
-    def calculate_rsi(self, prices, window=14):
-        """RSI hesapla"""
-        delta = prices.diff()
-        gain = (delta.where(delta > 0, 0)).fillna(0)
-        loss = (-delta.where(delta < 0, 0)).fillna(0)
-        
-        avg_gain = gain.rolling(window=window, min_periods=1).mean()
-        avg_loss = loss.rolling(window=window, min_periods=1).mean()
-        
-        rs = avg_gain / avg_loss.replace(0, np.nan)
-        rs = rs.fillna(1)
-        return 100 - (100 / (1 + rs))
-    
-    def calculate_atr(self, df, period=14):
-        """Average True Range"""
-        high_low = df['High'] - df['Low']
-        high_close = np.abs(df['High'] - df['Close'].shift())
-        low_close = np.abs(df['Low'] - df['Close'].shift())
-        
-        true_range = np.maximum(high_low, np.maximum(high_close, low_close))
-        return true_range.rolling(period).mean().fillna(0)
     
     def calculate_adx(self, df, period=14):
         """Average Directional Index"""
