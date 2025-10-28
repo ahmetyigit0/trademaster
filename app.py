@@ -43,9 +43,9 @@ class MLTradingStrategy:
             return features
             
         except Exception as e:
-            # Hata durumunda boş DataFrame dönme, basit özelliklerle devam et
+            # Hata durumunda basit özelliklerle devam et
             features = pd.DataFrame(index=df.index)
-            features['rsi'] = 50  # Default değer
+            features['rsi'] = 50
             features['ema_cross'] = 0
             features['volume_ratio'] = 1
             return features
@@ -53,22 +53,19 @@ class MLTradingStrategy:
     def create_target_variable(self, df, horizon=2):
         """Basit hedef değişken oluştur"""
         try:
-            # Çok basit: 2 gün sonra fiyat artışı
-            future_prices = df['Close'].shift(-horizon)
-            current_prices = df['Close']
-            
             target = np.zeros(len(df))
             
             for i in range(len(df) - horizon):
-                if (i + horizon) < len(df):
-                    future_price = future_prices.iloc[i + horizon]
-                    current_price = current_prices.iloc[i]
+                future_idx = i + horizon
+                if future_idx < len(df):
+                    current_price = df['Close'].iloc[i]
+                    future_price = df['Close'].iloc[future_idx]
                     
-                    if pd.notna(future_price) and pd.notna(current_price) and current_price > 0:
+                    if pd.notna(current_price) and pd.notna(future_price) and current_price > 0:
                         change = (future_price - current_price) / current_price
-                        if change > 0.01:  # %1'den fazla artış
+                        if change > 0.02:  # %2'den fazla artış
                             target[i] = 1
-                        elif change < -0.01:  # %1'den fazla düşüş
+                        elif change < -0.02:  # %2'den fazla düşüş
                             target[i] = -1
             
             return pd.Series(target, index=df.index, dtype=int)
@@ -87,6 +84,11 @@ class MLTradingStrategy:
             target = target.fillna(0)
             
             if len(features) < 20:
+                return 0, pd.DataFrame()
+            
+            # Sınıf dağılımını kontrol et
+            unique_classes = target.unique()
+            if len(unique_classes) < 2:
                 return 0, pd.DataFrame()
             
             # Basit split
@@ -145,19 +147,23 @@ class CryptoStrategy:
         self.ml_strategy = MLTradingStrategy() if enable_ml else None
         
     def calculate_advanced_indicators(self, df: pd.DataFrame, rsi_period: int, ema_short: int, ema_long: int) -> pd.DataFrame:
-        """Teknik göstergeleri hesapla"""
+        """Teknik göstergeleri hesapla - TAMAMEN DÜZELTİLDİ"""
         try:
             df = df.copy()
             
-            # RSI
-            delta = df['Close'].diff().fillna(0)
-            gain = np.where(delta > 0, delta, 0)
-            loss = np.where(delta < 0, -delta, 0)
+            # RSI - TAMAMEN DÜZELTİLDİ
+            delta = df['Close'].diff()
+            gain = delta.where(delta > 0, 0)
+            loss = -delta.where(delta < 0, 0)
             
-            avg_gain = pd.Series(gain).rolling(window=rsi_period, min_periods=1).mean()
-            avg_loss = pd.Series(loss).rolling(window=rsi_period, min_periods=1).mean()
+            # Pandas Series kullan - numpy array değil
+            avg_gain = gain.rolling(window=rsi_period, min_periods=1).mean()
+            avg_loss = loss.rolling(window=rsi_period, min_periods=1).mean()
             
-            rs = avg_gain / np.where(avg_loss == 0, 1, avg_loss)
+            # RS hesapla - güvenli
+            rs = avg_gain / avg_loss.replace(0, np.nan)  # Sıfırları NaN yap
+            rs = rs.fillna(1)  # NaN'leri 1 yap (nötr)
+            
             rsi = 100 - (100 / (1 + rs))
             
             # EMA'lar
@@ -166,7 +172,7 @@ class CryptoStrategy:
             
             # Volume
             volume_sma = df['Volume'].rolling(window=20, min_periods=1).mean()
-            volume_ratio = df['Volume'] / np.where(volume_sma == 0, 1, volume_sma)
+            volume_ratio = df['Volume'] / volume_sma.replace(0, 1)  # Sıfır bölme hatasını önle
             
             # Sütunları ata
             df['RSI'] = rsi.fillna(50)
@@ -178,6 +184,11 @@ class CryptoStrategy:
             
         except Exception as e:
             st.error(f"Göstergeler hesaplanırken hata: {e}")
+            # Hata durumunda basit değerlerle devam et
+            df['RSI'] = 50
+            df['EMA_Short'] = df['Close']
+            df['EMA_Long'] = df['Close']
+            df['Volume_Ratio'] = 1
             return df
     
     def generate_advanced_signals(self, df: pd.DataFrame, rsi_oversold: float, rsi_overbought: float, signal_threshold: float) -> pd.DataFrame:
@@ -237,6 +248,10 @@ class CryptoStrategy:
                         
                 except:
                     continue
+            
+            # Sinyal istatistikleri
+            total_signals = (df['Signal'] != 0).sum()
+            st.info(f"Üretilen toplam sinyal: {total_signals}")
                     
             return df
             
@@ -438,20 +453,14 @@ if enable_ml:
 else:
     st.info("📊 **GELENEKSEL** - Saf teknik analiz")
 
-# Veri yükleme - ÇOK DAHA GÜVENLİ
+# Veri yükleme
 @st.cache_data
 def load_data(symbol, start_date, end_date):
     try:
         data = yf.download(symbol, start=start_date, end=end_date, progress=False)
         if data is None or data.empty:
             return None
-            
-        # Veri yapısını kontrol et
-        if 'Close' not in data.columns:
-            return None
-            
         return data
-        
     except Exception as e:
         st.error(f"Veri yüklenirken hata: {e}")
         return None
@@ -464,7 +473,7 @@ data = load_data(symbol, start_date, end_date)
 
 if data is not None and not data.empty:
     try:
-        # ÇOK GÜVENLİ veri erişimi
+        # GÜVENLİ veri erişimi
         close_prices = data['Close']
         if len(close_prices) > 0:
             first_price = float(close_prices.iloc[0])
