@@ -11,30 +11,29 @@ from sklearn.metrics import accuracy_score
 
 # Sayfa ayarı
 st.set_page_config(
-    page_title="🚀 ASTRO KAR Strateji - %300 Hedef",
+    page_title="🚀 Yüksek Getirili Kripto Strateji",
     page_icon="💎",
     layout="wide"
 )
 
 # Başlık
-st.title("💎 ASTRO KAR Strateji - 3 Ayda %300 Hedef")
+st.title("💎 Yüksek Getirili Kripto Strateji - %300 Hedef")
 st.markdown("---")
 
-# YÜKSEK RİSK ML Strateji sınıfı
-class AstroProfitMLStrategy:
+# OPTİMİZE ML Strateji sınıfı
+class HighReturnMLStrategy:
     def __init__(self):
         self.model = None
         self.feature_columns = None
         self.is_trained = False
         
-    def create_aggresive_features(self, df):
-        """Aşırı agresif özellikler"""
+    def create_features(self, df):
+        """Özellikler oluştur"""
         try:
             features = pd.DataFrame(index=df.index)
             
-            # AŞIRI KISA VADELİ göstergeler
-            # RSI - çok kısa
-            for period in [2, 3, 4]:
+            # RSI
+            for period in [4, 6, 8]:
                 delta = df['Close'].diff()
                 gain = delta.where(delta > 0, 0)
                 loss = -delta.where(delta < 0, 0)
@@ -44,82 +43,67 @@ class AstroProfitMLStrategy:
                 rs = rs.fillna(1)
                 features[f'rsi_{period}h'] = 100 - (100 / (1 + rs))
             
-            # EMA - çok hızlı
-            for span in [2, 3, 5]:
+            # EMA
+            for span in [4, 8, 12]:
                 features[f'ema_{span}h'] = df['Close'].ewm(span=span, adjust=False).mean()
             
-            features['ema_cross_aggressive'] = (features['ema_2h'] - features['ema_5h']) / df['Close']
+            features['ema_cross'] = (features['ema_4h'] - features['ema_12h']) / df['Close']
             
-            # MOMENTUM - aşırı kısa
-            for shift in [1, 2]:
-                features[f'momentum_{shift}h'] = df['Close'] - df['Close'].shift(shift)
-                features[f'roc_{shift}h'] = (df['Close'] / df['Close'].shift(shift) - 1) * 100
+            # Momentum
+            features['momentum_2h'] = df['Close'] - df['Close'].shift(2)
+            features['momentum_6h'] = df['Close'] - df['Close'].shift(6)
             
-            # VOLUME - aşırı hassas
-            volume_ema_4h = df['Volume'].ewm(span=4).mean()
-            features['volume_spike'] = df['Volume'] / volume_ema_4h.replace(0, 1)
-            features['volume_acceleration'] = features['volume_spike'].pct_change()
-            
-            # PRICE ACTION - ultra kısa
-            features['price_acceleration_1h'] = df['Close'].pct_change(1)
-            features['price_acceleration_2h'] = df['Close'].pct_change(2)
-            features['high_low_pressure'] = (df['High'] - df['Low']) / df['Close'] * 100
-            
-            # VOLATILITY - anlık
-            features['instant_volatility'] = df['Close'].rolling(4).std() / df['Close'] * 100
-            features['volatility_expansion'] = features['instant_volatility'].pct_change()
+            # Volume
+            volume_ema_8h = df['Volume'].ewm(span=8).mean()
+            features['volume_ratio'] = df['Volume'] / volume_ema_8h.replace(0, 1)
             
             return features.fillna(0).replace([np.inf, -np.inf], 0)
             
         except Exception as e:
             features = pd.DataFrame(index=df.index)
-            features['rsi_3h'] = 50
-            features['ema_cross_aggressive'] = 0
-            features['volume_spike'] = 1
+            features['rsi_6h'] = 50
+            features['ema_cross'] = 0
+            features['volume_ratio'] = 1
             return features
     
-    def create_aggresive_target(self, df, lookahead=1):  # SADECE 1 SAAT!
-        """Aşırı agresif hedef"""
+    def create_target(self, df, lookahead=3):
+        """Hedef değişken"""
         try:
-            # 1 saat sonraki getiri - çok riskli!
             future_return = df['Close'].shift(-lookahead) / df['Close'] - 1
             
             target = np.zeros(len(df))
+            bullish_threshold = 0.008  # %0.8
+            bearish_threshold = -0.008
             
-            # ÇOK YÜKSEK THRESHOLD'lar - büyük hareketleri yakala
-            bullish_threshold = 0.015  # %1.5 - ÇOK YÜKSEK
-            bearish_threshold = -0.015 # %1.5 - ÇOK YÜKSEK
-            
-            target[future_return > bullish_threshold] = 1      # GÜÇLÜ AL
-            target[future_return < bearish_threshold] = -1     # GÜÇLÜ SAT
+            target[future_return > bullish_threshold] = 1
+            target[future_return < bearish_threshold] = -1
             
             return pd.Series(target, index=df.index, dtype=int)
             
         except Exception as e:
             return pd.Series(np.zeros(len(df)), index=df.index, dtype=int)
     
-    def train_aggresive_model(self, df):
-        """Aşırı agresif model"""
+    def train_model(self, df):
+        """Model eğit"""
         try:
-            features = self.create_aggresive_features(df)
-            target = self.create_aggresive_target(df)
+            features = self.create_features(df)
+            target = self.create_target(df)
             
             features = features.fillna(0)
             target = target.fillna(0)
             
-            if len(features) < 50:
+            if len(features) < 100:
                 return 0, pd.DataFrame()
             
-            split_idx = int(len(features) * 0.75)
+            split_idx = int(len(features) * 0.8)
             X_train, X_test = features.iloc[:split_idx], features.iloc[split_idx:]
             y_train, y_test = target.iloc[:split_idx], target.iloc[split_idx:]
             
-            # DAHA AGRESİF MODEL
             self.model = RandomForestClassifier(
-                n_estimators=150,
-                max_depth=20,
-                min_samples_split=5,
-                min_samples_leaf=2,
+                n_estimators=100,
+                max_depth=15,
+                min_samples_split=8,
+                min_samples_leaf=4,
                 random_state=42
             )
             
@@ -140,13 +124,13 @@ class AstroProfitMLStrategy:
         except Exception as e:
             return 0, pd.DataFrame()
     
-    def predict_aggresive_signals(self, df):
-        """Aşırı agresif sinyal"""
+    def predict_signals(self, df):
+        """Sinyal tahmini"""
         try:
             if not self.is_trained or self.model is None:
                 return np.zeros(len(df))
             
-            features = self.create_aggresive_features(df)
+            features = self.create_features(df)
             features = features.fillna(0)
             predictions = self.model.predict(features)
             
@@ -155,21 +139,21 @@ class AstroProfitMLStrategy:
         except Exception as e:
             return np.zeros(len(df))
 
-# AŞIRI AGRESİF Ana Strateji
-class AstroProfitStrategy:
+# OPTİMİZE Ana Strateji
+class HighReturnStrategy:
     def __init__(self, initial_capital: float = 10000, enable_ml: bool = True):
         self.initial_capital = initial_capital
         self.results = {}
         self.enable_ml = enable_ml
-        self.ml_strategy = AstroProfitMLStrategy() if enable_ml else None
+        self.ml_strategy = HighReturnMLStrategy() if enable_ml else None
         
-    def calculate_aggresive_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Aşırı agresif göstergeler"""
+    def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Göstergeleri hesapla"""
         try:
             df = df.copy()
             
-            # ULTRA KISA VADELİ RSI
-            for period in [2, 3, 4]:
+            # RSI
+            for period in [4, 6, 8]:
                 delta = df['Close'].diff()
                 gain = delta.where(delta > 0, 0)
                 loss = -delta.where(delta < 0, 0)
@@ -179,109 +163,109 @@ class AstroProfitStrategy:
                 rs = rs.fillna(1)
                 df[f'RSI_{period}h'] = 100 - (100 / (1 + rs))
             
-            # ULTRA HIZLI EMA
-            for span in [2, 3, 5, 8]:
+            # EMA
+            for span in [4, 8, 12]:
                 df[f'EMA_{span}h'] = df['Close'].ewm(span=span, adjust=False).mean()
             
-            # ULTRA HIZLI MOMENTUM
-            for shift in [1, 2]:
-                df[f'Momentum_{shift}h'] = (df['Close'] / df['Close'].shift(shift) - 1) * 100
+            # Momentum
+            for shift in [2, 4, 6]:
+                df[f'Momentum_{shift}h'] = df['Close'] - df['Close'].shift(shift)
             
-            # VOLUME SPİKE
-            volume_ema_4h = df['Volume'].ewm(span=4).mean()
-            df['Volume_Spike'] = df['Volume'] / volume_ema_4h.replace(0, 1)
-            
-            # ANLIK VOLATILITE
-            df['Volatility_4h'] = df['Close'].rolling(4).std() / df['Close'] * 100
+            # Volume
+            volume_ema_8h = df['Volume'].ewm(span=8).mean()
+            df['Volume_Ratio'] = df['Volume'] / volume_ema_8h.replace(0, 1)
             
             return df.fillna(0)
             
         except Exception as e:
-            df['RSI_3h'] = 50
-            df['EMA_3h'] = df['Close']
-            df['Volume_Spike'] = 1
+            st.error(f"Göstergeler hesaplanırken hata: {e}")
+            df['RSI_6h'] = 50
+            df['EMA_4h'] = df['Close']
+            df['Volume_Ratio'] = 1
             return df
     
-    def generate_aggresive_signals(self, df: pd.DataFrame) -> pd.DataFrame:
-        """AŞIRI AGRESİF sinyal üretimi"""
+    def generate_signals(self, df: pd.DataFrame, signal_threshold: float = 1.5) -> pd.DataFrame:
+        """Yüksek getirili sinyal üret"""
         try:
             df = df.copy()
             df['Signal'] = 0
             
-            # ML SİNYALLERİ
+            # ML sinyalleri
             ml_signals = np.zeros(len(df))
             ml_accuracy = 0
             
             if self.enable_ml and self.ml_strategy:
-                ml_accuracy, feature_importance = self.ml_strategy.train_aggresive_model(df)
-                if ml_accuracy > 0.40:  # Daha düşük eşik - daha fazla sinyal
-                    ml_signals = self.ml_strategy.predict_aggresive_signals(df)
-                    st.success(f"🤖 AGRESİF ML Doğruluğu: %{ml_accuracy:.1f}")
+                ml_accuracy, feature_importance = self.ml_strategy.train_model(df)
+                if ml_accuracy > 0.45:
+                    ml_signals = self.ml_strategy.predict_signals(df)
+                    st.success(f"🤖 ML Doğruluğu: %{ml_accuracy:.1f}")
             
-            # AŞIRI AGRESİF SİNYAL SİSTEMİ
-            for i in range(6, len(df)):  # Sadece 6 saat bekle
+            # OPTİMİZE SİNYAL SİSTEMİ
+            for i in range(12, len(df)):
                 try:
-                    # ULTRA KISA VADELİ GÖSTERGELER
-                    rsi_2h = float(df['RSI_2h'].iloc[i])
-                    rsi_3h = float(df['RSI_3h'].iloc[i])
-                    ema_2h = float(df['EMA_2h'].iloc[i])
-                    ema_3h = float(df['EMA_3h'].iloc[i])
-                    ema_5h = float(df['EMA_5h'].iloc[i])
-                    momentum_1h = float(df['Momentum_1h'].iloc[i])
-                    volume_spike = float(df['Volume_Spike'].iloc[i])
-                    volatility = float(df['Volatility_4h'].iloc[i])
+                    rsi_4h = float(df['RSI_4h'].iloc[i])
+                    rsi_6h = float(df['RSI_6h'].iloc[i])
+                    ema_4h = float(df['EMA_4h'].iloc[i])
+                    ema_8h = float(df['EMA_8h'].iloc[i])
+                    ema_12h = float(df['EMA_12h'].iloc[i])
+                    momentum_2h = float(df['Momentum_2h'].iloc[i])
+                    volume_ratio = float(df['Volume_Ratio'].iloc[i])
                     
                     long_signals = 0
                     short_signals = 0
                     
-                    # AŞIRI AGRESİF LONG KOŞULLARI
-                    if rsi_2h < 25: long_signals += 2.0  # AŞIRI OVERSOLD
-                    if rsi_3h < 30: long_signals += 1.5
+                    # GÜÇLÜ LONG KOŞULLARI
+                    if rsi_4h < 25 and rsi_6h < 30:  # Aşırı oversold
+                        long_signals += 2.0
+                    elif rsi_4h < 30:
+                        long_signals += 1.0
                     
-                    if ema_2h > ema_3h and ema_3h > ema_5h: long_signals += 2.0
-                    elif ema_2h > ema_5h: long_signals += 1.0
+                    if ema_4h > ema_8h and ema_8h > ema_12h:  # Güçlü uptrend
+                        long_signals += 2.0
+                    elif ema_4h > ema_12h:
+                        long_signals += 1.0
                     
-                    if momentum_1h > 1.0: long_signals += 1.5  # GÜÇLÜ MOMENTUM
-                    elif momentum_1h > 0.5: long_signals += 1.0
+                    if momentum_2h > 0:
+                        long_signals += 0.5
                     
-                    if volume_spike > 2.0: long_signals += 1.5  # AŞIRI VOLUME
-                    elif volume_spike > 1.5: long_signals += 1.0
+                    if volume_ratio > 1.8:  # Yüksek volume
+                        long_signals += 1.0
                     
-                    if volatility > 3.0: long_signals += 1.0  # YÜKSEK VOLATILITE
+                    # GÜÇLÜ SHORT KOŞULLARI
+                    if rsi_4h > 75 and rsi_6h > 70:  # Aşırı overbought
+                        short_signals += 2.0
+                    elif rsi_4h > 70:
+                        short_signals += 1.0
                     
-                    # AŞIRI AGRESİF SHORT KOŞULLARI
-                    if rsi_2h > 75: short_signals += 2.0  # AŞIRI OVERBOUGHT
-                    if rsi_3h > 70: short_signals += 1.5
+                    if ema_4h < ema_8h and ema_8h < ema_12h:  # Güçlü downtrend
+                        short_signals += 2.0
+                    elif ema_4h < ema_12h:
+                        short_signals += 1.0
                     
-                    if ema_2h < ema_3h and ema_3h < ema_5h: short_signals += 2.0
-                    elif ema_2h < ema_5h: short_signals += 1.0
+                    if momentum_2h < 0:
+                        short_signals += 0.5
                     
-                    if momentum_1h < -1.0: short_signals += 1.5
-                    elif momentum_1h < -0.5: short_signals += 1.0
+                    if volume_ratio > 1.8:
+                        short_signals += 1.0
                     
-                    if volume_spike > 2.0: short_signals += 1.5
-                    elif volume_spike > 1.5: short_signals += 1.0
-                    
-                    if volatility > 3.0: short_signals += 1.0
-                    
-                    # ML GÜÇLENDİRME - ÇOK AĞIRLIKLI
+                    # ML GÜÇLENDİRME
                     ml_signal = ml_signals[i]
                     if ml_signal == 1:
-                        long_signals += 3.0  # ÇOK YÜKSEK AĞIRLIK
+                        long_signals += 1.5
                     elif ml_signal == -1:
-                        short_signals += 3.0
+                        short_signals += 1.5
                     
-                    # AŞIRI AGRESİF SİNYAL - ÇOK DÜŞÜK EŞİK
-                    if long_signals >= 1.5:  # ÇOK DÜŞÜK EŞİK
+                    # SİNYAL
+                    if long_signals >= signal_threshold:
                         df.loc[df.index[i], 'Signal'] = 1
-                    elif short_signals >= 1.5:
+                    elif short_signals >= signal_threshold:
                         df.loc[df.index[i], 'Signal'] = -1
                         
                 except:
                     continue
             
             total_signals = (df['Signal'] != 0).sum()
-            st.success(f"🚀 **AŞIRI AGRESİF Sinyal Sayısı:** {total_signals}")
+            st.info(f"**Sinyal Sayısı:** {total_signals}")
                     
             return df
             
@@ -290,10 +274,10 @@ class AstroProfitStrategy:
             df['Signal'] = 0
             return df
     
-    def backtest_aggresive_strategy(self, df: pd.DataFrame, progress_bar, 
-                                  position_size: float, stop_loss: float, 
-                                  take_profit: float, max_hold_hours: int = 4) -> dict:  # SADECE 4 SAAT!
-        """AŞIRI AGRESİF backtest"""
+    def backtest_strategy(self, df: pd.DataFrame, progress_bar, 
+                         position_size: float, stop_loss: float, 
+                         take_profit: float, max_hold_hours: int = 6) -> dict:
+        """Backtest"""
         try:
             capital = self.initial_capital
             position = 0
@@ -305,14 +289,14 @@ class AstroProfitStrategy:
             winning_trades = 0
             
             for i in range(len(df)):
-                if i % 50 == 0:  # Daha sık progress
+                if i % 100 == 0:
                     progress_bar.progress(min(i / len(df), 1.0))
                 
                 current_time = df.index[i]
                 current_price = float(df['Close'].iloc[i])
                 signal = int(df['Signal'].iloc[i])
                 
-                # AŞIRI AGRESİF POZİSYON AÇMA
+                # POZİSYON AÇ
                 if position == 0 and signal != 0:
                     position = signal
                     entry_price = current_price
@@ -334,7 +318,7 @@ class AstroProfitStrategy:
                         'status': 'OPEN'
                     })
                 
-                # AŞIRI AGRESİF POZİSYON TAKİP
+                # POZİSYON TAKİP
                 elif position != 0:
                     current_trade = trades[-1]
                     hold_hours = (current_time - entry_time).total_seconds() / 3600
@@ -342,13 +326,12 @@ class AstroProfitStrategy:
                     if position == 1:  # Long
                         pnl_percent = (current_price - entry_price) / entry_price
                         
-                        # AŞIRI AGRESİF KAPATMA
                         close_condition = (
                             pnl_percent <= -(stop_loss / 100) or
                             pnl_percent >= (take_profit / 100) or
                             signal == -1 or
                             hold_hours >= max_hold_hours or
-                            pnl_percent >= 0.08  # ÇOK YÜKSEK KAR - %8
+                            pnl_percent >= 0.06  # %6 kar
                         )
                         
                         if close_condition:
@@ -378,7 +361,7 @@ class AstroProfitStrategy:
                             pnl_percent >= (take_profit / 100) or
                             signal == 1 or
                             hold_hours >= max_hold_hours or
-                            pnl_percent >= 0.08  # ÇOK YÜKSEK KAR - %8
+                            pnl_percent >= 0.06  # %6 kar
                         )
                         
                         if close_condition:
@@ -461,57 +444,60 @@ class AstroProfitStrategy:
                 'trades': []
             }
 
-# Streamlit arayüzü - AŞIRI AGRESİF
-st.sidebar.header("💎 ASTRO KAR Ayarları - %300 Hedef")
+# Streamlit arayüzü
+st.sidebar.header("💎 Yüksek Getiri Ayarları")
 
 crypto_symbols = {
     "Bitcoin (BTC-USD)": "BTC-USD",
     "Ethereum (ETH-USD)": "ETH-USD", 
     "Solana (SOL-USD)": "SOL-USD",
-    "Cardano (ADA-USD)": "ADA-USD",
-    "Dogecoin (DOGE-USD)": "DOGE-USD"  # Yüksek volatilite
+    "Cardano (ADA-USD)": "ADA-USD"
 }
 
 selected_crypto = st.sidebar.selectbox("Kripto Para Seçin:", list(crypto_symbols.keys()))
 symbol = crypto_symbols[selected_crypto]
 
-# AŞIRI AGRESİF AYARLAR
-st.sidebar.subheader("⚡ AŞIRI AGRESİF Ayarlar")
-timeframe = st.sidebar.selectbox("Zaman Periyodu:", ["1h", "30m"], index=0)  # 30m eklendi!
+# AYARLAR
+st.sidebar.subheader("⚡ Zaman Ayarları")
+timeframe = st.sidebar.selectbox("Zaman Periyodu:", ["1h", "2h"], index=0)
 
 end_date = st.sidebar.date_input("Bitiş Tarihi:", datetime.date.today() - datetime.timedelta(days=1))
 period_months = st.sidebar.slider("Veri Süresi (Ay):", 1, 6, 3, 1)
 start_date = end_date - datetime.timedelta(days=period_months*30)
 
-st.sidebar.subheader("🎯 AŞIRI AGRESİF Risk")
+st.sidebar.subheader("🎯 Risk Ayarları")
 initial_capital = st.sidebar.number_input("Başlangıç Sermayesi (USD):", 1000, 100000, 10000, 1000)
-position_size = st.sidebar.slider("İşlem Büyüklüğü (%):", 50, 100, 80, 5)  # %80 - ÇOK YÜKSEK!
+position_size = st.sidebar.slider("İşlem Büyüklüğü (%):", 50, 100, 70, 5)
 
-st.sidebar.subheader("💥 AŞIRI AGRESİF Stop & Take Profit")
-stop_loss = st.sidebar.slider("Stop Loss (%):", 2.0, 10.0, 5.0, 0.5)  # YÜKSEK STOP
-take_profit = st.sidebar.slider("Take Profit (%):", 5.0, 20.0, 12.0, 0.5)  # ÇOK YÜKSEK TAKE PROFIT
-max_hold_hours = st.sidebar.slider("Maksimum Bekleme (Saat):", 1, 6, 4, 1)  # ÇOK KISA
+st.sidebar.subheader("🛡️ Stop & Take Profit")
+stop_loss = st.sidebar.slider("Stop Loss (%):", 2.0, 8.0, 3.0, 0.5)
+take_profit = st.sidebar.slider("Take Profit (%):", 4.0, 15.0, 8.0, 0.5)
+max_hold_hours = st.sidebar.slider("Maksimum Bekleme (Saat):", 4, 12, 6, 1)
 
-st.sidebar.subheader("🤖 AŞIRI AGRESİF ML")
-enable_ml = st.sidebar.checkbox("AŞIRI AGRESİF ML'yi Etkinleştir", value=True)
+st.sidebar.subheader("🤖 ML Ayarları")
+enable_ml = st.sidebar.checkbox("ML Modelini Etkinleştir", value=True)
 
 # Ana içerik
-st.subheader("💎 ASTRO KAR Strateji - 3 Ayda %300 Hedef")
+st.subheader("💎 Yüksek Getirili Strateji - %300 Hedef")
 
-st.warning("""
-**🚨 ULTRA YÜKSEK RİSK UYARISI!**
-- **Position Size:** %80 (ÇOK YÜKSEK RİSK)
-- **Stop Loss:** %5 (YÜKSEK)  
-- **Take Profit:** %12 (ÇOK YÜKSEK)
-- **Maksimum Bekleme:** 4 saat (ÇOK KISA)
+st.success("""
+**🎯 STRATEJİ ÖZELLİKLERİ:**
+- **Position Size:** %70 (Yüksek)
+- **Take Profit:** %8 (İyi)  
+- **Stop Loss:** %3 (Orta)
+- **Maksimum Bekleme:** 6 saat (Kısa)
 - **Hedef:** 3 ayda %300+ getiri
 
-**⚠️ BU STRATEJİ ÇOK YÜKSEK RİSK İÇERİR! POTANSİYEL %100 KAYIP RİSKİ!**
+**📈 OPTİMİZASYONLAR:**
+- Aşırı oversold/overbought seviyeleri
+- Güçlü trend onayı
+- Yüksek volume filtresi
+- ML destekli sinyaller
 """)
 
-# Veri yükleme
+# DÜZELTİLMİŞ veri yükleme
 @st.cache_data
-def load_aggresive_data(symbol, start_date, end_date, timeframe='1h'):
+def load_data(symbol, start_date, end_date, timeframe='1h'):
     try:
         data = yf.download(symbol, start=start_date, end=end_date, interval=timeframe, progress=False)
         if data is None or data.empty:
@@ -524,44 +510,56 @@ def load_aggresive_data(symbol, start_date, end_date, timeframe='1h'):
         st.error(f"Veri yüklenirken hata: {e}")
         return None
 
-# Veri gösterimi
+# DÜZELTİLMİŞ veri gösterimi
 st.markdown("---")
 st.subheader("📊 Veri Yükleme")
 
-data = load_aggresive_data(symbol, start_date, end_date, timeframe)
+data = load_data(symbol, start_date, end_date, timeframe)
 
 if data is not None and not data.empty:
-    close_prices = data['Close']
-    first_price = float(close_prices.iloc[0])
-    last_price = float(close_prices.iloc[-1])
-    price_change = ((last_price - first_price) / first_price) * 100
-    volatility = close_prices.pct_change().std() * np.sqrt(365 * 24) * 100
-    
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("İlk Fiyat", f"${first_price:.2f}")
-    with col2:
-        st.metric("Son Fiyat", f"${last_price:.2f}")
-    with col3:
-        st.metric("Değişim", f"{price_change:+.2f}%")
-    with col4:
-        st.metric("Volatilite", f"{volatility:.1f}%")
+    try:
+        close_prices = data['Close']
+        first_price = float(close_prices.iloc[0])
+        last_price = float(close_prices.iloc[-1])
+        price_change = ((last_price - first_price) / first_price) * 100
+        
+        # DÜZELTME: volatility hesaplamasını güvenli hale getir
+        price_changes = close_prices.pct_change().dropna()
+        if len(price_changes) > 0:
+            volatility = price_changes.std() * np.sqrt(365 * 24) * 100
+        else:
+            volatility = 0
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("İlk Fiyat", f"${first_price:.2f}")
+        with col2:
+            st.metric("Son Fiyat", f"${last_price:.2f}")
+        with col3:
+            st.metric("Değişim", f"{price_change:+.2f}%")
+        with col4:
+            st.metric("Volatilite", f"{volatility:.1f}%" if volatility > 0 else "Hesaplanamadı")
+            
+    except Exception as e:
+        st.error(f"Veri gösterilirken hata: {e}")
+else:
+    st.warning("⚠️ Veri yüklenemedi.")
 
 # SİMÜLASYON BUTONU
 st.markdown("---")
-st.subheader("🚀 ASTRO KAR Backtest Başlat")
+st.subheader("🚀 Backtest Başlat")
 
-if st.button("💥 ASTRO KAR BACKTEST BAŞLAT", type="primary", use_container_width=True):
+if st.button("💎 BACKTEST BAŞLAT", type="primary", use_container_width=True):
     if data is not None and not data.empty:
-        with st.spinner("AŞIRI AGRESİF backtest çalışıyor..."):
+        with st.spinner("Backtest çalışıyor..."):
             start_time = time.time()
             progress_bar = st.progress(0)
             
             try:
-                strategy = AstroProfitStrategy(initial_capital, enable_ml=enable_ml)
-                data_with_indicators = strategy.calculate_aggresive_indicators(data)
-                data_with_signals = strategy.generate_aggresive_signals(data_with_indicators)
-                results = strategy.backtest_aggresive_strategy(
+                strategy = HighReturnStrategy(initial_capital, enable_ml=enable_ml)
+                data_with_indicators = strategy.calculate_indicators(data)
+                data_with_signals = strategy.generate_signals(data_with_indicators)
+                results = strategy.backtest_strategy(
                     data_with_signals, progress_bar, position_size, stop_loss, take_profit, max_hold_hours
                 )
                 
@@ -571,7 +569,7 @@ if st.button("💥 ASTRO KAR BACKTEST BAŞLAT", type="primary", use_container_wi
                 st.success(f"✅ Backtest {end_time - start_time:.1f} saniyede tamamlandı!")
                 
                 # SONUÇLAR
-                st.subheader("📈 ASTRO KAR Sonuçları")
+                st.subheader("📈 Backtest Sonuçları")
                 
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
@@ -584,24 +582,23 @@ if st.button("💥 ASTRO KAR BACKTEST BAŞLAT", type="primary", use_container_wi
                 with col4:
                     st.metric("İşlem Sayısı", results['total_trades'])
                 
-                # PERFORMANS DEĞERLENDİRME
+                # PERFORMANS
                 if results['total_return'] >= 300:
-                    st.success("🎉🎉🎉 HEDEFE ULAŞILDI! 3 AYDA %300+ KAR! 🎉🎉🎉")
+                    st.success("🎉🎉🎉 HEDEFE ULAŞILDI! %300+ KAR! 🎉🎉🎉")
                     st.balloons()
                 elif results['total_return'] >= 200:
-                    st.success("🎉 MÜKEMMEL! %200+ KAR - HEDEFE YAKINSINIZ!")
+                    st.success("🎉 MÜKEMMEL! %200+ KAR!")
                     st.balloons()
                 elif results['total_return'] >= 100:
-                    st.success("📈 ÇOK İYİ! %100+ KAR - HEDEF MÜMKÜN!")
+                    st.success("📈 ÇOK İYİ! %100+ KAR!")
                 elif results['total_return'] >= 50:
-                    st.info("✅ İYİ! %50+ KAR - DEVAM EDİN!")
+                    st.info("✅ İYİ! %50+ KAR")
                 elif results['total_return'] > 0:
-                    st.warning("⚠️ DÜŞÜK KAR - AYARLARI DEĞİŞTİRİN")
+                    st.warning("⚠️ DÜŞÜK KAR")
                 else:
-                    st.error("💥 KAYIP! - STRATEJİ YENİDEN GÖZDEN GEÇİRİLMELİ")
+                    st.error("💥 KAYIP!")
                 
-                # Detaylar
-                st.info(f"**Profit Factor:** {results['profit_factor']:.2f} | **Karlı İşlem:** {results['winning_trades']}")
+                st.info(f"**Profit Factor:** {results['profit_factor']:.2f}")
                     
             except Exception as e:
                 st.error(f"Backtest sırasında hata: {str(e)}")
@@ -609,16 +606,10 @@ if st.button("💥 ASTRO KAR BACKTEST BAŞLAT", type="primary", use_container_wi
         st.error("Veri yüklenemedi!")
 
 st.markdown("---")
-st.error("""
-**🚨 ÖNEMLİ UYARILAR:**
-1. **Bu strateji ÇOK YÜKSEK RİSK içerir**
-2. **%100 kayıp riski bulunmaktadır**
-3. **Sadece deneyimli trader'lar için**
-4. **Gerçek parayla asla test etmeyin**
-5. **Küçük pozisyonlarla başlayın**
-
-**💎 TAVSİYELER:**
-- **Solana, Dogecoin gibi yüksek volatilite coin'lerde daha iyi sonuç verebilir**
-- **30m timeframe daha fazla işlem üretebilir**
-- **ML her zaman aktif olmalı**
+st.info("""
+**💡 TAVSİYELER:**
+- **Solana gibi yüksek volatilite coin'lerde deneyin**
+- **ML her zaman aktif olsun**
+- **2h timeframe daha iyi sonuç verebilir**
+- **3 aylık veri ile başlayın**
 """)
