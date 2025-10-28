@@ -20,7 +20,7 @@ st.set_page_config(
 st.title("🚀 Yüksek Frekanslı Kripto Strateji Simülasyonu")
 st.markdown("---")
 
-# YÜKSEK FREKANS ML Strateji sınıfı
+# DÜZELTİLMİŞ YÜKSEK FREKANS ML Strateji sınıfı
 class HighFrequencyMLStrategy:
     def __init__(self):
         self.model = None
@@ -28,58 +28,72 @@ class HighFrequencyMLStrategy:
         self.is_trained = False
         
     def create_high_freq_features(self, df):
-        """Yüksek frekanslı özellikler oluştur"""
+        """Yüksek frekanslı özellikler oluştur - TAMAMEN DÜZELTİLDİ"""
         try:
             features = pd.DataFrame(index=df.index)
             
-            # Kısa vadeli teknik göstergeler (1-4 saat)
+            # TEK TEK sütun ekle - DataFrame atama hatasını önle
             # RSI - kısa periyot
             delta = df['Close'].diff()
             gain = delta.where(delta > 0, 0)
             loss = -delta.where(delta < 0, 0)
-            avg_gain = gain.rolling(window=6, min_periods=1).mean()  # 6 saat
+            avg_gain = gain.rolling(window=6, min_periods=1).mean()
             avg_loss = loss.rolling(window=6, min_periods=1).mean()
             rs = avg_gain / avg_loss.replace(0, np.nan)
             rs = rs.fillna(1)
             features['rsi_6h'] = 100 - (100 / (1 + rs))
             
-            # EMA'lar - çok kısa
-            features['ema_4h'] = df['Close'].ewm(span=4, adjust=False).mean()
-            features['ema_12h'] = df['Close'].ewm(span=12, adjust=False).mean()
-            features['ema_cross'] = (features['ema_4h'] - features['ema_12h']) / df['Close']
+            # EMA'lar - TEK TEK
+            ema_4h = df['Close'].ewm(span=4, adjust=False).mean()
+            ema_12h = df['Close'].ewm(span=12, adjust=False).mean()
+            features['ema_4h'] = ema_4h
+            features['ema_12h'] = ema_12h
+            features['ema_cross'] = (ema_4h - ema_12h) / df['Close']  # TEK SÜTUN
             
-            # Momentum - kısa vadeli
+            # Momentum - TEK TEK
             features['momentum_2h'] = df['Close'] - df['Close'].shift(2)
             features['momentum_6h'] = df['Close'] - df['Close'].shift(6)
             
-            # Volatilite
+            # Volatilite - TEK TEK
             features['volatility_8h'] = df['Close'].rolling(8).std() / df['Close']
-            features['atr_6h'] = (df['High'] - df['Low']).rolling(6).mean() / df['Close']
             
-            # Volume özellikleri
-            features['volume_ema_8h'] = df['Volume'].ewm(span=8).mean()
-            features['volume_ratio'] = df['Volume'] / features['volume_ema_8h'].replace(0, 1)
+            # ATR - TEK TEK
+            high_low = df['High'] - df['Low']
+            high_close = np.abs(df['High'] - df['Close'].shift())
+            low_close = np.abs(df['Low'] - df['Close'].shift())
+            true_range = np.maximum(np.maximum(high_low, high_close), low_close)
+            features['atr_6h'] = true_range.rolling(6).mean() / df['Close']
+            
+            # Volume - TEK TEK
+            volume_ema_8h = df['Volume'].ewm(span=8).mean()
+            features['volume_ema_8h'] = volume_ema_8h
+            features['volume_ratio'] = df['Volume'] / volume_ema_8h.replace(0, 1)  # TEK SÜTUN
             features['volume_trend'] = df['Volume'].pct_change(4)
             
-            # Price action
+            # Price action - TEK TEK
             features['price_change_1h'] = df['Close'].pct_change(1)
             features['price_change_4h'] = df['Close'].pct_change(4)
             features['high_low_ratio'] = (df['High'] - df['Low']) / df['Close']
             
-            # Support/Resistance benzeri
+            # Support/Resistance - TEK TEK
             features['resistance_12h'] = (df['High'].rolling(12).max() / df['Close']) - 1
             features['support_12h'] = (df['Low'].rolling(12).min() / df['Close']) - 1
             
-            # Mean reversion
-            features['price_vs_ema4'] = (df['Close'] - features['ema_4h']) / features['ema_4h']
+            # Mean reversion - TEK TEK
+            features['price_vs_ema4'] = (df['Close'] - ema_4h) / ema_4h
             
             return features.fillna(0).replace([np.inf, -np.inf], 0)
             
         except Exception as e:
             st.error(f"Özellik oluşturma hatası: {e}")
-            return pd.DataFrame(index=df.index)
+            # Hata durumunda basit özellikler
+            features = pd.DataFrame(index=df.index)
+            features['rsi_6h'] = 50
+            features['ema_cross'] = 0
+            features['volume_ratio'] = 1
+            return features
     
-    def create_high_freq_target(self, df, lookahead=4):  # 4 saat sonrasını tahmin et
+    def create_high_freq_target(self, df, lookahead=4):
         """Kısa vadeli hedef değişken"""
         try:
             # 4 saat sonraki fiyat değişimi
@@ -163,7 +177,7 @@ class HighFrequencyMLStrategy:
         except Exception as e:
             return np.zeros(len(df))
 
-# YÜKSEK FREKANS Ana Strateji sınıfı
+# DÜZELTİLMİŞ YÜKSEK FREKANS Ana Strateji sınıfı
 class HighFrequencyStrategy:
     def __init__(self, initial_capital: float = 10000, enable_ml: bool = True):
         self.initial_capital = initial_capital
@@ -172,11 +186,11 @@ class HighFrequencyStrategy:
         self.ml_strategy = HighFrequencyMLStrategy() if enable_ml else None
         
     def calculate_high_freq_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Yüksek frekanslı göstergeleri hesapla"""
+        """Yüksek frekanslı göstergeleri hesapla - TAMAMEN DÜZELTİLDİ"""
         try:
             df = df.copy()
             
-            # Çok kısa vadeli RSI'lar
+            # Çok kısa vadeli RSI'lar - TEK TEK EKLE
             for period in [4, 6, 8]:
                 delta = df['Close'].diff()
                 gain = delta.where(delta > 0, 0)
@@ -185,27 +199,32 @@ class HighFrequencyStrategy:
                 avg_loss = loss.rolling(window=period, min_periods=1).mean()
                 rs = avg_gain / avg_loss.replace(0, np.nan)
                 rs = rs.fillna(1)
-                df[f'RSI_{period}h'] = 100 - (100 / (1 + rs))
+                df[f'RSI_{period}h'] = 100 - (100 / (1 + rs))  # TEK SÜTUN
             
-            # Çoklu EMA'lar
+            # Çoklu EMA'lar - TEK TEK EKLE
             for span in [2, 4, 6, 8, 12]:
-                df[f'EMA_{span}h'] = df['Close'].ewm(span=span, adjust=False).mean()
+                df[f'EMA_{span}h'] = df['Close'].ewm(span=span, adjust=False).mean()  # TEK SÜTUN
             
-            # Momentum göstergeleri
+            # Momentum göstergeleri - TEK TEK EKLE
             for shift in [1, 2, 4, 6]:
-                df[f'Momentum_{shift}h'] = df['Close'] - df['Close'].shift(shift)
+                df[f'Momentum_{shift}h'] = df['Close'] - df['Close'].shift(shift)  # TEK SÜTUN
             
-            # Volume göstergeleri
-            df['Volume_EMA_8h'] = df['Volume'].ewm(span=8).mean()
-            df['Volume_Ratio'] = df['Volume'] / df['Volume_EMA_8h'].replace(0, 1)
+            # Volume göstergeleri - TEK TEK EKLE
+            volume_ema_8h = df['Volume'].ewm(span=8).mean()
+            df['Volume_EMA_8h'] = volume_ema_8h  # TEK SÜTUN
+            df['Volume_Ratio'] = df['Volume'] / volume_ema_8h.replace(0, 1)  # TEK SÜTUN
             
-            # Volatilite
+            # Volatilite - TEK SÜTUN
             df['Volatility_12h'] = df['Close'].rolling(12).std() / df['Close']
             
             return df.fillna(0)
             
         except Exception as e:
             st.error(f"Göstergeler hesaplanırken hata: {e}")
+            # Hata durumunda basit değerler
+            df['RSI_6h'] = 50
+            df['EMA_4h'] = df['Close']
+            df['Volume_Ratio'] = 1
             return df
     
     def generate_high_freq_signals(self, df: pd.DataFrame, signal_threshold: float = 1.2) -> pd.DataFrame:
@@ -488,7 +507,7 @@ class HighFrequencyStrategy:
                 'trades': []
             }
 
-# Streamlit arayüzü - YENİ YÜKSEK FREKANS AYARLARI
+# Streamlit arayüzü
 st.sidebar.header("⚡ Yüksek Frekans Ayarları")
 
 # Kripto seçimi
@@ -496,8 +515,7 @@ crypto_symbols = {
     "Bitcoin (BTC-USD)": "BTC-USD",
     "Ethereum (ETH-USD)": "ETH-USD", 
     "Binance Coin (BNB-USD)": "BNB-USD",
-    "Solana (SOL-USD)": "SOL-USD",
-    "Cardano (ADA-USD)": "ADA-USD"
+    "Solana (SOL-USD)": "SOL-USD"
 }
 
 selected_crypto = st.sidebar.selectbox(
@@ -523,14 +541,12 @@ end_date = st.sidebar.date_input(
 period_months = st.sidebar.slider(
     "Veri Süresi (Ay):",
     min_value=1,
-    max_value=12,
-    value=6,
+    max_value=6,
+    value=3,
     step=1
 )
 
 start_date = end_date - datetime.timedelta(days=period_months*30)
-
-st.sidebar.info(f"Tahmini veri sayısı: ~{period_months * 30 * 24} saat")
 
 # Risk yönetimi
 st.sidebar.subheader("🎯 Risk Yönetimi")
@@ -648,7 +664,7 @@ if st.button("⚡ BACKTEST BAŞLAT", type="primary", use_container_width=True):
                 with col3:
                     st.metric("Win Rate", f"{results['win_rate']:.1f}%")
                 with col4:
-                    st.metric("Toplam İşlem", f"{results['total_trades']:,}")
+                    st.metric("Toplam İşlem", f"{results['total_trades']}")
                 
                 # İkinci sıra metrikler
                 col5, col6, col7, col8 = st.columns(4)
@@ -671,26 +687,23 @@ if st.button("⚡ BACKTEST BAŞLAT", type="primary", use_container_width=True):
                 else:
                     st.warning("⚠️ GELİŞTİRİLMESİ GEREKİYOR!")
                 
-                # İşlem detayları
+                # İşlem detayları - DÜZELTİLDİ
                 if results['trades']:
                     closed_trades = [t for t in results['trades'] if t['status'] == 'CLOSED']
                     if closed_trades:
                         st.subheader("📋 Son 20 İşlem Detayı")
                         trades_df = pd.DataFrame(closed_trades[-20:])  # Son 20 işlem
                         
-                        # Formatlama
-                        display_df = trades_df[['entry_time', 'exit_time', 'position', 'entry_price', 'exit_price', 'pnl', 'pnl_percent', 'hold_hours']]
+                        # Basit gösterim - format hatasını önle
+                        display_df = trades_df[['entry_time', 'position', 'entry_price', 'exit_price', 'pnl', 'hold_hours']]
                         display_df = display_df.rename(columns={
-                            'entry_time': 'Giriş', 'exit_time': 'Çıkış', 'position': 'Pozisyon',
+                            'entry_time': 'Giriş', 'position': 'Pozisyon',
                             'entry_price': 'Giriş Fiyatı', 'exit_price': 'Çıkış Fiyatı',
-                            'pnl': 'Kar/Zarar ($)', 'pnl_percent': 'Kar/Zarar (%)', 'hold_hours': 'Süre (saat)'
+                            'pnl': 'Kar/Zarar ($)', 'hold_hours': 'Süre (saat)'
                         })
                         
-                        st.dataframe(display_df.style.format({
-                            'Giriş Fiyatı': '{:.2f}', 'Çıkış Fiyatı': '{:.2f}',
-                            'Kar/Zarar ($)': '{:.2f}', 'Kar/Zarar (%)': '{:.2f}%',
-                            'Süre (saat)': '{:.1f}'
-                        }), use_container_width=True, height=400)
+                        # Basit dataframe gösterimi
+                        st.dataframe(display_df, use_container_width=True, height=400)
                 
                 # Başarı kutlaması
                 if results['total_trades'] > 100 and results['win_rate'] > 50:
