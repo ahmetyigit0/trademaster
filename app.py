@@ -38,11 +38,7 @@ class DeepSeekInspiredStrategy:
         for span in [8, 21, 50, 100]:
             df[f'EMA_{span}'] = df['Close'].ewm(span=span).mean()
         
-        # Momentum göstergeleri
-        df['MOMENTUM_4H'] = df['Close'] / df['Close'].shift(4) - 1
-        df['MOMENTUM_1D'] = df['Close'] / df['Close'].shift(24) - 1
-        
-       def calculate_advanced_indicators(self, df):
+def calculate_advanced_indicators(self, df):
     """DeepSeek'in kullandığı gelişmiş göstergeler"""
     df = df.copy()
     
