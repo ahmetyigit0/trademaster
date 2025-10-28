@@ -60,18 +60,20 @@ class DeepSeekInspiredStrategy:
         df['ADX'] = self.calculate_adx(df)
         
         return df.fillna(method='bfill').fillna(0)
-def calculate_rsi(self, prices, window=14):
-    """RSI hesapla"""
-    delta = prices.diff()
-    gain = (delta.where(delta > 0, 0)).fillna(0)
-    loss = (-delta.where(delta < 0, 0)).fillna(0)
-    
-    avg_gain = gain.rolling(window=window, min_periods=1).mean()
-    avg_loss = loss.rolling(window=window, min_periods=1).mean()
-    
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    rs = rs.fillna(1)
-    return 100 - (100 / (1 + rs))
+
+    def calculate_rsi(self, prices, window=14):
+        """RSI hesapla"""
+        delta = prices.diff()
+        gain = (delta.where(delta > 0, 0)).fillna(0)
+        loss = (-delta.where(delta < 0, 0)).fillna(0)
+        
+        avg_gain = gain.rolling(window=window, min_periods=1).mean()
+        avg_loss = loss.rolling(window=window, min_periods=1).mean()
+        
+        rs = avg_gain / avg_loss.replace(0, np.nan)
+        rs = rs.fillna(1)
+        return 100 - (100 / (1 + rs))
+
     def calculate_atr(self, df, period=14):
         """Average True Range"""
         high_low = df['High'] - df['Low']
@@ -80,7 +82,7 @@ def calculate_rsi(self, prices, window=14):
         
         true_range = np.maximum(high_low, np.maximum(high_close, low_close))
         return true_range.rolling(period).mean().fillna(0)
-    
+
     def calculate_adx(self, df, period=14):
         """Average Directional Index"""
         try:
@@ -99,7 +101,59 @@ def calculate_rsi(self, prices, window=14):
             return dx.rolling(period).mean().fillna(0)
         except:
             return pd.Series(0, index=df.index)
-    
+
+    # EKSİK METODU EKLEDİM - train_model
+    def train_model(self, df):
+        """DeepSeek tarzı güven tabanlı model"""
+        try:
+            df_with_indicators = self.calculate_advanced_indicators(df)
+            features = self.create_deepseek_features(df_with_indicators)
+            target = self.create_conviction_target(df_with_indicators)
+            
+            features = features.fillna(0)
+            target = target.fillna(0)
+            
+            if len(features) < 100:
+                return 0, None
+            
+            # Sadece işlem sinyali olan noktaları kullan
+            trade_signals = target != 0
+            features = features[trade_signals]
+            target = target[trade_signals]
+            
+            if len(features) < 30:
+                return 0, None
+            
+            X_train, X_test, y_train, y_test = train_test_split(
+                features, target, test_size=0.2, random_state=42, shuffle=False
+            )
+            
+            self.model = RandomForestClassifier(
+                n_estimators=100,
+                max_depth=15,
+                min_samples_split=3,
+                min_samples_leaf=2,
+                random_state=42
+            )
+            
+            self.model.fit(X_train, y_train)
+            
+            # Feature importance
+            feature_importance = pd.DataFrame({
+                'feature': features.columns,
+                'importance': self.model.feature_importances_
+            }).sort_values('importance', ascending=False)
+            
+            y_pred = self.model.predict(X_test)
+            accuracy = accuracy_score(y_test, y_pred)
+            
+            self.is_trained = True
+            return accuracy, feature_importance
+            
+        except Exception as e:
+            st.error(f"Training error: {e}")
+            return 0, None
+
     def create_deepseek_features(self, df):
         """DeepSeek'in çoklu onay sistemine dayalı özellikler"""
         try:
@@ -160,7 +214,7 @@ def calculate_rsi(self, prices, window=14):
             features['TOTAL_CONFIRMATIONS'] = 0
             features['RSI_COMBO'] = 50
             return features
-    
+
     def create_conviction_target(self, df, horizon=4):
         """DeepSeek'in yüksek güven hedefi"""
         try:
@@ -181,6 +235,31 @@ def calculate_rsi(self, prices, window=14):
             
         except Exception as e:
             return pd.Series(np.zeros(len(df)), index=df.index, dtype=int)
+
+    def generate_conviction_signals(self, df, current_confirmation_threshold=3):
+        """DeepSeek'in güven tabanlı sinyal sistemi"""
+        try:
+            if not self.is_trained or self.model is None:
+                return np.zeros(len(df)), np.zeros(len(df))
+            
+            df_with_indicators = self.calculate_advanced_indicators(df)
+            features = self.create_deepseek_features(df_with_indicators)
+            features = features.fillna(0)
+            
+            # Model tahminleri
+            predictions = self.model.predict(features)
+            
+            # Onay sayısına göre filtrele (DeepSeek'in çoklu onay sistemi)
+            confirmation_filter = features['TOTAL_CONFIRMATIONS'] >= current_confirmation_threshold
+            
+            # Final sinyaller
+            final_signals = np.zeros(len(df))
+            final_signals[confirmation_filter] = predictions[confirmation_filter]
+            
+            return final_signals, features['TOTAL_CONFIRMATIONS']
+            
+        except Exception as e:
+            return np.zeros(len(df)), np.zeros(len(df))
     
     # EKSİK METODU EKLEDİM - train_model
     def train_model(self, df):
