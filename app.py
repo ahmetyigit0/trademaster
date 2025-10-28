@@ -38,15 +38,16 @@ class DeepSeekInspiredStrategy:
         for span in [8, 21, 50, 100]:
             df[f'EMA_{span}'] = df['Close'].ewm(span=span).mean()
         
-        # Momentum göstergeleri - FIXED
+        # Momentum göstergeleri
         df['MOMENTUM_4H'] = df['Close'].pct_change(4)
         df['MOMENTUM_1D'] = df['Close'].pct_change(24)
         
-        # Volume analizi - TAMAMEN YENİ YAKLAŞIM
-        df['VOLUME_SMA_20'] = df['Volume'].rolling(20).mean().fillna(0)
-        # VOLUME_RATIO'yu basitleştir - Series olarak hesapla
-        volume_ratio_series = df['Volume'] / df['VOLUME_SMA_20'].replace(0, 1)
-        df['VOLUME_RATIO'] = volume_ratio_series
+        # Volume analizi - KESİN ÇÖZÜM
+        df['VOLUME_SMA_20'] = df['Volume'].rolling(window=20, min_periods=1).mean()
+        
+        # VOLUME_RATIO için güvenli hesaplama
+        volume_sma = df['VOLUME_SMA_20'].replace(0, 1)  # Sıfır bölme hatasını önle
+        df['VOLUME_RATIO'] = df['Volume'] / volume_sma
         
         df['VOLUME_RSI'] = self.calculate_rsi(df['Volume'], 14)
         
@@ -63,7 +64,8 @@ class DeepSeekInspiredStrategy:
         # Trend gücü
         df['ADX'] = self.calculate_adx(df)
         
-        return df.fillna(method='bfill').fillna(0)
+        # Tüm NaN değerleri temizle
+        return df.fillna(0)
     
     def calculate_rsi(self, prices, window=14):
         """RSI hesapla"""
@@ -110,6 +112,16 @@ class DeepSeekInspiredStrategy:
         try:
             features = pd.DataFrame(index=df.index)
             
+            # VOLUME_RATIO kontrolü - Series olduğundan emin ol
+            volume_ratio = df['VOLUME_RATIO']
+            if hasattr(volume_ratio, 'iloc'):
+                # Pandas Series ise devam et
+                volume_ratio_ok = True
+            else:
+                # Değilse, basit bir Series oluştur
+                volume_ratio = pd.Series(1.0, index=df.index)
+                volume_ratio_ok = False
+            
             # 1. MOMENTUM ONAYI
             features['MOMENTUM_CONFIRMATION'] = (
                 (df['RSI_6'] < 35) & 
@@ -117,11 +129,14 @@ class DeepSeekInspiredStrategy:
                 (df['EMA_8'] > df['EMA_21'])
             ).astype(int)
             
-            # 2. VOLUME ONAYI
-            features['VOLUME_CONFIRMATION'] = (
-                (df['VOLUME_RATIO'] > 1.2) &
-                (df['VOLUME_RSI'] > 40)
-            ).astype(int)
+            # 2. VOLUME ONAYI - Güvenli versiyon
+            if volume_ratio_ok:
+                features['VOLUME_CONFIRMATION'] = (
+                    (volume_ratio > 1.2) &
+                    (df['VOLUME_RSI'] > 40)
+                ).astype(int)
+            else:
+                features['VOLUME_CONFIRMATION'] = 0
             
             # 3. TREND ONAYI
             features['TREND_CONFIRMATION'] = (
@@ -154,15 +169,22 @@ class DeepSeekInspiredStrategy:
             # Sayısal özellikler
             features['RSI_COMBO'] = (df['RSI_6'] + df['RSI_14']) / 2
             features['EMA_STRENGTH'] = (df['EMA_8'] - df['EMA_50']) / df['Close'].replace(0, 1)
-            features['VOLUME_MOMENTUM'] = df['VOLUME_RATIO'] * df['MOMENTUM_4H']
+            
+            # VOLUME_MOMENTUM için güvenli hesaplama
+            if volume_ratio_ok:
+                features['VOLUME_MOMENTUM'] = volume_ratio * df['MOMENTUM_4H']
+            else:
+                features['VOLUME_MOMENTUM'] = df['MOMENTUM_4H']
             
             return features.fillna(0).replace([np.inf, -np.inf], 0)
             
         except Exception as e:
-            # Fallback features
+            # Fallback - basit features
             features = pd.DataFrame(index=df.index)
             features['TOTAL_CONFIRMATIONS'] = 0
             features['RSI_COMBO'] = 50
+            features['VOLUME_CONFIRMATION'] = 0
+            features['VOLUME_MOMENTUM'] = 0
             return features.fillna(0)
     
     def create_conviction_target(self, df, horizon=4):
@@ -181,7 +203,6 @@ class DeepSeekInspiredStrategy:
         except Exception as e:
             return pd.Series(np.zeros(len(df)), index=df.index, dtype=int)
     
-    # EKSİK METOD - train_model
     def train_model(self, df):
         """DeepSeek tarzı güven tabanlı model"""
         try:
@@ -247,83 +268,6 @@ class DeepSeekInspiredStrategy:
             # Onay sayısına göre filtrele
             confirmation_filter = features['TOTAL_CONFIRMATIONS'] >= current_confirmation_threshold
             
-            final_signals = np.zeros(len(df))
-            final_signals[confirmation_filter] = predictions[confirmation_filter]
-            
-            return final_signals, features['TOTAL_CONFIRMATIONS']
-            
-        except Exception as e:
-            return np.zeros(len(df)), np.zeros(len(df))
-    
-    # EKSİK METODU EKLEDİM - train_model
-    def train_model(self, df):
-        """DeepSeek tarzı güven tabanlı model"""
-        try:
-            df_with_indicators = self.calculate_advanced_indicators(df)
-            features = self.create_deepseek_features(df_with_indicators)
-            target = self.create_conviction_target(df_with_indicators)
-            
-            features = features.fillna(0)
-            target = target.fillna(0)
-            
-            if len(features) < 100:
-                return 0, None
-            
-            # Sadece işlem sinyali olan noktaları kullan
-            trade_signals = target != 0
-            features = features[trade_signals]
-            target = target[trade_signals]
-            
-            if len(features) < 30:
-                return 0, None
-            
-            X_train, X_test, y_train, y_test = train_test_split(
-                features, target, test_size=0.2, random_state=42, shuffle=False
-            )
-            
-            self.model = RandomForestClassifier(
-                n_estimators=100,
-                max_depth=15,
-                min_samples_split=3,
-                min_samples_leaf=2,
-                random_state=42
-            )
-            
-            self.model.fit(X_train, y_train)
-            
-            # Feature importance
-            feature_importance = pd.DataFrame({
-                'feature': features.columns,
-                'importance': self.model.feature_importances_
-            }).sort_values('importance', ascending=False)
-            
-            y_pred = self.model.predict(X_test)
-            accuracy = accuracy_score(y_test, y_pred)
-            
-            self.is_trained = True
-            return accuracy, feature_importance
-            
-        except Exception as e:
-            st.error(f"Training error: {e}")
-            return 0, None
-    
-    def generate_conviction_signals(self, df, current_confirmation_threshold=3):
-        """DeepSeek'in güven tabanlı sinyal sistemi"""
-        try:
-            if not self.is_trained or self.model is None:
-                return np.zeros(len(df)), np.zeros(len(df))
-            
-            df_with_indicators = self.calculate_advanced_indicators(df)
-            features = self.create_deepseek_features(df_with_indicators)
-            features = features.fillna(0)
-            
-            # Model tahminleri
-            predictions = self.model.predict(features)
-            
-            # Onay sayısına göre filtrele (DeepSeek'in çoklu onay sistemi)
-            confirmation_filter = features['TOTAL_CONFIRMATIONS'] >= current_confirmation_threshold
-            
-            # Final sinyaller
             final_signals = np.zeros(len(df))
             final_signals[confirmation_filter] = predictions[confirmation_filter]
             
