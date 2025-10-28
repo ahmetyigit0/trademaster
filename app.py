@@ -304,25 +304,25 @@ class DeepSeekTradingStrategy:
             df['Final_Signal'] = 0
             return df
         
-        # Sinyalleri üret
-        signals, confirmations = self.ml_engine.generate_conviction_signals(df)
-        df['Signal'] = signals
-        df['Confirmations'] = confirmations
-        
-        # Güven seviyesine göre filtrele
-        high_conviction_mask = (df['Signal'].abs() == 2) & (df['Confirmations'] >= 3)
-        medium_conviction_mask = (df['Signal'].abs() == 1) & (df['Confirmations'] >= 2)
-        
-        df['Final_Signal'] = 0
-        df.loc[high_conviction_mask, 'Final_Signal'] = df.loc[high_conviction_mask, 'Signal']
-        df.loc[medium_conviction_mask, 'Final_Signal'] = df.loc[medium_conviction_mask, 'Signal'] * 0.5
-        
-        total_high_conviction = high_conviction_mask.sum()
-        total_medium_conviction = medium_conviction_mask.sum()
-        
-        st.info(f"**🎯 High Conviction Signals:** {total_high_conviction}")
-        st.info(f"**📊 Medium Conviction Signals:** {total_medium_conviction}")
+                   # Sinyalleri üret
+            signals, confirmations = self.ml_engine.generate_conviction_signals(df)
+            df['Signal'] = signals
+            df['Confirmations'] = confirmations
             
+            # Güven seviyesine göre filtrele
+            high_conviction_mask = (df['Signal'].abs() == 2) & (df['Confirmations'] >= 3)
+            medium_conviction_mask = (df['Signal'].abs() == 1) & (df['Confirmations'] >= 2)
+            
+            df['Final_Signal'] = 0
+            df.loc[high_conviction_mask, 'Final_Signal'] = df.loc[high_conviction_mask, 'Signal']
+            df.loc[medium_conviction_mask, 'Final_Signal'] = df.loc[medium_conviction_mask, 'Signal'] * 0.5
+            
+            total_high_conviction = high_conviction_mask.sum()
+            total_medium_conviction = medium_conviction_mask.sum()
+            
+            st.info(f"**🎯 High Conviction Signals:** {total_high_conviction}")
+            st.info(f"**📊 Medium Conviction Signals:** {total_medium_conviction}")
+                    
             return df
             
         except Exception as e:
