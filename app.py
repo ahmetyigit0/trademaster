@@ -566,7 +566,7 @@ if data is not None and not data.empty:
     if not price_changes.empty:
         # Check if all values are NaN using proper pandas method
         if price_changes.isna().all().item() == False:
-            volatility = price_changes.std() * np.sqrt(365 * 24) * 100
+            volatility = float(price_changes.std() * np.sqrt(365 * 24) * 100)
             if not np.isnan(volatility):
                 volatility_display = f"{volatility:.1f}%"
             else:
