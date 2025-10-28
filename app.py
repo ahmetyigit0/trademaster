@@ -298,7 +298,7 @@ class DeepSeekTradingStrategy:
                 
         return df
         
-    except Exception as e:
+        except Exception as e:
         st.error(f"Signal generation error: {e}")
         df['Signal'] = 0
         df['Final_Signal'] = 0
