@@ -7,9 +7,8 @@ import datetime
 import time
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.model_selection import train_test_split, TimeSeriesSplit
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.metrics import accuracy_score
 from sklearn.preprocessing import StandardScaler
-import ta  # Technical Analysis library - ÇOK ÖNEMLİ!
 
 # Sayfa ayarı
 st.set_page_config(
@@ -21,6 +20,56 @@ st.set_page_config(
 # Başlık
 st.title("🎯 Maximize Win Rate - Gelişmiş Strateji")
 st.markdown("---")
+
+# TA-LIB OLMADAN TEKNİK GÖSTERGE FONKSİYONLARI
+def calculate_rsi(prices, window=14):
+    """RSI hesapla"""
+    delta = prices.diff()
+    gain = (delta.where(delta > 0, 0)).fillna(0)
+    loss = (-delta.where(delta < 0, 0)).fillna(0)
+    
+    avg_gain = gain.rolling(window=window, min_periods=1).mean()
+    avg_loss = loss.rolling(window=window, min_periods=1).mean()
+    
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    rs = rs.fillna(1)
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
+def calculate_bollinger_bands(prices, window=20, num_std=2):
+    """Bollinger Bands hesapla"""
+    middle_band = prices.rolling(window=window).mean()
+    std = prices.rolling(window=window).std()
+    
+    upper_band = middle_band + (std * num_std)
+    lower_band = middle_band - (std * num_std)
+    
+    return upper_band, middle_band, lower_band
+
+def calculate_stochastic(high, low, close, window=14):
+    """Stochastic hesapla"""
+    lowest_low = low.rolling(window=window).min()
+    highest_high = high.rolling(window=window).max()
+    
+    k = 100 * (close - lowest_low) / (highest_high - lowest_low)
+    d = k.rolling(window=3).mean()
+    
+    return k, d
+
+def calculate_atr(high, low, close, window=14):
+    """ATR hesapla"""
+    tr1 = high - low
+    tr2 = abs(high - close.shift())
+    tr3 = abs(low - close.shift())
+    
+    true_range = np.maximum(np.maximum(tr1, tr2), tr3)
+    atr = true_range.rolling(window=window).mean()
+    return atr
+
+def calculate_obv(close, volume):
+    """OBV hesapla"""
+    obv = (np.sign(close.diff()) * volume).fillna(0).cumsum()
+    return obv
 
 # GELİŞMİŞ ML Strateji sınıfı
 class AdvancedMLStrategy:
@@ -35,35 +84,32 @@ class AdvancedMLStrategy:
         try:
             features = pd.DataFrame(index=df.index)
             
-            # 1. GELİŞMİŞ TEKNİK GÖSTERGELER (ta kütüphanesi)
-            # Ichimoku Cloud
-            ichimoku = ta.trend.IchimokuIndicator(df['High'], df['Low'])
-            features['ichimoku_a'] = ichimoku.ichimoku_a()
-            features['ichimoku_b'] = ichimoku.ichimoku_b()
-            features['ichimoku_base'] = ichimoku.ichimoku_base_line()
-            features['ichimoku_conversion'] = ichimoku.ichimoku_conversion_line()
+            # 1. GELİŞMİŞ TEKNİK GÖSTERGELER
+            # RSI - çoklu timeframe
+            features['rsi_6'] = calculate_rsi(df['Close'], 6)
+            features['rsi_14'] = calculate_rsi(df['Close'], 14)
+            features['rsi_21'] = calculate_rsi(df['Close'], 21)
             
             # Bollinger Bands
-            bollinger = ta.volatility.BollingerBands(df['Close'])
-            features['bb_upper'] = bollinger.bollinger_hband()
-            features['bb_lower'] = bollinger.bollinger_lband()
-            features['bb_middle'] = bollinger.bollinger_mavg()
-            features['bb_width'] = features['bb_upper'] - features['bb_lower']
-            features['bb_position'] = (df['Close'] - features['bb_lower']) / features['bb_width']
+            bb_upper, bb_middle, bb_lower = calculate_bollinger_bands(df['Close'])
+            features['bb_upper'] = bb_upper
+            features['bb_lower'] = bb_lower
+            features['bb_middle'] = bb_middle
+            features['bb_width'] = bb_upper - bb_lower
+            features['bb_position'] = (df['Close'] - bb_lower) / features['bb_width']
             
             # Stochastic
-            stoch = ta.momentum.StochasticOscillator(df['High'], df['Low'], df['Close'])
-            features['stoch_k'] = stoch.stoch()
-            features['stoch_d'] = stoch.stoch_signal()
+            stoch_k, stoch_d = calculate_stochastic(df['High'], df['Low'], df['Close'])
+            features['stoch_k'] = stoch_k
+            features['stoch_d'] = stoch_d
             
             # Williams %R
-            features['williams_r'] = ta.momentum.WilliamsRIndicator(df['High'], df['Low'], df['Close']).williams_r()
+            williams_r = calculate_rsi(df['Close'], 14)  # Basit Williams %R approximation
+            features['williams_r'] = williams_r - 100  # Williams %R için adjust
             
-            # CCI (Commodity Channel Index)
-            features['cci'] = ta.trend.CCIIndicator(df['High'], df['Low'], df['Close']).cci()
-            
-            # ADX (Average Directional Index)
-            features['adx'] = ta.trend.ADXIndicator(df['High'], df['Low'], df['Close']).adx()
+            # ATR
+            features['atr'] = calculate_atr(df['High'], df['Low'], df['Close'])
+            features['atr_ratio'] = features['atr'] / df['Close']
             
             # 2. PRICE ACTION ÖZELLİKLERİ
             features['price_vs_high_20'] = df['Close'] / df['High'].rolling(20).max() - 1
@@ -75,16 +121,16 @@ class AdvancedMLStrategy:
             # 3. VOLUME ANALİZİ
             features['volume_sma_ratio'] = df['Volume'] / df['Volume'].rolling(20).mean()
             features['volume_price_trend'] = features['volume_sma_ratio'] * df['Close'].pct_change()
-            features['obv'] = ta.volume.OnBalanceVolumeIndicator(df['Close'], df['Volume']).on_balance_volume()
+            features['obv'] = calculate_obv(df['Close'], df['Volume'])
             
             # 4. VOLATILITY ÖZELLİKLERİ
-            features['atr'] = ta.volatility.AverageTrueRange(df['High'], df['Low'], df['Close']).average_true_range()
-            features['atr_ratio'] = features['atr'] / df['Close']
-            features['volatility_ratio'] = df['Close'].rolling(10).std() / df['Close'].rolling(30).std()
+            features['volatility_10'] = df['Close'].rolling(10).std() / df['Close']
+            features['volatility_30'] = df['Close'].rolling(30).std() / df['Close']
+            features['volatility_ratio'] = features['volatility_10'] / features['volatility_30']
             
             # 5. MULTI-TIMEFRAME ANALİZ
-            features['rsi_4h'] = ta.momentum.RSIIndicator(df['Close'], window=4).rsi()
-            features['rsi_12h'] = ta.momentum.RSIIndicator(df['Close'], window=12).rsi()
+            features['rsi_4h'] = calculate_rsi(df['Close'], 4)
+            features['rsi_12h'] = calculate_rsi(df['Close'], 12)
             features['ema_6h'] = df['Close'].ewm(span=6).mean()
             features['ema_18h'] = df['Close'].ewm(span=18).mean()
             features['multi_tf_trend'] = (features['ema_6h'] > features['ema_18h']).astype(int)
@@ -93,10 +139,13 @@ class AdvancedMLStrategy:
             features['resistance_distance'] = (df['High'].rolling(20).max() - df['Close']) / df['Close']
             features['support_distance'] = (df['Close'] - df['Low'].rolling(20).min()) / df['Close']
             
-            # 7. MARKET REGIME
-            features['trend_strength'] = features['adx'] / 100
-            features['is_ranging'] = ((features['adx'] < 25) & (features['bb_width'] / df['Close'] < 0.02)).astype(int)
-            features['is_trending'] = (features['adx'] > 30).astype(int)
+            # 7. TREND GÜCÜ
+            price_trend = df['Close'].rolling(10).mean() - df['Close'].rolling(30).mean()
+            features['trend_strength'] = price_trend / df['Close']
+            
+            # 8. MARKET CONDITION
+            features['is_high_vol'] = (features['volatility_10'] > features['volatility_30']).astype(int)
+            features['is_uptrend'] = (df['Close'] > df['Close'].rolling(20).mean()).astype(int)
             
             return features.fillna(0).replace([np.inf, -np.inf], 0)
             
@@ -107,12 +156,12 @@ class AdvancedMLStrategy:
     def create_basic_features(self, df):
         """Temel özellikler (fallback)"""
         features = pd.DataFrame(index=df.index)
-        features['rsi'] = ta.momentum.RSIIndicator(df['Close']).rsi().fillna(50)
+        features['rsi'] = calculate_rsi(df['Close']).fillna(50)
         features['ema_cross'] = (df['Close'].ewm(span=8).mean() - df['Close'].ewm(span=21).mean()) / df['Close']
         features['volume_ratio'] = df['Volume'] / df['Volume'].rolling(20).mean().replace(0, 1)
         return features.fillna(0)
     
-    def create_smart_target(self, df, horizon=4, confidence_threshold=0.6):
+    def create_smart_target(self, df, horizon=4):
         """Akıllı hedef değişken - Win rate odaklı"""
         try:
             # Gelecek fiyat
@@ -126,12 +175,12 @@ class AdvancedMLStrategy:
             target = np.zeros(len(df))
             
             # YÜKSEK GÜVEN SINIFLARI
-            strong_bullish = returns > 0.02  # %2'den fazla
-            strong_bearish = returns < -0.02 # %2'den fazla
+            strong_bullish = returns > 0.015  # %1.5'den fazla
+            strong_bearish = returns < -0.015 # %1.5'den fazla
             
             # ORTA GÜVEN SINIFLARI
-            moderate_bullish = (returns > 0.008) & (returns <= 0.02)
-            moderate_bearish = (returns < -0.008) & (returns >= -0.02)
+            moderate_bullish = (returns > 0.006) & (returns <= 0.015)
+            moderate_bearish = (returns < -0.006) & (returns >= -0.015)
             
             # Sınıflandırma
             target[strong_bullish] = 2      # ÇOK GÜÇLÜ AL
@@ -157,23 +206,17 @@ class AdvancedMLStrategy:
                 return 0, pd.DataFrame()
             
             # Time Series Cross Validation
-            tscv = TimeSeriesSplit(n_splits=5)
+            tscv = TimeSeriesSplit(n_splits=3)  # Daha hızlı
             accuracies = []
             
             # Ensemble model
             rf_model = RandomForestClassifier(
-                n_estimators=150,
-                max_depth=20,
+                n_estimators=100,  # Daha hızlı
+                max_depth=15,
                 min_samples_split=5,
                 min_samples_leaf=2,
                 random_state=42,
-                class_weight='balanced'  # Class imbalance için
-            )
-            
-            gb_model = GradientBoostingClassifier(
-                n_estimators=100,
-                max_depth=10,
-                random_state=42
+                class_weight='balanced'
             )
             
             # Feature scaling
@@ -237,32 +280,32 @@ class HighWinRateStrategy:
             df = df.copy()
             
             # TEMEL GÖSTERGELER
-            df['RSI'] = ta.momentum.RSIIndicator(df['Close']).rsi().fillna(50)
-            df['RSI_4h'] = ta.momentum.RSIIndicator(df['Close'], window=4).rsi().fillna(50)
+            df['RSI'] = calculate_rsi(df['Close']).fillna(50)
+            df['RSI_4h'] = calculate_rsi(df['Close'], 4).fillna(50)
             
             # EMA'lar
             for span in [8, 21, 50]:
                 df[f'EMA_{span}'] = df['Close'].ewm(span=span, adjust=False).mean()
             
             # Bollinger Bands
-            bb = ta.volatility.BollingerBands(df['Close'])
-            df['BB_Upper'] = bb.bollinger_hband()
-            df['BB_Lower'] = bb.bollinger_lband()
-            df['BB_Middle'] = bb.bollinger_mavg()
-            df['BB_Width'] = df['BB_Upper'] - df['BB_Lower']
-            df['BB_Position'] = (df['Close'] - df['BB_Lower']) / df['BB_Width']
+            bb_upper, bb_middle, bb_lower = calculate_bollinger_bands(df['Close'])
+            df['BB_Upper'] = bb_upper
+            df['BB_Lower'] = bb_lower
+            df['BB_Middle'] = bb_middle
+            df['BB_Width'] = bb_upper - bb_lower
+            df['BB_Position'] = (df['Close'] - bb_lower) / df['BB_Width']
             
             # Stochastic
-            stoch = ta.momentum.StochasticOscillator(df['High'], df['Low'], df['Close'])
-            df['Stoch_K'] = stoch.stoch().fillna(50)
-            df['Stoch_D'] = stoch.stoch_signal().fillna(50)
+            stoch_k, stoch_d = calculate_stochastic(df['High'], df['Low'], df['Close'])
+            df['Stoch_K'] = stoch_k.fillna(50)
+            df['Stoch_D'] = stoch_d.fillna(50)
             
             # Volume
             df['Volume_SMA'] = df['Volume'].rolling(20).mean()
             df['Volume_Ratio'] = df['Volume'] / df['Volume_SMA'].replace(0, 1)
             
             # ATR
-            df['ATR'] = ta.volatility.AverageTrueRange(df['High'], df['Low'], df['Close']).average_true_range()
+            df['ATR'] = calculate_atr(df['High'], df['Low'], df['Close'])
             
             return df.fillna(0)
             
@@ -288,13 +331,9 @@ class HighWinRateStrategy:
                 if ml_accuracy > 0.40:
                     ml_signals = self.ml_strategy.predict_advanced_signals(df)
                     st.success(f"🤖 Gelişmiş ML Doğruluğu: %{ml_accuracy:.1f}")
-                    
-                    if not feature_importance.empty:
-                        st.write("**En Önemli 8 Özellik:**")
-                        st.dataframe(feature_importance.head(8))
             
             # ÇOKLU KONFİRMASYON SİSTEMİ
-            for i in range(20, len(df)):  # Daha fazla geçmiş veri
+            for i in range(20, len(df)):
                 try:
                     # 1. MOMENTUM KONFİRMASYONU
                     rsi = df['RSI'].iloc[i]
@@ -310,7 +349,6 @@ class HighWinRateStrategy:
                     # 3. VOLATILITY KONFİRMASYONU
                     bb_position = df['BB_Position'].iloc[i]
                     bb_width = df['BB_Width'].iloc[i] / df['Close'].iloc[i]
-                    atr = df['ATR'].iloc[i] / df['Close'].iloc[i]
                     
                     # 4. VOLUME KONFİRMASYONU
                     volume_ratio = df['Volume_Ratio'].iloc[i]
@@ -320,41 +358,41 @@ class HighWinRateStrategy:
                     
                     # ÇOKLU LONG KONFİRMASYONLARI
                     # Momentum
-                    if rsi < 35 and rsi_4h < 40: long_confirmations += 2
-                    elif rsi < 40: long_confirmations += 1
+                    if rsi < 30 and rsi_4h < 35: long_confirmations += 2
+                    elif rsi < 35: long_confirmations += 1
                     
                     if stoch_k < 20 and stoch_d < 25: long_confirmations += 2
                     elif stoch_k < 30: long_confirmations += 1
                     
                     # Trend
-                    if ema_8 > ema_21 and ema_21 > ema_50: long_confirmations += 3  # Güçlü uptrend
+                    if ema_8 > ema_21 and ema_21 > ema_50: long_confirmations += 3
                     elif ema_8 > ema_21: long_confirmations += 2
                     elif ema_8 > ema_50: long_confirmations += 1
                     
                     # Volatility
-                    if bb_position < 0.1: long_confirmations += 2  # Aşırı oversold
+                    if bb_position < 0.1: long_confirmations += 2
                     elif bb_position < 0.2: long_confirmations += 1
                     
-                    if bb_width > 0.02: long_confirmations += 1  # Yüksek volatilite
+                    if bb_width > 0.02: long_confirmations += 1
                     
                     # Volume
                     if volume_ratio > 1.5: long_confirmations += 1
                     
                     # ÇOKLU SHORT KONFİRMASYONLARI
                     # Momentum
-                    if rsi > 65 and rsi_4h > 60: short_confirmations += 2
-                    elif rsi > 60: short_confirmations += 1
+                    if rsi > 70 and rsi_4h > 65: short_confirmations += 2
+                    elif rsi > 65: short_confirmations += 1
                     
                     if stoch_k > 80 and stoch_d > 75: short_confirmations += 2
                     elif stoch_k > 70: short_confirmations += 1
                     
                     # Trend
-                    if ema_8 < ema_21 and ema_21 < ema_50: short_confirmations += 3  # Güçlü downtrend
+                    if ema_8 < ema_21 and ema_21 < ema_50: short_confirmations += 3
                     elif ema_8 < ema_21: short_confirmations += 2
                     elif ema_8 < ema_50: short_confirmations += 1
                     
                     # Volatility
-                    if bb_position > 0.9: short_confirmations += 2  # Aşırı overbought
+                    if bb_position > 0.9: short_confirmations += 2
                     elif bb_position > 0.8: short_confirmations += 1
                     
                     if bb_width > 0.02: short_confirmations += 1
@@ -364,15 +402,15 @@ class HighWinRateStrategy:
                     
                     # ML GÜÇLENDİRME
                     ml_signal = ml_signals[i]
-                    if ml_signal >= 1:  # AL veya GÜÇLÜ AL
+                    if ml_signal >= 1:
                         long_confirmations += ml_signal
-                    elif ml_signal <= -1:  # SAT veya GÜÇLÜ SAT
+                    elif ml_signal <= -1:
                         short_confirmations += abs(ml_signal)
                     
                     # YÜKSEK KONFİRMASYON EŞİĞİ
-                    if long_confirmations >= 6:  # Minimum 6 konfirmasyon
+                    if long_confirmations >= 5:  # 5 konfirmasyon
                         df.loc[df.index[i], 'Signal'] = 1
-                    elif short_confirmations >= 6:
+                    elif short_confirmations >= 5:
                         df.loc[df.index[i], 'Signal'] = -1
                         
                 except Exception as e:
@@ -448,7 +486,7 @@ class HighWinRateStrategy:
                             pnl_percent >= (take_profit / 100) or
                             signal == -1 or
                             hold_hours >= max_hold_hours or
-                            pnl_percent >= 0.04  # Erken kar al
+                            pnl_percent >= 0.03  # Erken kar al
                         )
                         
                         if close_condition:
@@ -478,7 +516,7 @@ class HighWinRateStrategy:
                             pnl_percent >= (take_profit / 100) or
                             signal == 1 or
                             hold_hours >= max_hold_hours or
-                            pnl_percent >= 0.04  # Erken kar al
+                            pnl_percent >= 0.03  # Erken kar al
                         )
                         
                         if close_condition:
@@ -579,16 +617,16 @@ st.sidebar.subheader("⚡ Zaman Ayarları")
 timeframe = st.sidebar.selectbox("Zaman Periyodu:", ["1h", "2h", "4h"], index=0)
 
 end_date = st.sidebar.date_input("Bitiş Tarihi:", datetime.date.today() - datetime.timedelta(days=1))
-period_months = st.sidebar.slider("Veri Süresi (Ay):", 1, 6, 4, 1)
+period_months = st.sidebar.slider("Veri Süresi (Ay):", 1, 6, 3, 1)
 start_date = end_date - datetime.timedelta(days=period_months*30)
 
 st.sidebar.subheader("🎯 Win Rate Optimizasyonu")
 initial_capital = st.sidebar.number_input("Başlangıç Sermayesi (USD):", 1000, 100000, 10000, 1000)
-position_size = st.sidebar.slider("İşlem Büyüklüğü (%):", 30, 80, 50, 5)  # Daha düşük risk
+position_size = st.sidebar.slider("İşlem Büyüklüğü (%):", 30, 80, 50, 5)
 
 st.sidebar.subheader("🛡️ Koruyucu Risk Yönetimi")
-stop_loss = st.sidebar.slider("Stop Loss (%):", 1.5, 5.0, 2.5, 0.1)  # Sıkı stop
-take_profit = st.sidebar.slider("Take Profit (%):", 3.0, 8.0, 5.0, 0.1)  # Düşük ama sık TP
+stop_loss = st.sidebar.slider("Stop Loss (%):", 1.5, 5.0, 2.5, 0.1)
+take_profit = st.sidebar.slider("Take Profit (%):", 3.0, 8.0, 5.0, 0.1)
 max_hold_hours = st.sidebar.slider("Maksimum Bekleme (Saat):", 6, 24, 12, 1)
 
 st.sidebar.subheader("🤖 Gelişmiş ML")
@@ -600,8 +638,8 @@ st.subheader("🎯 Win Rate Maximize Strateji")
 st.success("""
 **🚀 WIN RATE ARTIRMA TEKNİKLERİ:**
 
-1. **Çoklu Konfirmasyon Sistemi** (6+ onay)
-2. **Gelişmiş Teknik Göstergeler** (Ichimoku, Bollinger, Stochastic)
+1. **Çoklu Konfirmasyon Sistemi** (5+ onay)
+2. **Gelişmiş Teknik Göstergeler** (RSI, Bollinger, Stochastic)
 3. **Multi-Timeframe Analiz**
 4. **Volume-Price İlişkisi**
 5. **Market Regime Detection**
@@ -609,7 +647,7 @@ st.success("""
 7. **Strict Risk Management**
 8. **Erken Kar Realizasyonu**
 
-**📊 BEKLENEN WIN RATE: %65-80+**
+**📊 BEKLENEN WIN RATE: %65-75+**
 """)
 
 # Veri yükleme
@@ -690,16 +728,16 @@ if st.button("🎯 BACKTEST BAŞLAT", type="primary", use_container_width=True):
                     st.metric("İşlem Sayısı", results['total_trades'])
                 
                 # WIN RATE DEĞERLENDİRMESİ
-                if results['win_rate'] >= 80:
-                    st.success("🎉🎉🎉 MÜKEMMEL! %80+ WIN RATE! 🎉🎉🎉")
+                if results['win_rate'] >= 75:
+                    st.success("🎉🎉🎉 MÜKEMMEL! %75+ WIN RATE! 🎉🎉🎉")
                     st.balloons()
-                elif results['win_rate'] >= 70:
-                    st.success("🎉 ÇOK İYİ! %70+ WIN RATE!")
+                elif results['win_rate'] >= 65:
+                    st.success("🎉 ÇOK İYİ! %65+ WIN RATE!")
                     st.balloons()
-                elif results['win_rate'] >= 60:
-                    st.success("📈 İYİ! %60+ WIN RATE!")
-                elif results['win_rate'] >= 50:
-                    st.info("✅ ORTA! %50+ WIN RATE")
+                elif results['win_rate'] >= 55:
+                    st.success("📈 İYİ! %55+ WIN RATE!")
+                elif results['win_rate'] >= 45:
+                    st.info("✅ ORTA! %45+ WIN RATE")
                 else:
                     st.warning("⚠️ DÜŞÜK! Win rate geliştirilmeli")
                 
@@ -714,10 +752,10 @@ st.markdown("---")
 st.info("""
 **💡 WIN RATE ARTIRMA İPUÇLARI:**
 
-1. **Daha uzun timeframe (4h) daha yüksek win rate**
+1. **4h timeframe daha yüksek win rate**
 2. **Düşük position size (%30-50) daha iyi risk yönetimi**
 3. **Sıkı stop loss (%2-3) kayıpları sınırlar**
 4. **Düşük take profit (%4-6) daha sık kar realizasyonu**
 5. **ML her zaman aktif olmalı**
-6. **3-4 aylık veri optimal sonuç verir**
+6. **3 aylık veri optimal sonuç verir**
 """)
