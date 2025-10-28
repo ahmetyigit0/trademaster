@@ -565,7 +565,7 @@ if data is not None and not data.empty:
     # Use .empty instead of len() > 0 for pandas Series
     if not price_changes.empty:
         # Check if all values are NaN using proper pandas method
-        if not price_changes.isna().all():
+        if price_changes.isna().all().item() == False:
             volatility = price_changes.std() * np.sqrt(365 * 24) * 100
             if not np.isnan(volatility):
                 volatility_display = f"{volatility:.1f}%"
@@ -585,7 +585,7 @@ if data is not None and not data.empty:
         st.metric("Price Change", f"{price_change:+.1f}%")
     with col4:
         st.metric("Volatility", volatility_display)
-
+        
 # BACKTEST BUTTON
 st.markdown("---")
 st.subheader("🚀 Run DeepSeek Strategy Backtest")
