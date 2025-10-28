@@ -320,8 +320,8 @@ class DeepSeekTradingStrategy:
         total_high_conviction = high_conviction_mask.sum()
         total_medium_conviction = medium_conviction_mask.sum()
         
-            st.info(f"**🎯 High Conviction Signals:** {total_high_conviction}")
-            st.info(f"**📊 Medium Conviction Signals:** {total_medium_conviction}")
+        st.info(f"**🎯 High Conviction Signals:** {total_high_conviction}")
+        st.info(f"**📊 Medium Conviction Signals:** {total_medium_conviction}")
             
             return df
             
