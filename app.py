@@ -44,7 +44,7 @@ class DeepSeekInspiredStrategy:
         
         # Volume analizi
         df['VOLUME_SMA_20'] = df['Volume'].rolling(20).mean()
-        df['VOLUME_RATIO'] = df['Volume'] / df['VOLUME_SMA_20']
+        df['VOLUME_RATIO'] = df['Volume'] / df['VOLUME_SMA_20'].replace(0, 1)
         df['VOLUME_RSI'] = self.calculate_rsi(df['Volume'], 14)
         
         # Support/Resistance seviyeleri
@@ -82,23 +82,26 @@ class DeepSeekInspiredStrategy:
         low_close = np.abs(df['Low'] - df['Close'].shift())
         
         true_range = np.maximum(high_low, np.maximum(high_close, low_close))
-        return true_range.rolling(period).mean()
+        return true_range.rolling(period).mean().fillna(0)
     
     def calculate_adx(self, df, period=14):
         """Average Directional Index"""
-        # Basitleştirilmiş ADX hesaplama
-        up_move = df['High'].diff()
-        down_move = -df['Low'].diff()
-        
-        plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
-        minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
-        
-        tr = self.calculate_atr(df, period)
-        plus_di = 100 * (plus_dm / tr).rolling(period).mean()
-        minus_di = 100 * (minus_dm / tr).rolling(period).mean()
-        
-        dx = 100 * np.abs(plus_di - minus_di) / (plus_di + minus_di)
-        return dx.rolling(period).mean()
+        try:
+            # Basitleştirilmiş ADX hesaplama
+            up_move = df['High'].diff()
+            down_move = -df['Low'].diff()
+            
+            plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
+            minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
+            
+            tr = self.calculate_atr(df, period)
+            plus_di = 100 * (pd.Series(plus_dm).rolling(period).mean() / tr.replace(0, 1))
+            minus_di = 100 * (pd.Series(minus_dm).rolling(period).mean() / tr.replace(0, 1))
+            
+            dx = 100 * np.abs(plus_di - minus_di) / (plus_di + minus_di).replace(0, 1)
+            return dx.rolling(period).mean().fillna(0)
+        except:
+            return pd.Series(0, index=df.index)
     
     def create_deepseek_features(self, df):
         """DeepSeek'in çoklu onay sistemine dayalı özellikler"""
@@ -132,8 +135,9 @@ class DeepSeekInspiredStrategy:
             ).astype(int)
             
             # 5. VOLATILITY ADJUSTMENT
+            volatility_threshold = df['VOLATILITY_20'].quantile(0.7) if len(df) > 0 else 0.1
             features['LOW_VOLATILITY_ZONE'] = (
-                df['VOLATILITY_20'] < df['VOLATILITY_20'].quantile(0.7)
+                df['VOLATILITY_20'] < volatility_threshold
             ).astype(int)
             
             # Toplam onay sayısı (DeepSeek'in çoklu sinyal sistemi)
@@ -147,7 +151,7 @@ class DeepSeekInspiredStrategy:
             
             # Sayısal özellikler
             features['RSI_COMBO'] = (df['RSI_6'] + df['RSI_14']) / 2
-            features['EMA_STRENGTH'] = (df['EMA_8'] - df['EMA_50']) / df['Close']
+            features['EMA_STRENGTH'] = (df['EMA_8'] - df['EMA_50']) / df['Close'].replace(0, 1)
             features['VOLUME_MOMENTUM'] = df['VOLUME_RATIO'] * df['MOMENTUM_4H']
             
             return features.fillna(0).replace([np.inf, -np.inf], 0)
@@ -543,7 +547,7 @@ def load_data(symbol, start_date, end_date, timeframe='1h'):
             pass
         return None
 
-# Data display
+# Data display - FIXED VOLATILITY CALCULATION
 st.markdown("---")
 st.subheader("📊 Market Data Overview")
 
@@ -555,11 +559,14 @@ if data is not None and not data.empty:
     last_price = float(close_prices.iloc[-1])
     price_change = ((last_price - first_price) / first_price) * 100
     
-    # Volatility calculation
+    # SAFE VOLATILITY CALCULATION
     price_changes = close_prices.pct_change().dropna()
-    if len(price_changes) > 0:
+    if len(price_changes) > 0 and not price_changes.isna().all():
         volatility = price_changes.std() * np.sqrt(365 * 24) * 100
-        volatility_display = f"{volatility:.1f}%"
+        if not np.isnan(volatility):
+            volatility_display = f"{volatility:.1f}%"
+        else:
+            volatility_display = "N/A"
     else:
         volatility_display = "N/A"
     
