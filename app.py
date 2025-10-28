@@ -259,50 +259,50 @@ class DeepSeekTradingStrategy:
         self.ml_engine = DeepSeekInspiredStrategy()
         
     def generate_deepseek_signals(self, df: pd.DataFrame) -> pd.DataFrame:
-        """DeepSeek V3.1'in stratejisini uygula"""
-        try:
-            df = df.copy()
-            df['Signal'] = 0
-            df['Conviction'] = 0
-            df['Confirmations'] = 0
+    """DeepSeek V3.1'in stratejisini uygula"""
+    try:
+        df = df.copy()
+        df['Signal'] = 0
+        df['Conviction'] = 0
+        df['Confirmations'] = 0
+        
+        # ML modelini eğit - FIXED: train_conviction_model -> train_model
+        with st.spinner("🤖 DeepSeek AI model eğitiliyor..."):
+            ml_accuracy, feature_importance = self.ml_engine.train_model(df)
             
-            # ML modelini eğit
-            with st.spinner("🤖 DeepSeek AI model eğitiliyor..."):
-                ml_accuracy, feature_importance = self.ml_engine.train_conviction_model(df)
+            if ml_accuracy > 0.5 and feature_importance is not None:
+                st.success(f"✅ DeepSeek AI Accuracy: {ml_accuracy:.1%}")
                 
-                if ml_accuracy > 0.5 and feature_importance is not None:
-                    st.success(f"✅ DeepSeek AI Accuracy: {ml_accuracy:.1%}")
-                    
-                    # Feature importance'ı göster
-                    st.subheader("📊 Feature Importance")
-                    st.dataframe(feature_importance.head(10))
-            
-            # Sinyalleri üret
-            signals, confirmations = self.ml_engine.generate_conviction_signals(df)
-            df['Signal'] = signals
-            df['Confirmations'] = confirmations
-            
-            # Güven seviyesine göre filtrele
-            high_conviction_mask = (df['Signal'].abs() == 2) & (df['Confirmations'] >= 3)
-            medium_conviction_mask = (df['Signal'].abs() == 1) & (df['Confirmations'] >= 2)
-            
-            df['Final_Signal'] = 0
-            df.loc[high_conviction_mask, 'Final_Signal'] = df.loc[high_conviction_mask, 'Signal']
-            df.loc[medium_conviction_mask, 'Final_Signal'] = df.loc[medium_conviction_mask, 'Signal'] * 0.5
-            
-            total_high_conviction = high_conviction_mask.sum()
-            total_medium_conviction = medium_conviction_mask.sum()
-            
-            st.info(f"**🎯 High Conviction Signals:** {total_high_conviction}")
-            st.info(f"**📊 Medium Conviction Signals:** {total_medium_conviction}")
-                    
-            return df
-            
-        except Exception as e:
-            st.error(f"Signal generation error: {e}")
-            df['Signal'] = 0
-            df['Final_Signal'] = 0
-            return df
+                # Feature importance'ı göster
+                st.subheader("📊 Feature Importance")
+                st.dataframe(feature_importance.head(10))
+        
+        # Sinyalleri üret
+        signals, confirmations = self.ml_engine.generate_conviction_signals(df)
+        df['Signal'] = signals
+        df['Confirmations'] = confirmations
+        
+        # Güven seviyesine göre filtrele
+        high_conviction_mask = (df['Signal'].abs() == 2) & (df['Confirmations'] >= 3)
+        medium_conviction_mask = (df['Signal'].abs() == 1) & (df['Confirmations'] >= 2)
+        
+        df['Final_Signal'] = 0
+        df.loc[high_conviction_mask, 'Final_Signal'] = df.loc[high_conviction_mask, 'Signal']
+        df.loc[medium_conviction_mask, 'Final_Signal'] = df.loc[medium_conviction_mask, 'Signal'] * 0.5
+        
+        total_high_conviction = high_conviction_mask.sum()
+        total_medium_conviction = medium_conviction_mask.sum()
+        
+        st.info(f"**🎯 High Conviction Signals:** {total_high_conviction}")
+        st.info(f"**📊 Medium Conviction Signals:** {total_medium_conviction}")
+                
+        return df
+        
+    except Exception as e:
+        st.error(f"Signal generation error: {e}")
+        df['Signal'] = 0
+        df['Final_Signal'] = 0
+        return df
     
     def backtest_deepseek_strategy(self, df: pd.DataFrame, progress_bar,
                                  position_size: float, stop_loss: float, 
