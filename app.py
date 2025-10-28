@@ -27,40 +27,40 @@ class DeepSeekInspiredStrategy:
         self.performance_history = []
         
     def calculate_advanced_indicators(self, df):
-        """DeepSeek'in kullandığı gelişmiş göstergeler"""
-        df = df.copy()
-        
-        # Multi-timeframe RSI
-        for period in [6, 14, 21]:
-            df[f'RSI_{period}'] = self.calculate_rsi(df['Close'], period)
-        
-        # EMA yelpazesi
-        for span in [8, 21, 50, 100]:
-            df[f'EMA_{span}'] = df['Close'].ewm(span=span).mean()
-        
-        # Momentum göstergeleri
-        df['MOMENTUM_4H'] = (df['Close'] / df['Close'].shift(4) - 1).astype(float)
-        df['MOMENTUM_1D'] = (df['Close'] / df['Close'].shift(24) - 1).astype(float)
-        
-        # Volume analizi - FIXED
-        df['VOLUME_SMA_20'] = df['Volume'].rolling(20).mean()
-        df['VOLUME_RATIO'] = (df['Volume'] / df['VOLUME_SMA_20'].replace(0, 1)).astype(float)
-        df['VOLUME_RSI'] = self.calculate_rsi(df['Volume'], 14)
-        
-        # Support/Resistance seviyeleri - FIXED
-        df['RESISTANCE_20'] = df['High'].rolling(20).max()
-        df['SUPPORT_20'] = df['Low'].rolling(20).min()
-        df['DISTANCE_TO_RESISTANCE'] = ((df['RESISTANCE_20'] - df['Close']) / df['Close']).astype(float)
-        df['DISTANCE_TO_SUPPORT'] = ((df['Close'] - df['SUPPORT_20']) / df['Close']).astype(float)
-        
-        # Volatilite
-        df['ATR'] = self.calculate_atr(df)
-        df['VOLATILITY_20'] = df['Close'].pct_change().rolling(20).std()
-        
-        # Trend gücü
-        df['ADX'] = self.calculate_adx(df)
-        
-        return df.fillna(method='bfill').fillna(0)
+    """DeepSeek'in kullandığı gelişmiş göstergeler"""
+    df = df.copy()
+    
+    # Multi-timeframe RSI
+    for period in [6, 14, 21]:
+        df[f'RSI_{period}'] = self.calculate_rsi(df['Close'], period)
+    
+    # EMA yelpazesi
+    for span in [8, 21, 50, 100]:
+        df[f'EMA_{span}'] = df['Close'].ewm(span=span).mean()
+    
+    # Momentum göstergeleri - FIXED
+    df['MOMENTUM_4H'] = df['Close'].pct_change(4)
+    df['MOMENTUM_1D'] = df['Close'].pct_change(24)
+    
+    # Volume analizi - FIXED
+    df['VOLUME_SMA_20'] = df['Volume'].rolling(20).mean()
+    df['VOLUME_RATIO'] = df['Volume'] / df['VOLUME_SMA_20'].replace(0, 1)
+    df['VOLUME_RSI'] = self.calculate_rsi(df['Volume'], 14)
+    
+    # Support/Resistance seviyeleri - FIXED
+    df['RESISTANCE_20'] = df['High'].rolling(20).max()
+    df['SUPPORT_20'] = df['Low'].rolling(20).min()
+    df['DISTANCE_TO_RESISTANCE'] = (df['RESISTANCE_20'] - df['Close']) / df['Close']
+    df['DISTANCE_TO_SUPPORT'] = (df['Close'] - df['SUPPORT_20']) / df['Close']
+    
+    # Volatilite
+    df['ATR'] = self.calculate_atr(df)
+    df['VOLATILITY_20'] = df['Close'].pct_change().rolling(20).std()
+    
+    # Trend gücü
+    df['ADX'] = self.calculate_adx(df)
+    
+    return df.fillna(method='bfill').fillna(0)
     
     def calculate_rsi(self, prices, window=14):
         """RSI hesapla"""
