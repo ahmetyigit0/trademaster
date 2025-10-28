@@ -277,6 +277,7 @@ class DeepSeekInspiredStrategy:
             return np.zeros(len(df)), np.zeros(len(df))
 
 # DeepSeek Inspired Trading Strategy
+# DeepSeek Inspired Trading Strategy - OPTIMIZED VERSION
 class DeepSeekTradingStrategy:
     def __init__(self, initial_capital: float = 10000):
         self.initial_capital = initial_capital
@@ -284,69 +285,49 @@ class DeepSeekTradingStrategy:
         self.ml_engine = DeepSeekInspiredStrategy()
         
     def generate_deepseek_signals(self, df: pd.DataFrame) -> pd.DataFrame:
-        """DeepSeek V3.1'in stratejisini uygula"""
+        """DeepSeek V3.1'in optimize edilmiş stratejisini uygula"""
         try:
             df = df.copy()
             df['Signal'] = 0
             df['Conviction'] = 0
             df['Confirmations'] = 0
             
-            # ML modelini eğit - FIXED: train_conviction_model -> train_model
+            # ML modelini eğit
             with st.spinner("🤖 DeepSeek AI model eğitiliyor..."):
                 ml_accuracy, feature_importance = self.ml_engine.train_model(df)
                 
-                if ml_accuracy > 0.5 and feature_importance is not None:
+                if ml_accuracy > 0.45:  # Threshold'u düşürdük daha fazla sinyal için
                     st.success(f"✅ DeepSeek AI Accuracy: {ml_accuracy:.1%}")
                     
-                    # Feature importance'ı göster
-                    st.subheader("📊 Feature Importance")
-                    st.dataframe(feature_importance.head(10))
+                    if feature_importance is not None:
+                        st.subheader("📊 Feature Importance")
+                        st.dataframe(feature_importance.head(10))
+                else:
+                    st.warning(f"⚠️ ML Accuracy düşük: {ml_accuracy:.1%}. Temel strateji kullanılıyor.")
             
             # Sinyalleri üret
             signals, confirmations = self.ml_engine.generate_conviction_signals(df)
             df['Signal'] = signals
             df['Confirmations'] = confirmations
             
-            # Güven seviyesine göre filtrele
-            high_conviction_mask = (df['Signal'].abs() == 2) & (df['Confirmations'] >= 3)
-            medium_conviction_mask = (df['Signal'].abs() == 1) & (df['Confirmations'] >= 2)
+            # DAHA DÜŞÜK THRESHOLD İLE DAHA FAZLA SİNYAL
+            high_conviction_mask = (df['Signal'].abs() >= 1) & (df['Confirmations'] >= 2)  # Threshold'u düşürdük
+            medium_conviction_mask = (df['Signal'].abs() >= 1) & (df['Confirmations'] >= 1)
             
             df['Final_Signal'] = 0
             df.loc[high_conviction_mask, 'Final_Signal'] = df.loc[high_conviction_mask, 'Signal']
-            df.loc[medium_conviction_mask, 'Final_Signal'] = df.loc[medium_conviction_mask, 'Signal'] * 0.5
+            df.loc[medium_conviction_mask, 'Final_Signal'] = df.loc[medium_conviction_mask, 'Signal'] * 0.7  # Daha agresif
             
             total_high_conviction = high_conviction_mask.sum()
             total_medium_conviction = medium_conviction_mask.sum()
             
             st.info(f"**🎯 High Conviction Signals:** {total_high_conviction}")
             st.info(f"**📊 Medium Conviction Signals:** {total_medium_conviction}")
-                    
-            return df
             
-        except Exception as e:
-            st.error(f"Signal generation error: {e}")
-            df['Signal'] = 0
-            df['Final_Signal'] = 0
-            return df
-        
-                   # Sinyalleri üret
-            signals, confirmations = self.ml_engine.generate_conviction_signals(df)
-            df['Signal'] = signals
-            df['Confirmations'] = confirmations
-            
-            # Güven seviyesine göre filtrele
-            high_conviction_mask = (df['Signal'].abs() == 2) & (df['Confirmations'] >= 3)
-            medium_conviction_mask = (df['Signal'].abs() == 1) & (df['Confirmations'] >= 2)
-            
-            df['Final_Signal'] = 0
-            df.loc[high_conviction_mask, 'Final_Signal'] = df.loc[high_conviction_mask, 'Signal']
-            df.loc[medium_conviction_mask, 'Final_Signal'] = df.loc[medium_conviction_mask, 'Signal'] * 0.5
-            
-            total_high_conviction = high_conviction_mask.sum()
-            total_medium_conviction = medium_conviction_mask.sum()
-            
-            st.info(f"**🎯 High Conviction Signals:** {total_high_conviction}")
-            st.info(f"**📊 Medium Conviction Signals:** {total_medium_conviction}")
+            # Eğer çok az sinyal varsa, temel stratejiyi kullan
+            if total_high_conviction + total_medium_conviction < 5:
+                st.warning("⚠️ Çok az sinyal üretildi. Temel strateji devreye giriyor...")
+                df = self._apply_fallback_strategy(df)
                     
             return df
             
@@ -356,10 +337,59 @@ class DeepSeekTradingStrategy:
             df['Final_Signal'] = 0
             return df
     
+    def _apply_fallback_strategy(self, df):
+        """Temel RSI + EMA stratejisi - yüksek win rate için"""
+        try:
+            # Basit ama etkili RSI + EMA stratejisi
+            df = df.copy()
+            
+            # RSI hesapla
+            df['RSI_14'] = self.ml_engine.calculate_rsi(df['Close'], 14)
+            df['EMA_20'] = df['Close'].ewm(span=20).mean()
+            df['EMA_50'] = df['Close'].ewm(span=50).mean()
+            
+            # Basit sinyal kuralları - YÜKSEK WIN RATE İÇİN
+            for i in range(2, len(df)):
+                rsi = df['RSI_14'].iloc[i]
+                ema_20 = df['EMA_20'].iloc[i]
+                ema_50 = df['EMA_50'].iloc[i]
+                price = df['Close'].iloc[i]
+                prev_price = df['Close'].iloc[i-1]
+                
+                # CONSERVATIVE LONG SIGNALS (Yüksek win rate için)
+                long_condition = (
+                    rsi < 35 and  # Oversold
+                    price > ema_20 and  # EMA üzerinde
+                    ema_20 > ema_50 and  # Trend yukarı
+                    price > prev_price  # Momentum pozitif
+                )
+                
+                # CONSERVATIVE SHORT SIGNALS (Yüksek win rate için)
+                short_condition = (
+                    rsi > 65 and  # Overbought
+                    price < ema_20 and  # EMA altında
+                    ema_20 < ema_50 and  # Trend aşağı
+                    price < prev_price  # Momentum negatif
+                )
+                
+                if long_condition:
+                    df.loc[df.index[i], 'Final_Signal'] = 1
+                elif short_condition:
+                    df.loc[df.index[i], 'Final_Signal'] = -1
+            
+            fallback_signals = (df['Final_Signal'] != 0).sum()
+            st.info(f"**🔄 Fallback Signals:** {fallback_signals}")
+            
+            return df
+            
+        except Exception as e:
+            st.error(f"Fallback strategy error: {e}")
+            return df
+    
     def backtest_deepseek_strategy(self, df: pd.DataFrame, progress_bar,
                                  position_size: float, stop_loss: float, 
                                  take_profit: float) -> dict:
-        """DeepSeek tarzı backtest - yüksek güven stratejisi"""
+        """Optimize edilmiş backtest - DAHA İYİ WIN RATE İÇİN"""
         try:
             capital = self.initial_capital
             position = 0
@@ -367,32 +397,30 @@ class DeepSeekTradingStrategy:
             trades = []
             total_trades = 0
             winning_trades = 0
-            high_conviction_wins = 0
             
-            for i in range(len(df)):
+            # DAHA AKILLI POZİSYON YÖNETİMİ
+            for i in range(2, len(df)):  # 2'den başlat for better signals
                 if i % 100 == 0:
                     progress_bar.progress(min(i / len(df), 1.0))
                 
                 current_price = float(df['Close'].iloc[i])
                 signal = float(df['Final_Signal'].iloc[i])
-                conviction = abs(float(df['Signal'].iloc[i]))
-                confirmations = int(df['Confirmations'].iloc[i])
                 
-                # DEEPSEEK-STYLE POSITION ENTRY
+                # DAHA İYİ GİRİŞ STRATEJİSİ
                 if position == 0 and signal != 0:
+                    # Sinyal kalitesine göre pozisyon büyüklüğü
+                    base_size = position_size / 100
+                    
+                    # DAHA CONSERVATIVE POZİSYON BÜYÜKLÜĞÜ
+                    if abs(signal) >= 1.5:  # Yüksek güven
+                        final_position_size = min(base_size * 1.2, 0.6)
+                    elif abs(signal) >= 1:  # Orta güven
+                        final_position_size = min(base_size * 0.8, 0.4)
+                    else:  # Düşük güven
+                        final_position_size = min(base_size * 0.5, 0.3)
+                    
                     position = 1 if signal > 0 else -1
                     entry_price = current_price
-                    
-                    # Güven seviyesine göre pozisyon büyüklüğü (DeepSeek'in 60-80% yaklaşımı)
-                    base_size = position_size / 100
-                    conviction_boost = 0.2 if conviction == 2 else 0.0
-                    confirmation_boost = min(confirmations * 0.05, 0.1)
-                    
-                    final_position_size = min(
-                        base_size + conviction_boost + confirmation_boost,
-                        0.8  # Maksimum %80 (DeepSeek'in agresif ama kontrollü yaklaşımı)
-                    )
-                    
                     trade_size = capital * final_position_size
                     total_trades += 1
                     
@@ -400,31 +428,38 @@ class DeepSeekTradingStrategy:
                         'entry_price': entry_price,
                         'position': 'LONG' if position == 1 else 'SHORT',
                         'size': trade_size,
-                        'conviction': conviction,
-                        'confirmations': confirmations,
                         'position_size_percent': final_position_size * 100,
                         'status': 'OPEN'
                     })
                 
-                # DEEPSEEK-STYLE POSITION MANAGEMENT
+                # DAHA İYİ ÇIKIŞ STRATEJİSİ
                 elif position != 0:
                     if position == 1:  # Long
                         pnl_percent = (current_price - entry_price) / entry_price
                         
-                        # DeepSeek'in katmanlı çıkış stratejisi
-                        if pnl_percent <= -(stop_loss / 100) or pnl_percent >= (take_profit / 100):
+                        # DAHA İYİ STOP LOSS & TAKE PROFIT
+                        stop_loss_exit = pnl_percent <= -(stop_loss / 100)
+                        take_profit_exit = pnl_percent >= (take_profit / 100)
+                        
+                        # TRAILING STOP (kazançları koru)
+                        if pnl_percent >= (take_profit / 200):  # %2.5 karda
+                            dynamic_stop = entry_price * 1.01  # %1 karı koru
+                            trailing_stop_exit = current_price < dynamic_stop
+                        else:
+                            trailing_stop_exit = False
+                        
+                        if stop_loss_exit or take_profit_exit or trailing_stop_exit:
                             pnl_amount = trades[-1]['size'] * pnl_percent
                             capital += pnl_amount
                             
                             if pnl_amount > 0:
                                 winning_trades += 1
-                                if trades[-1]['conviction'] == 2:
-                                    high_conviction_wins += 1
                             
                             trades[-1].update({
                                 'exit_price': current_price,
                                 'pnl': pnl_amount,
                                 'pnl_percent': pnl_percent * 100,
+                                'exit_reason': 'SL' if stop_loss_exit else 'TP' if take_profit_exit else 'TS',
                                 'status': 'CLOSED'
                             })
                             position = 0
@@ -432,19 +467,27 @@ class DeepSeekTradingStrategy:
                     elif position == -1:  # Short
                         pnl_percent = (entry_price - current_price) / entry_price
                         
-                        if pnl_percent <= -(stop_loss / 100) or pnl_percent >= (take_profit / 100):
+                        stop_loss_exit = pnl_percent <= -(stop_loss / 100)
+                        take_profit_exit = pnl_percent >= (take_profit / 100)
+                        
+                        if pnl_percent >= (take_profit / 200):
+                            dynamic_stop = entry_price * 0.99
+                            trailing_stop_exit = current_price > dynamic_stop
+                        else:
+                            trailing_stop_exit = False
+                        
+                        if stop_loss_exit or take_profit_exit or trailing_stop_exit:
                             pnl_amount = trades[-1]['size'] * pnl_percent
                             capital += pnl_amount
                             
                             if pnl_amount > 0:
                                 winning_trades += 1
-                                if trades[-1]['conviction'] == 2:
-                                    high_conviction_wins += 1
                             
                             trades[-1].update({
                                 'exit_price': current_price,
                                 'pnl': pnl_amount,
                                 'pnl_percent': pnl_percent * 100,
+                                'exit_reason': 'SL' if stop_loss_exit else 'TP' if take_profit_exit else 'TS',
                                 'status': 'CLOSED'
                             })
                             position = 0
@@ -462,13 +505,12 @@ class DeepSeekTradingStrategy:
                 
                 if pnl_amount > 0:
                     winning_trades += 1
-                    if trades[-1]['conviction'] == 2:
-                        high_conviction_wins += 1
                 
                 trades[-1].update({
                     'exit_price': last_price,
                     'pnl': pnl_amount,
                     'pnl_percent': pnl_percent * 100,
+                    'exit_reason': 'FORCE_CLOSE',
                     'status': 'CLOSED'
                 })
             
@@ -476,7 +518,6 @@ class DeepSeekTradingStrategy:
             final_capital = max(capital, 0)
             total_return = ((final_capital - self.initial_capital) / self.initial_capital) * 100
             win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
-            high_conviction_win_rate = (high_conviction_wins / total_trades * 100) if total_trades > 0 else 0
             
             self.results = {
                 'initial_capital': self.initial_capital,
@@ -485,8 +526,6 @@ class DeepSeekTradingStrategy:
                 'total_trades': total_trades,
                 'winning_trades': winning_trades,
                 'win_rate': win_rate,
-                'high_conviction_wins': high_conviction_wins,
-                'high_conviction_win_rate': high_conviction_win_rate,
                 'trades': trades
             }
             
@@ -501,8 +540,6 @@ class DeepSeekTradingStrategy:
                 'total_trades': 0,
                 'winning_trades': 0,
                 'win_rate': 0,
-                'high_conviction_wins': 0,
-                'high_conviction_win_rate': 0,
                 'trades': []
             }
 
