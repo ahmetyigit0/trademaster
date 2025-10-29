@@ -126,7 +126,7 @@ st.sidebar.subheader("⚡ Time Settings")
 timeframe = st.sidebar.selectbox("Timeframe:", ["1h", "4h", "1d", "1wk"], index=1)
 period_days = st.sidebar.slider("Data Period (Days):", 30, 365, 90)
 
-# BASİT ve GÜVENLİ Teknik Analiz Sınıfı
+# ÇOK BASİT ve GÜVENLİ Teknik Analiz Sınıfı
 class SimpleTechnicalAnalysis:
     def __init__(self):
         pass
@@ -145,45 +145,51 @@ class SimpleTechnicalAnalysis:
             rs = rs.fillna(1)
             return 100 - (100 / (1 + rs))
         except:
-            return pd.Series(50, index=prices.index)  # Default değer
+            return pd.Series(50, index=prices.index)
     
     def calculate_simple_indicators(self, df):
-        """Basit ve güvenli gösterge hesaplama"""
+        """BASİT ve GÜVENLİ gösterge hesaplama"""
         try:
             df = df.copy()
             
-            # 1. RSI
-            df['RSI_14'] = self.calculate_rsi(df['Close'], 14)
+            # 1. RSI - Series olarak
+            rsi_series = self.calculate_rsi(df['Close'], 14)
+            df = df.assign(RSI_14=rsi_series)
             
-            # 2. EMA'lar - basit
-            df['EMA_12'] = df['Close'].ewm(span=12).mean()
-            df['EMA_26'] = df['Close'].ewm(span=26).mean()
-            df['EMA_50'] = df['Close'].ewm(span=50).mean()
+            # 2. EMA'lar - tek tek assign
+            df = df.assign(EMA_12=df['Close'].ewm(span=12).mean())
+            df = df.assign(EMA_26=df['Close'].ewm(span=26).mean())
+            df = df.assign(EMA_50=df['Close'].ewm(span=50).mean())
             
             # 3. MACD
-            df['MACD'] = df['EMA_12'] - df['EMA_26']
-            df['MACD_Signal'] = df['MACD'].ewm(span=9).mean()
+            macd_series = df['EMA_12'] - df['EMA_26']
+            df = df.assign(MACD=macd_series)
+            df = df.assign(MACD_Signal=macd_series.ewm(span=9).mean())
             
-            # 4. Bollinger Bands
-            df['BB_Middle'] = df['Close'].rolling(20).mean()
+            # 4. Bollinger Bands - Series olarak hesapla
+            bb_middle = df['Close'].rolling(20).mean()
             bb_std = df['Close'].rolling(20).std()
-            df['BB_Upper'] = df['BB_Middle'] + (bb_std * 2)
-            df['BB_Lower'] = df['BB_Middle'] - (bb_std * 2)
+            bb_upper = bb_middle + (bb_std * 2)
+            bb_lower = bb_middle - (bb_std * 2)
             
-            # 5. Volume - GÜVENLİ YÖNTEM
-            df['Volume_SMA_20'] = df['Volume'].rolling(20, min_periods=1).mean()
-            # Volume_Ratio'yu Series olarak hesapla ve ata
-            volume_ratio_series = df['Volume'] / df['Volume_SMA_20'].replace(0, 1)
-            df = df.assign(Volume_Ratio=volume_ratio_series)
+            df = df.assign(BB_Middle=bb_middle)
+            df = df.assign(BB_Upper=bb_upper)
+            df = df.assign(BB_Lower=bb_lower)
+            
+            # 5. Volume - Series olarak
+            volume_sma = df['Volume'].rolling(20, min_periods=1).mean()
+            volume_ratio = df['Volume'] / volume_sma.replace(0, 1)
+            df = df.assign(Volume_Ratio=volume_ratio)
             
             # 6. ATR
             high_low = df['High'] - df['Low']
             high_close = np.abs(df['High'] - df['Close'].shift())
             low_close = np.abs(df['Low'] - df['Close'].shift())
             true_range = np.maximum(np.maximum(high_low, high_close), low_close)
-            df['ATR'] = true_range.rolling(14).mean()
+            atr_series = true_range.rolling(14).mean()
+            df = df.assign(ATR=atr_series)
             
-            # 7. Fibonacci (basit)
+            # 7. Fibonacci
             recent_high = df['High'].tail(20).max()
             recent_low = df['Low'].tail(20).min()
             diff = recent_high - recent_low
@@ -195,14 +201,13 @@ class SimpleTechnicalAnalysis:
                 'Fib_0.786': recent_high - diff * 0.786
             }
             
-            # Tüm NaN değerleri temizle
+            # NaN temizleme
             df = df.fillna(method='bfill').fillna(0)
             
             return df, fib_levels
             
         except Exception as e:
-            # Hata durumunda basit DataFrame döndür
-            st.error(f"Indicator calculation error: {e}")
+            st.error(f"Indicator error: {str(e)}")
             return df, {}
 
 # Veri yükleme
@@ -216,7 +221,7 @@ def load_crypto_data(symbol, period_days, timeframe):
         st.error(f"Data loading error: {e}")
         return None
 
-# Fiyat formatı - küçük punto için
+# Fiyat formatı
 def format_price(price):
     try:
         price = float(price)
@@ -231,177 +236,174 @@ def format_price(price):
     except:
         return "N/A"
 
-# Sinyal analizini göster
+# GÜVENLİ Sinyal analizi - pandas Series hatası düzeltildi
 def display_signal_analysis(df, fib_levels):
     if df is None or df.empty:
         st.error("No data available for analysis")
         return
     
-    if len(df) == 0:
-        st.error("Not enough data for analysis")
-        return
-        
-    current_data = df.iloc[-1]
-    
-    st.subheader(f"📊 Technical Analysis for {selected_crypto}")
-    
-    # Ana metrikler
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        current_price = current_data['Close']
-        st.metric("Current Price", format_price(current_price))
-    
-    with col2:
-        rsi = current_data['RSI_14']
-        rsi_status = "Oversold" if rsi < 30 else "Overbought" if rsi > 70 else "Neutral"
-        st.metric("RSI (14)", f"{rsi:.1f}", rsi_status)
-    
-    with col3:
-        try:
-            bb_position = (current_price - current_data['BB_Lower']) / (current_data['BB_Upper'] - current_data['BB_Lower'])
-            bb_status = "Upper" if bb_position > 0.8 else "Lower" if bb_position < 0.2 else "Middle"
-            st.metric("Bollinger", f"{bb_position:.0%}", bb_status)
-        except:
-            st.metric("Bollinger", "N/A")
-    
-    with col4:
-        try:
-            atr_percent = (current_data['ATR'] / current_price) * 100
-            st.metric("ATR", f"{atr_percent:.2f}%")
-        except:
-            st.metric("ATR", "N/A")
-    
-    st.markdown("---")
-    
-    # Trend Analizi
-    st.subheader("🔍 Trend Analysis")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.write("**Moving Averages**")
-        ema_12 = current_data['EMA_12']
-        ema_26 = current_data['EMA_26']
-        ema_50 = current_data['EMA_50']
-        
-        if current_price > ema_12 > ema_26 > ema_50:
-            trend = "🟢 Strong Uptrend"
-        elif current_price > ema_26 > ema_50:
-            trend = "🟡 Uptrend"
-        elif current_price > ema_50:
-            trend = "🟠 Weak Uptrend"
-        elif current_price < ema_12 < ema_26 < ema_50:
-            trend = "🔴 Strong Downtrend"
-        elif current_price < ema_26 < ema_50:
-            trend = "🟣 Downtrend"
-        else:
-            trend = "⚪ Sideways"
-        
-        st.write(trend)
-        st.write(f"EMA 12: {format_price(ema_12)}")
-        st.write(f"EMA 26: {format_price(ema_26)}")
-    
-    with col2:
-        st.write("**MACD Signal**")
-        macd = current_data['MACD']
-        macd_signal = current_data['MACD_Signal']
-        
-        if macd > macd_signal:
-            signal = "🟢 Bullish"
-        else:
-            signal = "🔴 Bearish"
-            
-        st.write(signal)
-        st.write(f"MACD: {macd:.4f}")
-        st.write(f"Signal: {macd_signal:.4f}")
-    
-    with col3:
-        st.write("**Volume & Momentum**")
-        volume_ratio = current_data.get('Volume_Ratio', 1)
-        if volume_ratio > 1.5:
-            vol_signal = "🟢 High"
-        elif volume_ratio > 0.8:
-            vol_signal = "🟡 Normal"
-        else:
-            vol_signal = "🔴 Low"
-            
-        st.write(f"Volume: {vol_signal}")
-        st.write(f"Ratio: {volume_ratio:.1f}x")
-    
-    # Fibonacci Levels
-    st.subheader("📊 Fibonacci Levels")
-    
-    if fib_levels:
-        current_price = current_data['Close']
-        cols = st.columns(5)
-        
-        for idx, (level, value) in enumerate(fib_levels.items()):
-            with cols[idx]:
-                diff_pct = ((current_price - value) / value) * 100
-                st.metric(
-                    label=level.replace('Fib_', ''),
-                    value=format_price(value),
-                    delta=f"{diff_pct:+.1f}%"
-                )
-    
-    # Trading Signal
-    st.markdown("---")
-    st.subheader("🎯 Trading Signal")
-    
-    # Basit sinyal hesaplama
-    buy_signals = 0
-    sell_signals = 0
-    
-    # RSI sinyali
-    rsi = current_data['RSI_14']
-    if rsi < 35:
-        buy_signals += 1
-    elif rsi > 65:
-        sell_signals += 1
-    
-    # MACD sinyali
-    if current_data['MACD'] > current_data['MACD_Signal']:
-        buy_signals += 1
-    else:
-        sell_signals += 1
-    
-    # Trend sinyali
-    if current_price > current_data['EMA_26']:
-        buy_signals += 1
-    else:
-        sell_signals += 1
-    
-    # Bollinger sinyali
     try:
-        bb_pos = (current_price - current_data['BB_Lower']) / (current_data['BB_Upper'] - current_data['BB_Lower'])
-        if bb_pos < 0.2:
+        current_data = df.iloc[-1]
+        
+        # Tüm değerleri float'a çevir - PANDAS SERIES HATASI ÇÖZÜMÜ
+        current_price = float(current_data['Close'])
+        rsi = float(current_data['RSI_14'])
+        ema_12 = float(current_data['EMA_12'])
+        ema_26 = float(current_data['EMA_26'])
+        ema_50 = float(current_data['EMA_50'])
+        macd = float(current_data['MACD'])
+        macd_signal = float(current_data['MACD_Signal'])
+        bb_upper = float(current_data['BB_Upper'])
+        bb_lower = float(current_data['BB_Lower'])
+        bb_middle = float(current_data['BB_Middle'])
+        atr = float(current_data['ATR'])
+        volume_ratio = float(current_data.get('Volume_Ratio', 1))
+        
+        st.subheader(f"📊 Technical Analysis for {selected_crypto}")
+        
+        # Ana metrikler
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Current Price", format_price(current_price))
+        
+        with col2:
+            rsi_status = "Oversold" if rsi < 30 else "Overbought" if rsi > 70 else "Neutral"
+            st.metric("RSI (14)", f"{rsi:.1f}", rsi_status)
+        
+        with col3:
+            try:
+                bb_position = (current_price - bb_lower) / (bb_upper - bb_lower)
+                bb_status = "Upper" if bb_position > 0.8 else "Lower" if bb_position < 0.2 else "Middle"
+                st.metric("Bollinger", f"{bb_position:.0%}", bb_status)
+            except:
+                st.metric("Bollinger", "N/A")
+        
+        with col4:
+            try:
+                atr_percent = (atr / current_price) * 100
+                st.metric("ATR", f"{atr_percent:.2f}%")
+            except:
+                st.metric("ATR", "N/A")
+        
+        st.markdown("---")
+        
+        # Trend Analizi
+        st.subheader("🔍 Trend Analysis")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.write("**Moving Averages**")
+            if current_price > ema_12 > ema_26 > ema_50:
+                trend = "🟢 Strong Uptrend"
+            elif current_price > ema_26 > ema_50:
+                trend = "🟡 Uptrend"
+            elif current_price > ema_50:
+                trend = "🟠 Weak Uptrend"
+            elif current_price < ema_12 < ema_26 < ema_50:
+                trend = "🔴 Strong Downtrend"
+            elif current_price < ema_26 < ema_50:
+                trend = "🟣 Downtrend"
+            else:
+                trend = "⚪ Sideways"
+            
+            st.write(trend)
+            st.write(f"EMA 12: {format_price(ema_12)}")
+            st.write(f"EMA 26: {format_price(ema_26)}")
+        
+        with col2:
+            st.write("**MACD Signal**")
+            if macd > macd_signal:
+                signal = "🟢 Bullish"
+            else:
+                signal = "🔴 Bearish"
+                
+            st.write(signal)
+            st.write(f"MACD: {macd:.4f}")
+            st.write(f"Signal: {macd_signal:.4f}")
+        
+        with col3:
+            st.write("**Volume & Momentum**")
+            if volume_ratio > 1.5:
+                vol_signal = "🟢 High"
+            elif volume_ratio > 0.8:
+                vol_signal = "🟡 Normal"
+            else:
+                vol_signal = "🔴 Low"
+                
+            st.write(f"Volume: {vol_signal}")
+            st.write(f"Ratio: {volume_ratio:.1f}x")
+        
+        # Fibonacci Levels
+        st.subheader("📊 Fibonacci Levels")
+        
+        if fib_levels:
+            cols = st.columns(5)
+            
+            for idx, (level, value) in enumerate(fib_levels.items()):
+                with cols[idx]:
+                    diff_pct = ((current_price - value) / value) * 100
+                    st.metric(
+                        label=level.replace('Fib_', ''),
+                        value=format_price(value),
+                        delta=f"{diff_pct:+.1f}%"
+                    )
+        
+        # Trading Signal
+        st.markdown("---")
+        st.subheader("🎯 Trading Signal")
+        
+        # Basit sinyal hesaplama - TÜM DEĞERLER FLOAT
+        buy_signals = 0
+        sell_signals = 0
+        
+        # RSI sinyali
+        if rsi < 35:
             buy_signals += 1
-        elif bb_pos > 0.8:
+        elif rsi > 65:
             sell_signals += 1
-    except:
-        pass
-    
-    # Sonuç
-    if buy_signals >= 3:
-        signal = "🟢 STRONG BUY"
-        color = "green"
-    elif buy_signals > sell_signals:
-        signal = "🟡 BUY"
-        color = "blue"
-    elif sell_signals >= 3:
-        signal = "🔴 STRONG SELL"
-        color = "red"
-    elif sell_signals > buy_signals:
-        signal = "🟣 SELL"
-        color = "purple"
-    else:
-        signal = "⚪ HOLD"
-        color = "gray"
-    
-    st.success(f"**{signal}**")
-    st.write(f"**Buy Signals:** {buy_signals}/4")
-    st.write(f"**Sell Signals:** {sell_signals}/4")
+        
+        # MACD sinyali
+        if macd > macd_signal:
+            buy_signals += 1
+        else:
+            sell_signals += 1
+        
+        # Trend sinyali
+        if current_price > ema_26:
+            buy_signals += 1
+        else:
+            sell_signals += 1
+        
+        # Bollinger sinyali
+        try:
+            bb_pos = (current_price - bb_lower) / (bb_upper - bb_lower)
+            if bb_pos < 0.2:
+                buy_signals += 1
+            elif bb_pos > 0.8:
+                sell_signals += 1
+        except:
+            pass
+        
+        # Sonuç
+        if buy_signals >= 3:
+            signal = "🟢 STRONG BUY"
+        elif buy_signals > sell_signals:
+            signal = "🟡 BUY"
+        elif sell_signals >= 3:
+            signal = "🔴 STRONG SELL"
+        elif sell_signals > buy_signals:
+            signal = "🟣 SELL"
+        else:
+            signal = "⚪ HOLD"
+        
+        st.success(f"**{signal}**")
+        st.write(f"**Buy Signals:** {buy_signals}/4")
+        st.write(f"**Sell Signals:** {sell_signals}/4")
+        
+    except Exception as e:
+        st.error(f"Analysis error: {str(e)}")
 
 # Ana uygulama
 def main():
