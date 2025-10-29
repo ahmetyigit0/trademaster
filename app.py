@@ -31,7 +31,7 @@ if 'backtest_results' not in st.session_state:
 # DeepSeek API Integration
 class DeepSeekTradingAdvisor:
     def __init__(self):
-        self.api_key = sk-b889737334d144c98ef6fac1b5d0b417  # DeepSeek API key buraya
+        self.api_key = "sk-b889737334d144c98ef6fac1b5d0b417"  # DeepSeek API key buraya
         self.base_url = "https://api.deepseek.com/v1"  # DeepSeek API endpoint
     
     def get_trading_advice(self, technical_data, sentiment_data, market_context):
