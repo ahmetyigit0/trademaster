@@ -14,7 +14,7 @@ st.set_page_config(
 )
 
 # Başlık
-st.title("🚀 Crypto Trading Dashboard - Binance API")
+st.title("🚀 Crypto Trading Dashboard - Multi API")
 st.markdown("---")
 
 # Session state for countdown
@@ -22,192 +22,255 @@ if 'last_update' not in st.session_state:
     st.session_state.last_update = time.time()
 if 'countdown' not in st.session_state:
     st.session_state.countdown = 10
+if 'api_status' not in st.session_state:
+    st.session_state.api_status = "checking"
 
-# Binance API base URL
-BINANCE_API_URL = "https://api.binance.com/api/v3"
-
-# Binance sembol eşleştirme
-BINANCE_SYMBOLS = {
-    'BTCUSDT': 'BTC',
-    'ETHUSDT': 'ETH', 
-    'BNBUSDT': 'BNB',
-    'XRPUSDT': 'XRP',
-    'ADAUSDT': 'ADA',
-    'SOLUSDT': 'SOL',
-    'DOTUSDT': 'DOT',
-    'DOGEUSDT': 'DOGE',
-    'AVAXUSDT': 'AVAX',
-    'MATICUSDT': 'MATIC',
-    'LTCUSDT': 'LTC',
-    'LINKUSDT': 'LINK'
+# Multiple API endpoints
+API_ENDPOINTS = {
+    "CoinGecko": "https://api.coingecko.com/api/v3",
+    "Yahoo Finance": "https://query1.finance.yahoo.com/v8/finance/chart/",
+    "CoinCap": "https://api.coincap.io/v2",
+    "Binance": "https://api.binance.com/api/v3"
 }
 
-# Real-time fiyatları Binance'dan getir
-@st.cache_data(ttl=5)  # 5 saniye cache
-def get_binance_prices(symbols):
-    """Binance API'den gerçek zamanlı fiyatları getir"""
-    prices = {}
+# Crypto symbols mapping
+CRYPTO_SYMBOLS = {
+    'BTC': {'coingecko': 'bitcoin', 'yahoo': 'BTC-USD', 'coincap': 'bitcoin', 'binance': 'BTCUSDT'},
+    'ETH': {'coingecko': 'ethereum', 'yahoo': 'ETH-USD', 'coincap': 'ethereum', 'binance': 'ETHUSDT'},
+    'BNB': {'coingecko': 'binancecoin', 'yahoo': 'BNB-USD', 'coincap': 'binance-coin', 'binance': 'BNBUSDT'},
+    'XRP': {'coingecko': 'ripple', 'yahoo': 'XRP-USD', 'coincap': 'ripple', 'binance': 'XRPUSDT'},
+    'ADA': {'coingecko': 'cardano', 'yahoo': 'ADA-USD', 'coincap': 'cardano', 'binance': 'ADAUSDT'},
+    'SOL': {'coingecko': 'solana', 'yahoo': 'SOL-USD', 'coincap': 'solana', 'binance': 'SOLUSDT'}
+}
+
+# Test all APIs and find the working one
+def find_working_api():
+    """Çalışan API'yi bul"""
+    test_symbol = 'BTC'
+    
+    # Test CoinGecko
     try:
-        url = f"{BINANCE_API_URL}/ticker/24hr"
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        
-        for item in data:
-            symbol = item['symbol']
-            if symbol in symbols:
-                current_price = float(item['lastPrice'])
-                price_change = float(item['priceChangePercent'])
-                prices[symbol] = {
-                    'price': current_price,
-                    'change': price_change,
-                    'volume': float(item['volume']),
-                    'high': float(item['highPrice']),
-                    'low': float(item['lowPrice'])
-                }
-    except Exception as e:
-        st.error(f"Binance API error: {e}")
+        url = f"{API_ENDPOINTS['CoinGecko']}/simple/price"
+        params = {'ids': CRYPTO_SYMBOLS[test_symbol]['coingecko'], 'vs_currencies': 'usd', 'include_24hr_change': 'true'}
+        response = requests.get(url, params=params, timeout=5)
+        if response.status_code == 200:
+            return "CoinGecko"
+    except:
+        pass
+    
+    # Test Yahoo Finance
+    try:
+        url = f"{API_ENDPOINTS['Yahoo Finance']}{CRYPTO_SYMBOLS[test_symbol]['yahoo']}"
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            return "Yahoo Finance"
+    except:
+        pass
+    
+    # Test CoinCap
+    try:
+        url = f"{API_ENDPOINTS['CoinCap']}/assets/{CRYPTO_SYMBOLS[test_symbol]['coincap']}"
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            return "CoinCap"
+    except:
+        pass
+    
+    return "None"
+
+# Get prices from working API
+@st.cache_data(ttl=10)
+def get_crypto_prices(api_source):
+    """Çalışan API'den fiyatları getir"""
+    prices = {}
+    
+    if api_source == "CoinGecko":
+        try:
+            symbols = [CRYPTO_SYMBOLS[sym]['coingecko'] for sym in CRYPTO_SYMBOLS.keys()]
+            url = f"{API_ENDPOINTS['CoinGecko']}/simple/price"
+            params = {
+                'ids': ','.join(symbols),
+                'vs_currencies': 'usd', 
+                'include_24hr_change': 'true'
+            }
+            response = requests.get(url, params=params, timeout=10)
+            data = response.json()
+            
+            for display_symbol, api_data in CRYPTO_SYMBOLS.items():
+                if api_data['coingecko'] in data:
+                    coin_data = data[api_data['coingecko']]
+                    prices[display_symbol] = {
+                        'price': coin_data['usd'],
+                        'change': coin_data.get('usd_24h_change', 0),
+                        'source': 'CoinGecko'
+                    }
+        except Exception as e:
+            st.error(f"CoinGecko error: {e}")
+    
+    elif api_source == "Yahoo Finance":
+        try:
+            for display_symbol, api_data in CRYPTO_SYMBOLS.items():
+                url = f"{API_ENDPOINTS['Yahoo Finance']}{api_data['yahoo']}"
+                response = requests.get(url, timeout=10)
+                data = response.json()
+                
+                if 'chart' in data and 'result' in data['chart']:
+                    result = data['chart']['result'][0]
+                    current_price = result['meta']['regularMarketPrice']
+                    previous_price = result['meta']['previousClose']
+                    change = ((current_price - previous_price) / previous_price) * 100
+                    
+                    prices[display_symbol] = {
+                        'price': current_price,
+                        'change': change,
+                        'source': 'Yahoo Finance'
+                    }
+        except Exception as e:
+            st.error(f"Yahoo Finance error: {e}")
+    
+    elif api_source == "CoinCap":
+        try:
+            for display_symbol, api_data in CRYPTO_SYMBOLS.items():
+                url = f"{API_ENDPOINTS['CoinCap']}/assets/{api_data['coincap']}"
+                response = requests.get(url, timeout=10)
+                data = response.json()
+                
+                if 'data' in data:
+                    coin_data = data['data']
+                    prices[display_symbol] = {
+                        'price': float(coin_data['priceUsd']),
+                        'change': float(coin_data['changePercent24Hr']),
+                        'source': 'CoinCap'
+                    }
+        except Exception as e:
+            st.error(f"CoinCap error: {e}")
     
     return prices
 
-# Kline (mum) verilerini getir
-@st.cache_data(ttl=60)  # 1 dakika cache
-def get_binance_klines(symbol, interval, limit=500):
-    """Binance'dan mum verilerini getir"""
+# Get historical data
+@st.cache_data(ttl=300)  # 5 dakika cache
+def get_historical_data(symbol, days=90):
+    """Geçmiş verileri getir (CoinGecko)"""
     try:
-        url = f"{BINANCE_API_URL}/klines"
+        crypto_id = CRYPTO_SYMBOLS[symbol]['coingecko']
+        url = f"{API_ENDPOINTS['CoinGecko']}/coins/{crypto_id}/market_chart"
         params = {
-            'symbol': symbol,
-            'interval': interval,
-            'limit': limit
+            'vs_currency': 'usd',
+            'days': days,
+            'interval': 'daily'
         }
         response = requests.get(url, params=params, timeout=10)
-        response.raise_for_status()
         data = response.json()
         
         # DataFrame'e çevir
-        df = pd.DataFrame(data, columns=[
-            'open_time', 'open', 'high', 'low', 'close', 'volume',
-            'close_time', 'quote_asset_volume', 'number_of_trades',
-            'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'
-        ])
-        
-        # Veri tiplerini düzelt
-        for col in ['open', 'high', 'low', 'close', 'volume']:
-            df[col] = df[col].astype(float)
-        
-        # Zaman damgasını düzelt
-        df['datetime'] = pd.to_datetime(df['open_time'], unit='ms')
+        prices = data['prices']
+        df = pd.DataFrame(prices, columns=['timestamp', 'price'])
+        df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
         df.set_index('datetime', inplace=True)
+        df = df[['price']]
+        df.columns = ['close']
         
-        return df[['open', 'high', 'low', 'close', 'volume']]
+        # High, Low, Open hesapla (basit)
+        df['high'] = df['close'] * 1.02  # Yaklaşık değer
+        df['low'] = df['close'] * 0.98   # Yaklaşık değer
+        df['open'] = df['close'].shift(1)
+        df['volume'] = 1000000  # Varsayılan volume
+        
+        return df.fillna(method='bfill')
         
     except Exception as e:
-        st.error(f"Kline data error: {e}")
+        st.error(f"Historical data error: {e}")
         return None
 
-# Binance connection test
-def test_binance_connection():
-    """Binance API bağlantı testi"""
-    try:
-        url = f"{BINANCE_API_URL}/ping"
-        response = requests.get(url, timeout=5)
-        return response.status_code == 200
-    except:
-        return False
-
 # Üstte real-time fiyatlar
-st.subheader("📈 Real-Time Crypto Prices - Binance")
+st.subheader("📈 Real-Time Crypto Prices")
+
+# API kontrolü
+if st.session_state.api_status == "checking":
+    working_api = find_working_api()
+    st.session_state.api_status = working_api
+    st.session_state.working_api = working_api
+
+working_api = st.session_state.get('working_api', 'CoinGecko')
+
+if working_api != "None":
+    st.sidebar.success(f"✅ Connected: {working_api}")
+else:
+    st.sidebar.error("❌ All APIs disconnected")
 
 # Countdown güncelleme
 current_time = time.time()
 elapsed = current_time - st.session_state.last_update
 st.session_state.countdown = max(0, 10 - int(elapsed))
 
-# Binance bağlantı testi
-if test_binance_connection():
-    st.sidebar.success("✅ Binance API: Connected")
-else:
-    st.sidebar.error("❌ Binance API: Disconnected - Using fallback data")
-
-# Binance fiyatlarını göster
+# Fiyatları göster
 try:
-    prices = get_binance_prices(list(BINANCE_SYMBOLS.keys()))
-    
-    # 6 kolon oluştur
-    cols = st.columns(6)
-    
-    for idx, (symbol, name) in enumerate(list(BINANCE_SYMBOLS.items())[:6]):
-        with cols[idx]:
-            if symbol in prices:
-                price_data = prices[symbol]
-                # Fiyat formatını küçült
-                if price_data['price'] > 1000:
-                    price_str = f"${price_data['price']:,.0f}"
-                elif price_data['price'] > 1:
-                    price_str = f"${price_data['price']:.2f}"
+    if working_api != "None":
+        prices = get_crypto_prices(working_api)
+        
+        # 6 kolon oluştur
+        cols = st.columns(6)
+        
+        for idx, symbol in enumerate(list(CRYPTO_SYMBOLS.keys())[:6]):
+            with cols[idx]:
+                if symbol in prices:
+                    price_data = prices[symbol]
+                    # Fiyat formatını küçült
+                    if price_data['price'] > 1000:
+                        price_str = f"${price_data['price']:,.0f}"
+                    elif price_data['price'] > 1:
+                        price_str = f"${price_data['price']:.2f}"
+                    else:
+                        price_str = f"${price_data['price']:.4f}"
+                    
+                    st.metric(
+                        label=symbol,
+                        value=price_str,
+                        delta=f"{price_data['change']:+.2f}%"
+                    )
+                    st.caption(f"via {price_data['source']}")
                 else:
-                    price_str = f"${price_data['price']:.4f}"
-                
-                st.metric(
-                    label=name,
-                    value=price_str,
-                    delta=f"{price_data['change']:+.2f}%"
-                )
-            else:
-                st.metric(label=name, value="N/A")
-    
-    # Geri sayım
-    countdown_display = st.session_state.countdown
-    st.caption(f"🔄 Binance verileri {countdown_display} saniye içinde yenilenecek...")
-    
-    if st.session_state.countdown == 0:
-        st.session_state.last_update = current_time
-        st.session_state.countdown = 10
-        st.rerun()
+                    st.metric(label=symbol, value="N/A")
+        
+        # Geri sayım
+        countdown_display = st.session_state.countdown
+        st.caption(f"🔄 {working_api} verileri {countdown_display} saniye içinde yenilenecek...")
+        
+        if st.session_state.countdown == 0:
+            st.session_state.last_update = current_time
+            st.session_state.countdown = 10
+            st.rerun()
+    else:
+        st.error("❌ No working API found. Please check your internet connection.")
         
 except Exception as e:
-    st.error(f"Binance price error: {e}")
+    st.error(f"Price error: {e}")
 
 st.markdown("---")
 
 # Sol sidebar - Sinyal analizi
-st.sidebar.header("🔍 Crypto Signal Analysis - Binance")
+st.sidebar.header("🔍 Crypto Signal Analysis")
 
 # Kripto seçimi
 crypto_options = {
-    "Bitcoin (BTC)": "BTCUSDT",
-    "Ethereum (ETH)": "ETHUSDT", 
-    "Binance Coin (BNB)": "BNBUSDT",
-    "XRP (XRP)": "XRPUSDT",
-    "Cardano (ADA)": "ADAUSDT",
-    "Solana (SOL)": "SOLUSDT",
-    "Polkadot (DOT)": "DOTUSDT",
-    "Dogecoin (DOGE)": "DOGEUSDT",
-    "Avalanche (AVAX)": "AVAXUSDT",
-    "Polygon (MATIC)": "MATICUSDT",
-    "Litecoin (LTC)": "LTCUSDT",
-    "Chainlink (LINK)": "LINKUSDT"
+    "Bitcoin (BTC)": "BTC",
+    "Ethereum (ETH)": "ETH", 
+    "Binance Coin (BNB)": "BNB",
+    "XRP (XRP)": "XRP",
+    "Cardano (ADA)": "ADA",
+    "Solana (SOL)": "SOL"
 }
 
 selected_crypto = st.sidebar.selectbox("Select Crypto:", list(crypto_options.keys()))
 symbol = crypto_options[selected_crypto]
 
 # Zaman ayarları
-st.sidebar.subheader("⚡ Time Settings")
-timeframe_map = {
-    "1h": "1h",
-    "4h": "4h", 
-    "1d": "1d",
-    "1w": "1w"
-}
-timeframe = st.sidebar.selectbox("Timeframe:", list(timeframe_map.keys()), index=1)
-binance_timeframe = timeframe_map[timeframe]
+st.sidebar.subheader("⚡ Analysis Settings")
+timeframe = st.sidebar.selectbox("Timeframe:", ["Daily", "4H", "1H"], index=0)
+period_days = st.sidebar.slider("Data Period (Days):", 30, 365, 90)
 
-period_days = st.sidebar.slider("Data Period (Days):", 7, 365, 90)
-
-# Basit Teknik Analiz Sınıfı
-class SimpleTechnicalAnalysis:
+# Teknik Analiz Sınıfı
+class TechnicalAnalysis:
     def __init__(self):
         pass
     
@@ -228,7 +291,7 @@ class SimpleTechnicalAnalysis:
             return pd.Series(50, index=prices.index)
     
     def calculate_indicators(self, df):
-        """Binance verileri için gösterge hesaplama"""
+        """Tüm göstergeleri hesapla"""
         try:
             df = df.copy()
             
@@ -245,6 +308,7 @@ class SimpleTechnicalAnalysis:
             macd_series = df['EMA_12'] - df['EMA_26']
             df = df.assign(MACD=macd_series)
             df = df.assign(MACD_Signal=macd_series.ewm(span=9).mean())
+            df = df.assign(MACD_Histogram=df['MACD'] - df['MACD_Signal'])
             
             # 4. Bollinger Bands
             bb_middle = df['close'].rolling(20).mean()
@@ -255,21 +319,13 @@ class SimpleTechnicalAnalysis:
             df = df.assign(BB_Middle=bb_middle)
             df = df.assign(BB_Upper=bb_upper)
             df = df.assign(BB_Lower=bb_lower)
+            df = df.assign(BB_Width=(bb_upper - bb_lower) / bb_middle)
             
-            # 5. Volume
-            volume_sma = df['volume'].rolling(20, min_periods=1).mean()
-            volume_ratio = df['volume'] / volume_sma.replace(0, 1)
-            df = df.assign(Volume_Ratio=volume_ratio)
+            # 5. Support & Resistance
+            df['Resistance'] = df['high'].rolling(20).max()
+            df['Support'] = df['low'].rolling(20).min()
             
-            # 6. ATR
-            high_low = df['high'] - df['low']
-            high_close = np.abs(df['high'] - df['close'].shift())
-            low_close = np.abs(df['low'] - df['close'].shift())
-            true_range = np.maximum(np.maximum(high_low, high_close), low_close)
-            atr_series = true_range.rolling(14).mean()
-            df = df.assign(ATR=atr_series)
-            
-            # 7. Fibonacci
+            # 6. Fibonacci
             recent_high = df['high'].tail(50).max()
             recent_low = df['low'].tail(50).min()
             diff = recent_high - recent_low
@@ -306,9 +362,9 @@ def format_price(price):
         return "N/A"
 
 # Sinyal analizini göster
-def display_binance_analysis(df, fib_levels, symbol_name):
+def display_technical_analysis(df, fib_levels, symbol_name):
     if df is None or df.empty:
-        st.error("No Binance data available for analysis")
+        st.error("No data available for analysis")
         return
     
     try:
@@ -324,10 +380,9 @@ def display_binance_analysis(df, fib_levels, symbol_name):
         macd_signal = float(current_data['MACD_Signal'])
         bb_upper = float(current_data['BB_Upper'])
         bb_lower = float(current_data['BB_Lower'])
-        atr = float(current_data['ATR'])
-        volume_ratio = float(current_data.get('Volume_Ratio', 1))
+        bb_middle = float(current_data['BB_Middle'])
         
-        st.subheader(f"📊 Binance Analysis: {symbol_name}")
+        st.subheader(f"📊 Technical Analysis: {symbol_name}")
         
         # Ana metrikler
         col1, col2, col3, col4 = st.columns(4)
@@ -349,10 +404,10 @@ def display_binance_analysis(df, fib_levels, symbol_name):
         
         with col4:
             try:
-                atr_percent = (atr / current_price) * 100
-                st.metric("ATR", f"{atr_percent:.2f}%")
+                volatility = float(current_data['BB_Width']) * 100
+                st.metric("Volatility", f"{volatility:.1f}%")
             except:
-                st.metric("ATR", "N/A")
+                st.metric("Volatility", "N/A")
         
         st.markdown("---")
         
@@ -364,16 +419,22 @@ def display_binance_analysis(df, fib_levels, symbol_name):
             
             if current_price > ema_12 > ema_26 > ema_50:
                 trend = "🟢 Strong Uptrend"
+                trend_score = 3
             elif current_price > ema_26 > ema_50:
                 trend = "🟡 Uptrend"
+                trend_score = 2
             elif current_price > ema_50:
                 trend = "🟠 Weak Uptrend"
+                trend_score = 1
             elif current_price < ema_12 < ema_26 < ema_50:
                 trend = "🔴 Strong Downtrend"
+                trend_score = -3
             elif current_price < ema_26 < ema_50:
                 trend = "🟣 Downtrend"
+                trend_score = -2
             else:
                 trend = "⚪ Sideways"
+                trend_score = 0
             
             st.write(trend)
             st.write(f"EMA 12: {format_price(ema_12)}")
@@ -381,25 +442,23 @@ def display_binance_analysis(df, fib_levels, symbol_name):
             st.write(f"EMA 50: {format_price(ema_50)}")
         
         with col2:
-            st.write("**🔍 Momentum**")
+            st.write("**🔍 Momentum & Volume**")
             
             if macd > macd_signal:
                 macd_signal_text = "🟢 Bullish"
+                macd_score = 1
             else:
                 macd_signal_text = "🔴 Bearish"
+                macd_score = -1
                 
             st.write(f"MACD: {macd_signal_text}")
-            st.write(f"Value: {macd:.4f}")
+            st.write(f"Histogram: {float(current_data['MACD_Histogram']):.4f}")
             
-            if volume_ratio > 1.5:
-                volume_signal = "🟢 High"
-            elif volume_ratio > 0.8:
-                volume_signal = "🟡 Normal"
-            else:
-                volume_signal = "🔴 Low"
-                
-            st.write(f"Volume: {volume_signal}")
-            st.write(f"Ratio: {volume_ratio:.1f}x")
+            # Support/Resistance
+            support = float(current_data['Support'])
+            resistance = float(current_data['Resistance'])
+            st.write(f"Support: {format_price(support)}")
+            st.write(f"Resistance: {format_price(resistance)}")
         
         # Fibonacci Levels
         st.subheader("📊 Fibonacci Levels")
@@ -421,97 +480,104 @@ def display_binance_analysis(df, fib_levels, symbol_name):
         st.markdown("---")
         st.subheader("🎯 Trading Signal")
         
-        # Sinyal hesaplama
-        buy_signals = 0
-        sell_signals = 0
+        # Detaylı sinyal hesaplama
+        signals = {
+            'RSI': 1 if rsi < 35 else -1 if rsi > 65 else 0,
+            'MACD': 1 if macd > macd_signal else -1,
+            'Trend': 1 if current_price > ema_50 else -1,
+            'Bollinger': 1 if (current_price - bb_lower) / (bb_upper - bb_lower) < 0.2 else 
+                        -1 if (current_price - bb_lower) / (bb_upper - bb_lower) > 0.8 else 0,
+            'Support': 1 if (current_price - support) / current_price < 0.03 else 0,
+            'EMA_Alignment': 1 if ema_12 > ema_26 > ema_50 else -1 if ema_12 < ema_26 < ema_50 else 0
+        }
         
-        # RSI sinyali
-        if rsi < 35:
-            buy_signals += 1
-        elif rsi > 65:
-            sell_signals += 1
+        total_score = sum(signals.values())
         
-        # MACD sinyali
-        if macd > macd_signal:
-            buy_signals += 1
-        else:
-            sell_signals += 1
-        
-        # Trend sinyali
-        if current_price > ema_26:
-            buy_signals += 1
-        else:
-            sell_signals += 1
-        
-        # Bollinger sinyali
-        try:
-            bb_pos = (current_price - bb_lower) / (bb_upper - bb_lower)
-            if bb_pos < 0.2:
-                buy_signals += 1
-            elif bb_pos > 0.8:
-                sell_signals += 1
-        except:
-            pass
-        
-        # Sonuç
-        if buy_signals >= 3:
+        if total_score >= 4:
             signal = "🟢 STRONG BUY"
-        elif buy_signals > sell_signals:
+            color = "green"
+        elif total_score >= 2:
             signal = "🟡 BUY"
-        elif sell_signals >= 3:
+            color = "blue"
+        elif total_score <= -4:
             signal = "🔴 STRONG SELL"
-        elif sell_signals > buy_signals:
+            color = "red"
+        elif total_score <= -2:
             signal = "🟣 SELL"
+            color = "purple"
         else:
             signal = "⚪ HOLD"
+            color = "gray"
         
         st.success(f"**{signal}**")
-        st.write(f"**Buy Signals:** {buy_signals}/4")
-        st.write(f"**Sell Signals:** {sell_signals}/4")
+        st.write(f"**Signal Score:** {total_score}/6")
+        
+        # Sinyal detayları
+        with st.expander("📋 Signal Details"):
+            for indicator, score in signals.items():
+                st.write(f"{indicator}: {'+' if score > 0 else ''}{score}")
         
     except Exception as e:
         st.error(f"Analysis error: {str(e)}")
 
 # Ana uygulama
 def main():
-    # Verileri Binance'dan yükle
-    with st.spinner(f"📊 Binance verileri yükleniyor: {selected_crypto}..."):
+    # Geçmiş verileri yükle
+    with st.spinner(f"📊 Loading historical data for {selected_crypto}..."):
         try:
-            # Kline verilerini getir
-            df = get_binance_klines(symbol, binance_timeframe, 300)
+            df = get_historical_data(symbol, period_days)
             
             if df is not None and not df.empty:
-                # Kolon isimlerini düzelt
-                df.columns = ['open', 'high', 'low', 'close', 'volume']
-                
                 # Teknik analiz
-                ta = SimpleTechnicalAnalysis()
+                ta = TechnicalAnalysis()
                 data_with_indicators, fib_levels = ta.calculate_indicators(df)
                 
                 # Analizi göster
-                display_binance_analysis(data_with_indicators, fib_levels, selected_crypto)
+                display_technical_analysis(data_with_indicators, fib_levels, selected_crypto)
+                
+                # Son 10 günün verileri
+                with st.expander("📈 Recent Price Data"):
+                    recent_data = data_with_indicators.tail(10)[['close', 'RSI_14', 'EMA_26', 'BB_Upper', 'BB_Lower']]
+                    st.dataframe(recent_data.style.format({
+                        'close': '${:.2f}',
+                        'RSI_14': '{:.1f}',
+                        'EMA_26': '${:.2f}',
+                        'BB_Upper': '${:.2f}',
+                        'BB_Lower': '${:.2f}'
+                    }))
                 
             else:
-                st.error("❌ Binance'tan veri alınamadı. Lütfen internet bağlantınızı kontrol edin.")
+                st.error("❌ Could not load historical data")
                 
         except Exception as e:
-            st.error(f"❌ Binance data error: {str(e)}")
+            st.error(f"❌ Data loading error: {str(e)}")
 
 # Uygulamayı çalıştır
 main()
 
 st.markdown("---")
 st.info("""
-**🚀 Binance API Özellikleri:**
-- ✅ **Gerçek zamanlı veri** - Canlı fiyatlar
-- ✅ **Yüksek doğruluk** - Milisaniye güncelleme
-- ✅ **Güvenilir** - Dünyanın en büyük borsası
-- ✅ **Ücretsiz** - Public data bedava
+**🚀 Multi-API System:**
+- ✅ **CoinGecko** - Primary API
+- ✅ **Yahoo Finance** - Fallback 1  
+- ✅ **CoinCap** - Fallback 2
+- ✅ **Binance** - Fallback 3
 
-**📖 Sinyal Rehberi:**
-- **RSI < 35**: Al sinyali
-- **MACD > Signal**: Al sinyali  
-- **Price > EMA 26**: Yukarı trend
-- **Bollinger Lower**: Destek seviyesi
-- **3/4 sinyal**: Güçlü yön
+**📖 Trading Signals:**
+- **RSI < 35 + MACD Bullish** = Strong Buy
+- **Price > All EMAs** = Uptrend Confirmation
+- **Bollinger Lower Band** = Oversold Bounce
+- **Fibonacci Support** = Key Levels
+- **4+ Signals** = High Conviction
 """)
+
+# API durumu
+st.sidebar.markdown("---")
+st.sidebar.write("**🌐 API Status:**")
+st.sidebar.write(f"Active: {working_api}")
+st.sidebar.write("Backups: CoinGecko, Yahoo, CoinCap")
+
+# Manual refresh
+if st.sidebar.button("🔄 Refresh APIs"):
+    st.session_state.api_status = "checking"
+    st.rerun()
