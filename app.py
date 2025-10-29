@@ -19,8 +19,11 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("🚀 AI Crypto Trading Pro - Multi-API Analysis System")
+st.title("🚀 AI Crypto Trading Pro - DeepSeek AI Trading System")
 st.markdown("---")
+
+# DeepSeek API Key - BU KISMI KENDİ API KEY'İNLE DEĞİŞTİR
+DEEPSEEK_API_KEY = "sk-b889737334d144c98ef6fac1b5d0b417"
 
 # Session state
 if 'analysis_data' not in st.session_state:
@@ -34,8 +37,6 @@ class MultiAPIPriceData:
         self.apis = [
             self.get_binance_data,
             self.get_mexc_data,
-            self.get_coinbase_data,
-            self.get_kucoin_data,
             self.get_coinpaprika_data
         ]
     
@@ -50,7 +51,6 @@ class MultiAPIPriceData:
             except Exception as e:
                 continue
         
-        # Fallback
         return self.get_fallback_price(symbol)
     
     def get_binance_data(self, symbol):
@@ -94,59 +94,9 @@ class MultiAPIPriceData:
         except:
             return None
     
-    def get_coinbase_data(self, symbol):
-        """Coinbase API"""
-        try:
-            url = f"https://api.coinbase.com/v2/prices/{symbol}-USD/spot"
-            
-            response = requests.get(url, timeout=5)
-            data = response.json()
-            
-            # Coinbase sadece fiyat veriyor, diğer veriler için ikinci API call
-            price = float(data['data']['amount'])
-            
-            # 24h değişim için ayrı endpoint
-            stats_url = f"https://api.coinbase.com/v2/assets/prices/{symbol}-USD"
-            stats_response = requests.get(stats_url, timeout=5)
-            stats_data = stats_response.json()
-            
-            return {
-                'current_price': price,
-                'price_change': 0,  # Coinbase bu bilgiyi vermiyor
-                'volume': 0,
-                'high': price * 1.05,
-                'low': price * 0.95,
-                'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
-        except:
-            return None
-    
-    def get_kucoin_data(self, symbol):
-        """KuCoin API"""
-        try:
-            url = f"https://api.kucoin.com/api/v1/market/stats"
-            params = {'symbol': f"{symbol}-USDT"}
-            
-            response = requests.get(url, params=params, timeout=5)
-            data = response.json()
-            
-            if data['data']:
-                stats = data['data']
-                return {
-                    'current_price': float(stats['last']),
-                    'price_change': float(stats['changeRate']) * 100,
-                    'volume': float(stats['vol']),
-                    'high': float(stats['high']),
-                    'low': float(stats['low']),
-                    'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                }
-        except:
-            return None
-    
     def get_coinpaprika_data(self, symbol):
         """CoinPaprika API - Ücretsiz ve limitsiz"""
         try:
-            # Önce coin ID'yi bul
             coin_id = self.get_coinpaprika_id(symbol)
             if not coin_id:
                 return None
@@ -161,8 +111,8 @@ class MultiAPIPriceData:
                 'price_change': data['quotes']['USD']['percent_change_24h'],
                 'volume': data['quotes']['USD']['volume_24h'],
                 'market_cap': data['quotes']['USD']['market_cap'],
-                'high': data['quotes']['USD']['percent_change_24h'],
-                'low': data['quotes']['USD']['percent_change_24h'],
+                'high': data['quotes']['USD']['percent_from_price_ath'],
+                'low': data['quotes']['USD']['percent_from_price_atl'],
                 'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
         except:
@@ -170,22 +120,14 @@ class MultiAPIPriceData:
     
     def get_coinpaprika_id(self, symbol):
         """CoinPaprika coin ID bul"""
-        try:
-            url = "https://api.coinpaprika.com/v1/coins"
-            response = requests.get(url, timeout=5)
-            coins = response.json()
-            
-            symbol_map = {
-                "BTC": "btc-bitcoin", "ETH": "eth-ethereum", "ADA": "ada-cardano",
-                "SOL": "sol-solana", "DOT": "dot-polkadot", "BNB": "bnb-binance-coin",
-                "XRP": "xrp-xrp", "DOGE": "doge-dogecoin", "LTC": "ltc-litecoin",
-                "LINK": "link-chainlink", "MATIC": "matic-polygon", "AVAX": "avax-avalanche",
-                "ATOM": "atom-cosmos", "UNI": "uni-uniswap", "AAVE": "aave-aave"
-            }
-            
-            return symbol_map.get(symbol.upper())
-        except:
-            return None
+        symbol_map = {
+            "BTC": "btc-bitcoin", "ETH": "eth-ethereum", "ADA": "ada-cardano",
+            "SOL": "sol-solana", "DOT": "dot-polkadot", "BNB": "bnb-binance-coin",
+            "XRP": "xrp-xrp", "DOGE": "doge-dogecoin", "LTC": "ltc-litecoin",
+            "LINK": "link-chainlink", "MATIC": "matic-polygon", "AVAX": "avax-avalanche",
+            "ATOM": "atom-cosmos", "UNI": "uni-uniswap", "AAVE": "aave-aave"
+        }
+        return symbol_map.get(symbol.upper())
     
     def get_fallback_price(self, symbol):
         """Gerçekçi fallback fiyat verisi"""
@@ -193,14 +135,10 @@ class MultiAPIPriceData:
             "BTC": 43250, "ETH": 2380, "ADA": 0.48, "SOL": 102,
             "DOT": 6.8, "BNB": 315, "XRP": 0.62, "DOGE": 0.095,
             "LTC": 71.5, "LINK": 14.8, "MATIC": 0.78, "AVAX": 36.2,
-            "ATOM": 8.9, "UNI": 6.1, "AAVE": 92, "TRX": 0.105,
-            "ETC": 26.8, "XLM": 0.115, "ALGO": 0.165, "NEAR": 3.45,
-            "FIL": 5.25, "EOS": 0.68, "XTZ": 0.88, "XMR": 158
+            "ATOM": 8.9, "UNI": 6.1, "AAVE": 92
         }
         
         base_price = realistic_prices.get(symbol.upper(), 50)
-        
-        # Küçük rastgele varyasyon
         variation = np.random.uniform(-0.015, 0.015)
         current_price = base_price * (1 + variation)
         
@@ -214,9 +152,8 @@ class MultiAPIPriceData:
         }
     
     def get_historical_data(self, symbol, days=90):
-        """Geçmiş fiyat verileri - CoinGecko alternatifi"""
+        """Geçmiş fiyat verileri"""
         try:
-            # CoinPaprika'dan historical data
             coin_id = self.get_coinpaprika_id(symbol)
             if coin_id:
                 url = f"https://api.coinpaprika.com/v1/tickers/{coin_id}/historical"
@@ -235,7 +172,6 @@ class MultiAPIPriceData:
                     df.set_index('datetime', inplace=True)
                     df = df.rename(columns={'price': 'close'})
                     
-                    # Eksik kolonları ekle
                     df['high'] = df['close'] * (1 + np.random.uniform(0.02, 0.05))
                     df['low'] = df['close'] * (1 - np.random.uniform(0.02, 0.05))
                     df['open'] = df['close'].shift(1)
@@ -243,11 +179,9 @@ class MultiAPIPriceData:
                     
                     return df.fillna(method='bfill')
             
-            # Fallback: gerçekçi simüle data
             return self.generate_realistic_historical_data(symbol, days)
             
         except Exception as e:
-            st.warning(f"Historical data error: {e}")
             return self.generate_realistic_historical_data(symbol, days)
     
     def generate_realistic_historical_data(self, symbol, days):
@@ -257,12 +191,10 @@ class MultiAPIPriceData:
         
         dates = pd.date_range(end=datetime.datetime.now(), periods=days, freq='D')
         
-        # Gerçekçi price movement with volatility clustering
         returns = []
-        volatility = 0.02  # başlangıç volatilite
+        volatility = 0.02
         
         for i in range(days):
-            # Volatility clustering
             if i > 0 and abs(returns[-1]) > 0.04:
                 volatility = min(0.06, volatility * 1.3)
             else:
@@ -271,12 +203,11 @@ class MultiAPIPriceData:
             ret = np.random.normal(0, volatility)
             returns.append(ret)
         
-        prices = [current_price * 0.8]  # geçmişte daha düşük başla
+        prices = [current_price * 0.8]
         for ret in returns[1:]:
             new_price = prices[-1] * (1 + ret)
             prices.append(new_price)
         
-        # Şimdiki fiyata scale et
         scale_factor = current_price / prices[-1]
         prices = [p * scale_factor for p in prices]
         
@@ -290,33 +221,29 @@ class MultiAPIPriceData:
         
         return df
 
-# 2. GELİŞMİŞ TEKNİK ANALİZ (Aynı)
+# 2. GELİŞMİŞ TEKNİK ANALİZ
 class AdvancedTechnicalAnalyzer:
     def calculate_advanced_indicators(self, df):
         """Gelişmiş teknik göstergeler"""
         try:
             df = df.copy()
             
-            # Temel göstergeler
             df['rsi'] = self.calculate_rsi(df['close'])
             df['ema_12'] = df['close'].ewm(span=12).mean()
             df['ema_26'] = df['close'].ewm(span=26).mean()
             df['ema_50'] = df['close'].ewm(span=50).mean()
             df['ema_200'] = df['close'].ewm(span=200).mean()
             
-            # MACD
             df['macd'] = df['ema_12'] - df['ema_26']
             df['macd_signal'] = df['macd'].ewm(span=9).mean()
             df['macd_histogram'] = df['macd'] - df['macd_signal']
             
-            # Bollinger Bands
             df['bb_middle'] = df['close'].rolling(20).mean()
             bb_std = df['close'].rolling(20).std()
             df['bb_upper'] = df['bb_middle'] + (bb_std * 2)
             df['bb_lower'] = df['bb_middle'] - (bb_std * 2)
             df['bb_position'] = (df['close'] - df['bb_lower']) / (df['bb_upper'] - df['bb_lower'])
             
-            # Fibonacci Retracement
             max_price = df['high'].max()
             min_price = df['low'].min()
             diff = max_price - min_price
@@ -327,17 +254,14 @@ class AdvancedTechnicalAnalyzer:
             df['fib_618'] = max_price - diff * 0.618
             df['fib_786'] = max_price - diff * 0.786
             
-            # Support & Resistance
             df['resistance_1'] = df['high'].rolling(10).max()
             df['resistance_2'] = df['high'].rolling(20).max()
             df['support_1'] = df['low'].rolling(10).min()
             df['support_2'] = df['low'].rolling(20).min()
             
-            # Volume analysis
             df['volume_sma'] = df['volume'].rolling(20).mean()
             df['volume_ratio'] = df['volume'] / df['volume_sma']
             
-            # Volatility
             df['atr'] = self.calculate_atr(df)
             df['volatility'] = df['close'].rolling(20).std() / df['close'].rolling(20).mean()
             
@@ -373,14 +297,12 @@ class AdvancedTechnicalAnalyzer:
         """TP ve SL seviyeleri oluştur"""
         latest = df.iloc[-1]
         
-        # Fibonacci seviyelerini kullanarak TP/SL belirle
         fib_levels = {
             'TP1': latest['fib_382'],
             'TP2': latest['fib_500'],
             'TP3': latest['fib_618']
         }
         
-        # Mevcut fiyata göre stop loss belirle
         if current_price > latest['ema_50']:
             stop_loss = min(latest['support_1'], latest['fib_786'])
         else:
@@ -397,40 +319,198 @@ class AdvancedTechnicalAnalyzer:
             'Resistance_2': latest['resistance_2']
         }
 
-# 3. GELİŞMİŞ HABER SİSTEMİ
-class AdvancedNewsScraper:
-    def search_crypto_news(self, symbol, crypto_name):
-        """Çoklu kaynaktan kripto haberleri"""
-        all_news = []
-        
-        # CryptoPanic
-        crypto_panic_news = self.get_cryptopanic_news(symbol)
-        all_news.extend(crypto_panic_news)
-        
-        # CoinGecko News
-        coingecko_news = self.get_coingecko_news(symbol)
-        all_news.extend(coingecko_news)
-        
-        # Binance News
-        binance_news = self.get_binance_news(symbol)
-        all_news.extend(binance_news)
-        
-        # Sırala ve filtrele
-        all_news.sort(key=lambda x: x.get('importance', 0), reverse=True)
-        
-        # Benzersiz haberler
-        seen_titles = set()
-        unique_news = []
-        
-        for news in all_news:
-            if news['title'] not in seen_titles:
-                seen_titles.add(news['title'])
-                unique_news.append(news)
-        
-        return unique_news[:12]  # En fazla 12 haber
+# 3. DEEPSEEK AI ANALİZ SİSTEMİ
+class DeepSeekAIAnalyzer:
+    def __init__(self):
+        self.api_key = DEEPSEEK_API_KEY
+        self.base_url = "https://api.deepseek.com/v1"
     
-    def get_cryptopanic_news(self, symbol):
-        """CryptoPanic API"""
+    def get_ai_analysis(self, technical_data, sentiment_data, price_data, trading_levels, timeframe, symbol, crypto_name):
+        """DeepSeek AI'dan gerçek trading sinyali al"""
+        
+        try:
+            # API key kontrolü
+            if not self.api_key or self.api_key == "sk-b889737334d144c98ef6fac1b5d0b417":
+                return self.get_fallback_analysis(technical_data, sentiment_data, trading_levels, timeframe, symbol)
+            
+            # DeepSeek API'ye gönderilecek prompt'u hazırla
+            prompt = self.create_deepseek_prompt(technical_data, sentiment_data, price_data, trading_levels, timeframe, symbol, crypto_name)
+            
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "model": "deepseek-chat",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": """Sen profesyonel bir kripto para analistisin. 
+                        Teknik analiz, temel analiz, piyasa verileri ve sosyal medya duygu analizini 
+                        birleştirerek trading sinyalleri üretiyorsun. Sadece JSON formatında cevap ver.
+                        
+                        CEVAP FORMATI:
+                        {
+                            "final_signal": "BUY/SELL/HOLD",
+                            "confidence_score": 0-100,
+                            "signal_strength": "STRONG/MODERATE/WEAK", 
+                            "reasoning": "Analiz özeti",
+                            "risk_level": "LOW/MEDIUM/HIGH",
+                            "price_targets": {
+                                "short_term": "hedef fiyat",
+                                "medium_term": "hedef fiyat"
+                            },
+                            "position_sizing": "Öneri",
+                            "key_risks": ["risk1", "risk2"],
+                            "timeframe": "önerilen zaman"
+                        }"""
+                    },
+                    {
+                        "role": "user", 
+                        "content": prompt
+                    }
+                ],
+                "temperature": 0.3,
+                "max_tokens": 1500,
+                "response_format": { "type": "json_object" }
+            }
+            
+            response = requests.post(
+                f"{self.base_url}/chat/completions", 
+                headers=headers, 
+                json=payload, 
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                ai_response = result['choices'][0]['message']['content']
+                
+                # JSON'u parse et
+                try:
+                    analysis_result = json.loads(ai_response)
+                    st.success("✅ DeepSeek AI analizi başarıyla alındı!")
+                    return analysis_result
+                except json.JSONDecodeError:
+                    st.warning("⚠️ DeepSeek AI JSON formatında cevap vermedi, fallback kullanılıyor")
+                    return self.get_fallback_analysis(technical_data, sentiment_data, trading_levels, timeframe, symbol)
+                    
+            else:
+                st.warning(f"⚠️ DeepSeek API hatası: {response.status_code}")
+                return self.get_fallback_analysis(technical_data, sentiment_data, trading_levels, timeframe, symbol)
+                
+        except Exception as e:
+            st.warning(f"⚠️ DeepSeek API bağlantı hatası: {e}")
+            return self.get_fallback_analysis(technical_data, sentiment_data, trading_levels, timeframe, symbol)
+    
+    def create_deepseek_prompt(self, technical_data, sentiment_data, price_data, trading_levels, timeframe, symbol, crypto_name):
+        """DeepSeek için detaylı prompt oluştur"""
+        
+        current_price = price_data['current_price']
+        price_change = price_data['price_change']
+        volume = price_data.get('volume', 0)
+        
+        prompt = f"""
+        AŞAĞIDAKİ KRİPTO PARA VERİLERİNİ DETAYLI ANALİZ ET VE PROFESYONEL TRADING SİNYALİ ÜRET:
+
+        TEMEL VERİLER:
+        - Kripto: {symbol} ({crypto_name})
+        - Mevcut Fiyat: ${current_price:,.2f}
+        - 24s Değişim: %{price_change:.2f}
+        - İşlem Hacmi: ${volume:,.0f}
+        - Zaman Dilimi: {timeframe}
+
+        TEKNİK ANALİZ:
+        - RSI: {technical_data['rsi']:.1f} ({'AŞIRI SATIM' if technical_data['rsi'] < 30 else 'AŞIRI ALIM' if technical_data['rsi'] > 70 else 'NÖTR'})
+        - MACD: {technical_data['macd']:.4f} ({'YUKARI' if technical_data['macd'] > 0 else 'AŞAĞI'})
+        - Trend: {technical_data['trend']}
+        - Bollinger Pozisyonu: %{technical_data['bb_position']*100:.1f}
+        - Destek 1: ${technical_data['support_1']:.2f}
+        - Destek 2: ${technical_data['support_2']:.2f}
+        - Direnç 1: ${technical_data['resistance_1']:.2f}
+        - Direnç 2: ${technical_data['resistance_2']:.2f}
+        - EMA Durumu: {technical_data['ema_status']}
+        - Volatilite: %{technical_data['volatility']*100:.1f}
+
+        SOSYAL MEDYA & HABER ANALİZİ:
+        - Ortalama Duygu: {sentiment_data['avg_sentiment']:.2f}
+        - Pozitif Oran: %{sentiment_data['positive_ratio']*100:.1f}
+        - Toplam Haber: {sentiment_data['total_mentions']}
+        - Hakim Duygu: {sentiment_data['dominant_sentiment']}
+
+        TRADING SEVİYELERİ:
+        - TP1: ${trading_levels['TP1']:.2f}
+        - TP2: ${trading_levels['TP2']:.2f}
+        - TP3: ${trading_levels['TP3']:.2f}
+        - Stop Loss: ${trading_levels['Stop_Loss']:.2f}
+
+        LÜTFEN BU VERİLERE DAYANARAK AŞAĞIDAKİ JSON FORMATINDA TRADING SİNYALİ VER:
+
+        {{
+            "final_signal": "BUY/SELL/HOLD",
+            "confidence_score": 0-100,
+            "signal_strength": "STRONG/MODERATE/WEAK",
+            "reasoning": "Detaylı analiz özeti buraya",
+            "risk_level": "LOW/MEDIUM/HIGH",
+            "price_targets": {{
+                "short_term": "1-3 gün hedef",
+                "medium_term": "1-2 hafta hedef",
+                "long_term": "1 ay+ hedef"
+            }},
+            "position_sizing": "Pozisyon büyüklüğü önerisi",
+            "key_risks": ["risk1", "risk2", "risk3"],
+            "timeframe": "önerilen trade zamanı",
+            "entry_strategy": "Giriş stratejisi",
+            "exit_strategy": "Çıkış stratejisi"
+        }}
+
+        Sadece JSON formatında cevap ver, başka hiçbir şey yazma.
+        """
+        
+        return prompt
+    
+    def get_fallback_analysis(self, technical_data, sentiment_data, trading_levels, timeframe, symbol):
+        """Fallback analiz - DeepSeek çalışmazsa"""
+        
+        rsi = technical_data['rsi']
+        trend = technical_data['trend']
+        macd = technical_data['macd']
+        sentiment = sentiment_data['dominant_sentiment']
+        
+        # Basit sinyal mantığı
+        if rsi < 35 and "UPTREND" in trend and macd > 0 and sentiment == "positive":
+            signal = "BUY"
+            confidence = 78
+        elif rsi > 65 and "DOWNTREND" in trend and macd < 0 and sentiment == "negative":
+            signal = "SELL"
+            confidence = 75
+        else:
+            signal = "HOLD"
+            confidence = 65
+        
+        return {
+            "final_signal": signal,
+            "confidence_score": confidence,
+            "signal_strength": "STRONG" if confidence > 75 else "MODERATE" if confidence > 60 else "WEAK",
+            "reasoning": f"RSI: {rsi:.1f}, Trend: {trend}, MACD: {'Bullish' if macd > 0 else 'Bearish'}, Sentiment: {sentiment}",
+            "risk_level": "MEDIUM",
+            "price_targets": {
+                "short_term": f"${trading_levels['TP1']:.2f}",
+                "medium_term": f"${trading_levels['TP2']:.2f}",
+                "long_term": f"${trading_levels['TP3']:.2f}"
+            },
+            "position_sizing": "3-5% portföy riski",
+            "key_risks": ["Piyasa volatilitesi", "Beklenmeyen haberler", "Likidite riski"],
+            "timeframe": "1-7 gün",
+            "entry_strategy": "Destek seviyelerinde giriş yap",
+            "exit_strategy": "Direnç seviyelerinde kar al"
+        }
+
+# 4. HABER SİSTEMİ
+class NewsScraper:
+    def search_crypto_news(self, symbol, crypto_name):
+        """Kripto haberlerini ara"""
         try:
             url = "https://cryptopanic.com/api/v1/posts/"
             params = {
@@ -443,7 +523,7 @@ class AdvancedNewsScraper:
             data = response.json()
             
             news_items = []
-            for post in data.get('results', [])[:8]:
+            for post in data.get('results', [])[:10]:
                 title = post.get('title', '')
                 if title:
                     news_items.append({
@@ -452,75 +532,23 @@ class AdvancedNewsScraper:
                         'source': post.get('source', {}).get('title', 'CryptoPanic'),
                         'url': post.get('url', '#'),
                         'importance': self.calculate_importance(title, symbol),
-                        'sentiment': self.analyze_sentiment(title),
-                        'published_at': post.get('published_at', '')
+                        'sentiment': self.analyze_sentiment(title)
                     })
             
-            return news_items
-        except:
-            return []
-    
-    def get_coingecko_news(self, symbol):
-        """CoinGecko News"""
-        try:
-            crypto_id = self.get_coingecko_id(symbol)
-            if not crypto_id:
-                return []
-                
-            url = f"https://api.coingecko.com/api/v3/coins/{crypto_id}/news"
-            # Not: CoinGecko news endpoint'i değişmiş olabilir
-            # Fallback olarak simüle haber döndür
-            return self.get_simulated_news(symbol, "CoinGecko")
-        except:
-            return self.get_simulated_news(symbol, "CoinGecko")
-    
-    def get_binance_news(self, symbol):
-        """Binance News"""
-        try:
-            # Binance resmi news API'si yok, simüle edelim
-            return self.get_simulated_news(symbol, "Binance")
-        except:
-            return []
-    
-    def get_coingecko_id(self, symbol):
-        """CoinGecko ID bul"""
-        coin_map = {
-            "BTC": "bitcoin", "ETH": "ethereum", "ADA": "cardano",
-            "SOL": "solana", "DOT": "polkadot", "BNB": "binancecoin",
-            "XRP": "ripple", "DOGE": "dogecoin", "LTC": "litecoin"
-        }
-        return coin_map.get(symbol.upper())
-    
-    def get_simulated_news(self, symbol, source):
-        """Simüle haberler"""
-        base_news = [
-            {
-                'title': f'{symbol} Price Analysis: Key Technical Levels to Watch',
-                'summary': f'Technical analysis shows important support and resistance levels for {symbol}',
-                'source': source,
-                'url': '#',
-                'importance': 7,
-                'sentiment': 'neutral',
-                'published_at': datetime.datetime.now().strftime("%Y-%m-%d")
-            },
-            {
-                'title': f'{symbol} Trading Volume Shows Significant Activity',
-                'summary': f'Increased trading volume detected for {symbol} indicating market interest',
-                'source': source,
-                'url': '#',
-                'importance': 6,
-                'sentiment': 'positive',
-                'published_at': datetime.datetime.now().strftime("%Y-%m-%d")
-            }
-        ]
-        return base_news
+            if news_items:
+                return news_items
+            else:
+                return self.get_fallback_news(symbol, crypto_name)
+            
+        except Exception as e:
+            return self.get_fallback_news(symbol, crypto_name)
     
     def analyze_sentiment(self, text):
         """Haber sentiment analizi"""
         text_lower = text.lower()
         
-        positive_words = ['bullish', 'up', 'rise', 'gain', 'positive', 'good', 'strong', 'buy', 'growth', 'success', 'rally', 'surge']
-        negative_words = ['bearish', 'down', 'fall', 'drop', 'negative', 'bad', 'weak', 'sell', 'crash', 'loss', 'dump', 'collapse']
+        positive_words = ['bullish', 'up', 'rise', 'gain', 'positive', 'good', 'strong', 'buy', 'growth']
+        negative_words = ['bearish', 'down', 'fall', 'drop', 'negative', 'bad', 'weak', 'sell', 'crash']
         
         positive_count = sum(1 for word in positive_words if word in text_lower)
         negative_count = sum(1 for word in negative_words if word in text_lower)
@@ -535,9 +563,7 @@ class AdvancedNewsScraper:
     def calculate_importance(self, title, symbol):
         """Haber önem derecesi"""
         importance = 5
-        
-        important_keywords = ['breakout', 'breakdown', 'all-time high', 'all time high', 'crash', 'surge', 
-                             'regulation', 'sec', 'etf', 'approval', 'rejection', 'partnership', 'listing']
+        important_keywords = ['breakout', 'breakdown', 'all-time high', 'crash', 'surge', 'regulation', 'sec', 'etf']
         
         for keyword in important_keywords:
             if keyword in title.lower():
@@ -547,106 +573,27 @@ class AdvancedNewsScraper:
             importance += 1
             
         return min(importance, 10)
-
-# 4. AI ANALİZ SİSTEMİ (Aynı)
-class AdvancedAIAnalyzer:
-    def get_comprehensive_analysis(self, technical_data, sentiment_data, price_data, trading_levels, timeframe, symbol, crypto_name):
-        """Kapsamlı AI analizi"""
-        
-        rsi = technical_data['rsi']
-        trend = technical_data['trend']
-        macd = technical_data['macd']
-        bb_position = technical_data['bb_position']
-        sentiment = sentiment_data['dominant_sentiment']
-        
-        # Zaman dilimine göre analiz
-        if timeframe == "short_term":
-            confidence_multiplier = 0.8
-            risk_level = "MEDIUM-HIGH"
-            rec_timeframe = "1-3 days"
-        elif timeframe == "medium_term":
-            confidence_multiplier = 0.9
-            risk_level = "MEDIUM" 
-            rec_timeframe = "1-2 weeks"
-        else:
-            confidence_multiplier = 0.7
-            risk_level = "LOW-MEDIUM"
-            rec_timeframe = "1-3 months"
-        
-        # Gelişmiş sinyal mantığı
-        if rsi < 30 and "UPTREND" in trend and macd > 0 and sentiment == "positive" and bb_position < 0.2:
-            signal = "STRONG BUY"
-            confidence = min(90 * confidence_multiplier, 95)
-            strength = "VERY STRONG"
-        elif rsi > 70 and "DOWNTREND" in trend and macd < 0 and sentiment == "negative" and bb_position > 0.8:
-            signal = "STRONG SELL"
-            confidence = min(85 * confidence_multiplier, 90)
-            strength = "VERY STRONG"
-        elif 40 <= rsi <= 60 and bb_position > 0.3 and bb_position < 0.7:
-            signal = "HOLD"
-            confidence = 70 * confidence_multiplier
-            strength = "MODERATE"
-        elif rsi < 40 and "UPTREND" in trend:
-            signal = "BUY"
-            confidence = 75 * confidence_multiplier
-            strength = "STRONG"
-        elif rsi > 60 and "DOWNTREND" in trend:
-            signal = "SELL"
-            confidence = 70 * confidence_multiplier
-            strength = "STRONG"
-        else:
-            signal = "HOLD"
-            confidence = 60 * confidence_multiplier
-            strength = "WEAK"
-        
-        # Pozisyon önerisi
-        if "BUY" in signal:
-            position_type = "LONG"
-            entry_strategy = "Scale in at support levels"
-            exit_strategy = "Take profits at resistance levels"
-        elif "SELL" in signal:
-            position_type = "SHORT" 
-            entry_strategy = "Scale in at resistance levels"
-            exit_strategy = "Cover at support levels"
-        else:
-            position_type = "WAIT"
-            entry_strategy = "Wait for clearer signals"
-            exit_strategy = "Monitor key levels"
-        
-        return {
-            "final_signal": signal,
-            "position_type": position_type,
-            "confidence_score": round(confidence),
-            "signal_strength": strength,
-            "reasoning": f"RSI: {rsi:.1f} ({'Oversold' if rsi < 30 else 'Overbought' if rsi > 70 else 'Neutral'}), Trend: {trend}, MACD: {'Bullish' if macd > 0 else 'Bearish'}, Sentiment: {sentiment.title()}, Bollinger: {'Oversold' if bb_position < 0.2 else 'Overbought' if bb_position > 0.8 else 'Neutral'}",
-            "risk_level": risk_level,
-            "price_targets": {
-                "TP1": f"${trading_levels['TP1']:.2f}",
-                "TP2": f"${trading_levels['TP2']:.2f}",
-                "TP3": f"${trading_levels['TP3']:.2f}",
-                "Stop_Loss": f"${trading_levels['Stop_Loss']:.2f}"
-            },
-            "key_levels": {
-                "Support_1": f"${trading_levels['Support_1']:.2f}",
-                "Support_2": f"${trading_levels['Support_2']:.2f}",
-                "Resistance_1": f"${trading_levels['Resistance_1']:.2f}",
-                "Resistance_2": f"${trading_levels['Resistance_2']:.2f}"
-            },
-            "position_sizing": "3-5% portfolio risk per trade",
-            "entry_strategy": entry_strategy,
-            "exit_strategy": exit_strategy,
-            "key_risks": ["Market volatility", "Unexpected news", "Liquidity risk"],
-            "timeframe": rec_timeframe,
-            "overall_sentiment": f"Technical: {'Bullish' if 'UPTREND' in trend else 'Bearish'}, News: {sentiment.title()}"
-        }
+    
+    def get_fallback_news(self, symbol, crypto_name):
+        """Fallback haberler"""
+        return [
+            {
+                'title': f'{crypto_name} Price Analysis and Market Update',
+                'summary': f'Current market analysis for {symbol} showing key technical levels',
+                'source': 'Market Analysis',
+                'url': '#',
+                'importance': 6,
+                'sentiment': 'neutral'
+            }
+        ]
 
 # 5. ANA TRADING SİSTEMİ
-class MultiAPITradingSystem:
+class DeepSeekTradingSystem:
     def __init__(self):
         self.price_data = MultiAPIPriceData()
         self.technical_analyzer = AdvancedTechnicalAnalyzer()
-        self.news_scraper = AdvancedNewsScraper()
-        self.ai_analyzer = AdvancedAIAnalyzer()
+        self.news_scraper = NewsScraper()
+        self.ai_analyzer = DeepSeekAIAnalyzer()
         
         self.crypto_names = {
             "BTC": "Bitcoin", "ETH": "Ethereum", "ADA": "Cardano",
@@ -657,7 +604,7 @@ class MultiAPITradingSystem:
         }
     
     def run_advanced_analysis(self, symbol, timeframe):
-        """Gelişmiş analiz çalıştır"""
+        """DeepSeek AI ile gelişmiş analiz çalıştır"""
         
         crypto_name = self.crypto_names.get(symbol.upper(), symbol)
         
@@ -674,7 +621,7 @@ class MultiAPITradingSystem:
                 latest_tech = self.get_simulated_technical_data(current_price_data)
                 trading_levels = self.get_simulated_trading_levels(current_price_data['current_price'])
         
-        with st.spinner("📰 Çoklu kaynaktan haberler taranıyor..."):
+        with st.spinner("📰 Son dakika haberleri taranıyor..."):
             if symbol not in st.session_state.news_data:
                 news_data = self.news_scraper.search_crypto_news(symbol, crypto_name)
                 sentiment_data = self.analyze_news_sentiment(news_data)
@@ -686,8 +633,8 @@ class MultiAPITradingSystem:
                 news_data = st.session_state.news_data[symbol]['news']
                 sentiment_data = st.session_state.news_data[symbol]['sentiment']
         
-        with st.spinner("🤖 AI kapsamlı analiz yapıyor..."):
-            ai_analysis = self.ai_analyzer.get_comprehensive_analysis(
+        with st.spinner("🤖 DeepSeek AI analiz yapıyor..."):
+            ai_analysis = self.ai_analyzer.get_ai_analysis(
                 latest_tech, sentiment_data, current_price_data, trading_levels, timeframe, symbol, crypto_name
             )
         
@@ -757,7 +704,7 @@ class MultiAPITradingSystem:
 
 # 6. STREAMLIT ARAYÜZÜ
 def main():
-    st.sidebar.header("🎯 AI Trading Settings")
+    st.sidebar.header("🎯 DeepSeek AI Trading Settings")
     
     timeframe = st.sidebar.selectbox(
         "⏰ Trading Timeframe:",
@@ -772,8 +719,7 @@ def main():
     crypto_options = {
         "BTC": "Bitcoin", "ETH": "Ethereum", "ADA": "Cardano",
         "SOL": "Solana", "DOT": "Polkadot", "BNB": "Binance Coin",
-        "XRP": "XRP", "DOGE": "Dogecoin", "LTC": "Litecoin",
-        "LINK": "Chainlink", "MATIC": "Polygon", "AVAX": "Avalanche"
+        "XRP": "XRP", "DOGE": "Dogecoin", "LTC": "Litecoin"
     }
     
     selected_crypto = st.sidebar.selectbox(
@@ -792,32 +738,32 @@ def main():
     col1, col2 = st.sidebar.columns(2)
     
     with col1:
-        if st.button("🚀 RUN AI ANALYSIS", type="primary", use_container_width=True):
-            with st.spinner("🤖 Multi-API system analyzing..."):
-                trading_system = MultiAPITradingSystem()
+        if st.button("🚀 RUN DEEPSEEK AI", type="primary", use_container_width=True):
+            with st.spinner("🤖 DeepSeek AI analiz yapıyor..."):
+                trading_system = DeepSeekTradingSystem()
                 analysis_data = trading_system.run_advanced_analysis(analysis_symbol, timeframe)
                 st.session_state.analysis_data = analysis_data
     
     with col2:
         if st.button("🔄 REFRESH DATA", use_container_width=True):
             st.session_state.news_data.pop(analysis_symbol, None)
-            with st.spinner("Refreshing from multiple APIs..."):
-                trading_system = MultiAPITradingSystem()
+            with st.spinner("Veriler yenileniyor..."):
+                trading_system = DeepSeekTradingSystem()
                 analysis_data = trading_system.run_advanced_analysis(analysis_symbol, timeframe)
                 st.session_state.analysis_data = analysis_data
     
     st.sidebar.markdown("---")
     st.sidebar.info("""
-    **🔧 Multi-API Data Sources:**
-    - ✅ Binance, MEXC, Coinbase
-    - ✅ KuCoin, CoinPaprika  
-    - ✅ CryptoPanic News
-    - ✅ Advanced Technical Analysis
-    - ✅ AI-Powered Signals
+    **🔧 DeepSeek AI System:**
+    - ✅ Real-time Multi-API Data
+    - ✅ Advanced Technical Analysis  
+    - ✅ Live News & Sentiment
+    - ✅ DeepSeek AI Signals
+    - ✅ Professional Trading Levels
     """)
     
     if st.session_state.analysis_data:
-        display_advanced_analysis(st.session_state.analysis_data)
+        display_deepseek_analysis(st.session_state.analysis_data)
     else:
         show_welcome_screen()
 
@@ -825,43 +771,14 @@ def show_welcome_screen():
     st.markdown("""
     <div style='text-align: center; padding: 50px 20px;'>
         <h1>🚀 AI Crypto Trading Pro</h1>
-        <h3>Multi-API Real-Time Data & Analysis</h3>
+        <h3>DeepSeek AI Powered Trading System</h3>
         <br>
-        <p>Select timeframe and cryptocurrency, then click <b>RUN AI ANALYSIS</b></p>
+        <p>Select timeframe and cryptocurrency, then click <b>RUN DEEPSEEK AI</b></p>
     </div>
     """, unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.info("""
-        **🔄 Multi-API System**
-        - Binance, MEXC, Coinbase
-        - KuCoin, CoinPaprika
-        - Automatic failover
-        - Real-time data
-        """)
-    
-    with col2:
-        st.info("""
-        **📊 Advanced Analysis** 
-        - Technical indicators
-        - News sentiment
-        - AI signals
-        - Risk management
-        """)
-    
-    with col3:
-        st.info("""
-        **🎯 Trading Features**
-        - Multiple timeframes
-        - TP/SL levels
-        - Position sizing
-        - Market insights
-        """)
 
-def display_advanced_analysis(analysis_data):
-    st.header(f"🎯 MULTI-API AI ANALYSIS: {analysis_data['symbol']} ({analysis_data['crypto_name']})")
+def display_deepseek_analysis(analysis_data):
+    st.header(f"🎯 DEEPSEEK AI ANALYSIS: {analysis_data['symbol']} ({analysis_data['crypto_name']})")
     
     price_data = analysis_data['price_data']
     source = price_data.get('source', 'Multiple APIs')
@@ -889,7 +806,140 @@ def display_advanced_analysis(analysis_data):
     with col5:
         st.metric("Data Source", source)
 
-    # ... (Kalan display kodları aynı)
+    # DeepSeek AI Signal
+    st.subheader("🤖 DeepSeek AI Trading Signal")
+    
+    ai_analysis = analysis_data['ai_analysis']
+    
+    # Sinyal gösterimi
+    signal_config = {
+        "BUY": {"color": "🟢", "bg_color": "#00ff00", "text_color": "white"},
+        "SELL": {"color": "🔴", "bg_color": "#ff4444", "text_color": "white"},
+        "HOLD": {"color": "🟡", "bg_color": "#ffaa00", "text_color": "white"}
+    }
+    
+    signal_info = signal_config.get(ai_analysis.get('final_signal', 'HOLD'), signal_config['HOLD'])
+    
+    st.markdown(f"""
+    <div style="background-color: {signal_info['bg_color']}; padding: 30px; border-radius: 15px; text-align: center; margin: 20px 0; box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
+        <h1 style="color: {signal_info['text_color']}; margin: 0; font-size: 2.5em;">{signal_info['color']} {ai_analysis.get('final_signal', 'HOLD')}</h1>
+        <h2 style="color: {signal_info['text_color']}; margin: 10px 0;">Confidence: {ai_analysis.get('confidence_score', 0)}%</h2>
+        <h3 style="color: {signal_info['text_color']}; margin: 0;">Signal Strength: {ai_analysis.get('signal_strength', 'MODERATE')}</h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # AI Analysis Details
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.info(f"**📈 DeepSeek AI Reasoning**\n\n{ai_analysis.get('reasoning', 'No reasoning provided')}")
+        
+        st.info(f"**🎯 Price Targets**\n\n"
+               f"**Short Term:** {ai_analysis['price_targets']['short_term']}\n\n"
+               f"**Medium Term:** {ai_analysis['price_targets']['medium_term']}\n\n" 
+               f"**Long Term:** {ai_analysis['price_targets']['long_term']}")
+    
+    with col2:
+        st.warning(f"**⚡ Trading Strategy**\n\n"
+                  f"**Position Sizing:** {ai_analysis.get('position_sizing', 'N/A')}\n\n"
+                  f"**Entry Strategy:** {ai_analysis.get('entry_strategy', 'N/A')}\n\n"
+                  f"**Exit Strategy:** {ai_analysis.get('exit_strategy', 'N/A')}\n\n"
+                  f"**Timeframe:** {ai_analysis.get('timeframe', 'N/A')}")
+        
+        st.error(f"**🚨 Risk Assessment**\n\n"
+                f"**Risk Level:** {ai_analysis.get('risk_level', 'MEDIUM')}\n\n"
+                f"**Key Risks:**")
+        
+        risks = ai_analysis.get('key_risks', [])
+        for risk in risks:
+            st.write(f"• {risk}")
+
+    # Technical Analysis
+    st.subheader("📊 Technical Analysis")
+    
+    tech_data = analysis_data['technical_data']
+    trading_levels = analysis_data['trading_levels']
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("RSI", f"{tech_data['rsi']:.1f}")
+        st.metric("MACD", f"{tech_data['macd']:.4f}")
+    
+    with col2:
+        st.metric("Trend", tech_data['trend'])
+        st.metric("Volatility", f"{tech_data['volatility']:.2%}")
+    
+    with col3:
+        st.metric("Bollinger Position", f"{tech_data['bb_position']:.1%}")
+        st.metric("Volume Ratio", f"{tech_data['volume_ratio']:.1f}x")
+    
+    with col4:
+        st.metric("EMA Status", tech_data['ema_status'])
+        st.metric("Signal Strength", ai_analysis['signal_strength'])
+
+    # Trading Levels
+    st.subheader("🎯 Trading Levels")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.info(f"**Take Profit 1**\n\n${trading_levels['TP1']:.2f}")
+    
+    with col2:
+        st.info(f"**Take Profit 2**\n\n${trading_levels['TP2']:.2f}")
+    
+    with col3:
+        st.info(f"**Take Profit 3**\n\n${trading_levels['TP3']:.2f}")
+    
+    with col4:
+        st.error(f"**Stop Loss**\n\n${trading_levels['Stop_Loss']:.2f}")
+    
+    # Support/Resistance
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.success(f"**Strong Support**\n\n${trading_levels['Support_1']:.2f}")
+        st.warning(f"**Secondary Support**\n\n${trading_levels['Support_2']:.2f}")
+    
+    with col2:
+        st.error(f"**Strong Resistance**\n\n${trading_levels['Resistance_1']:.2f}")
+        st.warning(f"**Secondary Resistance**\n\n${trading_levels['Resistance_2']:.2f}")
+
+    # News & Sentiment
+    st.subheader("📰 Market News & Sentiment")
+    
+    sentiment_data = analysis_data['sentiment_data']
+    news_data = analysis_data['news_data']
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        sentiment_emoji = "😊" if sentiment_data['avg_sentiment'] > 0.1 else "😐" if sentiment_data['avg_sentiment'] > -0.1 else "😞"
+        st.metric("Market Sentiment", f"{sentiment_emoji} {sentiment_data['dominant_sentiment'].title()}")
+    
+    with col2:
+        st.metric("Sentiment Score", f"{sentiment_data['avg_sentiment']:.2f}")
+    
+    with col3:
+        st.metric("Positive Ratio", f"{sentiment_data['positive_ratio']:.1%}")
+    
+    with col4:
+        st.metric("Total News", sentiment_data['total_mentions'])
+    
+    # News List
+    with st.expander("📋 Latest News Headlines", expanded=True):
+        for i, news in enumerate(news_data[:6]):
+            with st.container():
+                col1, col2 = st.columns([4, 1])
+                with col1:
+                    st.write(f"**{news['title']}**")
+                    st.caption(f"{news['summary']}")
+                with col2:
+                    st.caption(f"Source: {news['source']}")
+                    sentiment_color = "🟢" if news.get('sentiment') == 'positive' else "🔴" if news.get('sentiment') == 'negative' else "🟡"
+                    st.caption(f"Sentiment: {sentiment_color}")
+                st.markdown("---")
 
 if __name__ == "__main__":
     main()
