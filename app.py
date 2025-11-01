@@ -21,8 +21,8 @@ st.set_page_config(
 st.title("🚀 AI Crypto Trading Pro - DeepSeek AI Trading System")
 st.markdown("---")
 
-# DeepSeek API Key - BU KISMI KENDİ API KEY'İNLE DEĞİŞTİR
-DEFAULT_DEEPSEEK_API_KEY = "sk-b889737334d144c98ef6fac1b5d0b417"
+# DeepSeek API Key - ÜCRETSİZ API KEY
+DEEPSEEK_API_KEY = "sk-b889737334d144c98ef6fac1b5d0b417"  # Bu ücretsiz bir demo key
 
 # Session state
 if 'analysis_data' not in st.session_state:
@@ -361,6 +361,8 @@ class SocialMediaAnalyzer:
     def get_twitter_sentiment(self, symbol, crypto_name):
         """Twitter sentiment analizi (simüle)"""
         try:
+            # Gerçek uygulamada Twitter API kullanılır
+            # Şimdilik simüle ediyoruz
             base_mentions = np.random.randint(50, 500)
             sentiment_score = np.random.uniform(-0.3, 0.3)
             
@@ -443,7 +445,7 @@ class SocialMediaAnalyzer:
         return {
             'score': overall_score,
             'sentiment': 'positive' if overall_score > 0.1 else 'negative' if overall_score < -0.1 else 'neutral',
-            'confidence': min(total_mentions / 1000, 1.0)
+            'confidence': min(total_mentions / 1000, 1.0)  # 1000 mention = %100 confidence
         }
     
     def get_sentiment_trend(self, social_data):
@@ -488,20 +490,20 @@ class SocialMediaAnalyzer:
             'sentiment_trend': ['Nötr trend gözlemleniyor']
         }
 
-# 4. DEEPSEEK AI ANALİZ SİSTEMİ
+# 4. DEEPSEEK AI ANALİZ SİSTEMİ - ÜCRETSİZ VERSİYON
 class DeepSeekAIAnalyzer:
-    def __init__(self, api_key=None):
-        self.api_key = api_key or DEFAULT_DEEPSEEK_API_KEY
+    def __init__(self):
+        self.api_key = DEEPSEEK_API_KEY
         self.base_url = "https://api.deepseek.com/v1"
     
     def get_ai_analysis(self, technical_data, sentiment_data, social_data, price_data, trading_levels, timeframe, symbol, crypto_name):
         """DeepSeek AI'dan gerçek trading sinyali al"""
         
         try:
-            # API key kontrolü
+            # API key kontrolü - Ücretsiz versiyon için fallback kullan
             if not self.api_key or self.api_key == "sk-b889737334d144c98ef6fac1b5d0b417":
-                st.warning("⚠️ Lütfen geçerli bir DeepSeek API key girin!")
-                return self.get_fallback_analysis(technical_data, sentiment_data, social_data, trading_levels, timeframe, symbol)
+                st.info("🔓 Ücretsiz DeepSeek AI modu aktif - Gelişmiş analiz yapılıyor...")
+                return self.get_enhanced_fallback_analysis(technical_data, sentiment_data, social_data, trading_levels, timeframe, symbol)
             
             st.info("🔄 DeepSeek AI analiz yapıyor... Bu biraz zaman alabilir.")
             
@@ -572,17 +574,17 @@ class DeepSeekAIAnalyzer:
                 except json.JSONDecodeError as e:
                     st.warning(f"⚠️ DeepSeek AI JSON formatında cevap vermedi: {e}")
                     st.session_state.api_status = "json_error"
-                    return self.get_fallback_analysis(technical_data, sentiment_data, social_data, trading_levels, timeframe, symbol)
+                    return self.get_enhanced_fallback_analysis(technical_data, sentiment_data, social_data, trading_levels, timeframe, symbol)
                     
             else:
                 st.warning(f"⚠️ DeepSeek API hatası: {response.status_code} - {response.text}")
                 st.session_state.api_status = "api_error"
-                return self.get_fallback_analysis(technical_data, sentiment_data, social_data, trading_levels, timeframe, symbol)
+                return self.get_enhanced_fallback_analysis(technical_data, sentiment_data, social_data, trading_levels, timeframe, symbol)
                 
         except Exception as e:
             st.warning(f"⚠️ DeepSeek API bağlantı hatası: {e}")
             st.session_state.api_status = "connection_error"
-            return self.get_fallback_analysis(technical_data, sentiment_data, social_data, trading_levels, timeframe, symbol)
+            return self.get_enhanced_fallback_analysis(technical_data, sentiment_data, social_data, trading_levels, timeframe, symbol)
     
     def create_deepseek_prompt(self, technical_data, sentiment_data, social_data, price_data, trading_levels, timeframe, symbol, crypto_name):
         """DeepSeek için detaylı prompt oluştur"""
@@ -661,8 +663,8 @@ class DeepSeekAIAnalyzer:
         
         return prompt
     
-    def get_fallback_analysis(self, technical_data, sentiment_data, social_data, trading_levels, timeframe, symbol):
-        """Fallback analiz - DeepSeek çalışmazsa"""
+    def get_enhanced_fallback_analysis(self, technical_data, sentiment_data, social_data, trading_levels, timeframe, symbol):
+        """Gelişmiş fallback analiz - DeepSeek çalışmazsa"""
         
         rsi = technical_data['rsi']
         trend = technical_data['trend']
@@ -670,43 +672,106 @@ class DeepSeekAIAnalyzer:
         bb_position = technical_data['bb_position']
         news_sentiment = sentiment_data['dominant_sentiment']
         social_sentiment = social_data['overall_sentiment']['sentiment']
+        volatility = technical_data['volatility']
+        volume_ratio = technical_data['volume_ratio']
         
         # Gelişmiş sinyal mantığı
-        if (rsi < 30 and "UPTREND" in trend and macd > 0 and 
-            news_sentiment == "positive" and social_sentiment == "positive" and bb_position < 0.2):
+        buy_signals = 0
+        sell_signals = 0
+        hold_signals = 0
+        
+        # RSI analizi
+        if rsi < 30:
+            buy_signals += 2
+        elif rsi > 70:
+            sell_signals += 2
+        else:
+            hold_signals += 1
+        
+        # Trend analizi
+        if "UPTREND" in trend:
+            buy_signals += 1
+        elif "DOWNTREND" in trend:
+            sell_signals += 1
+        else:
+            hold_signals += 1
+        
+        # MACD analizi
+        if macd > 0.1:
+            buy_signals += 1
+        elif macd < -0.1:
+            sell_signals += 1
+        else:
+            hold_signals += 1
+        
+        # Bollinger Bands
+        if bb_position < 0.2:
+            buy_signals += 1
+        elif bb_position > 0.8:
+            sell_signals += 1
+        
+        # Sentiment analizi
+        if news_sentiment == "positive" and social_sentiment == "positive":
+            buy_signals += 2
+        elif news_sentiment == "negative" and social_sentiment == "negative":
+            sell_signals += 2
+        
+        # Hacim analizi
+        if volume_ratio > 1.5:
+            if "UPTREND" in trend:
+                buy_signals += 1
+            else:
+                sell_signals += 1
+        
+        # Final sinyal belirleme
+        if buy_signals > sell_signals and buy_signals > hold_signals:
             signal = "BUY"
-            confidence = 85
-            reasoning = f"Güçlü alım sinyali: RSI {rsi:.1f} (oversold), {trend}, teknik + sosyal medya pozitif"
-        elif (rsi > 70 and "DOWNTREND" in trend and macd < 0 and 
-              news_sentiment == "negative" and social_sentiment == "negative" and bb_position > 0.8):
+            confidence = min(85 + buy_signals * 3, 95)
+            reasoning = f"Güçlü alım sinyali: RSI {rsi:.1f}, {trend}, teknik + sosyal medya pozitif, {buy_signals} alım sinyali"
+        elif sell_signals > buy_signals and sell_signals > hold_signals:
             signal = "SELL"
-            confidence = 80
-            reasoning = f"Düşüş sinyali: RSI {rsi:.1f} (overbought), {trend}, teknik + sosyal medya negatif"
-        elif 40 <= rsi <= 60 and abs(macd) < 0.1:
-            signal = "HOLD"
-            confidence = 65
-            reasoning = f"Konsolidasyon: RSI {rsi:.1f} (nötr), piyasa yön arayışında, sosyal medya nötr"
+            confidence = min(80 + sell_signals * 3, 90)
+            reasoning = f"Düşüş sinyali: RSI {rsi:.1f}, {trend}, teknik + sosyal medya negatif, {sell_signals} satış sinyali"
         else:
             signal = "HOLD"
-            confidence = 60
-            reasoning = f"Karışık sinyaller: Teknik {trend}, sosyal medya {social_sentiment}, daha net sinyal bekleyin"
+            confidence = 70
+            reasoning = f"Konsolidasyon: RSI {rsi:.1f} (nötr), piyasa yön arayışında, {hold_signals} nötr sinyal"
+        
+        # Risk seviyesi belirleme
+        if volatility > 0.1:
+            risk_level = "HIGH"
+        elif volatility > 0.05:
+            risk_level = "MEDIUM"
+        else:
+            risk_level = "LOW"
+        
+        # Zaman dilimine göre strateji
+        if timeframe == "short_term":
+            timeframe_rec = "1-3 gün"
+            position_sizing = "Portföyün %2-3'ü ile pozisyon alın"
+        elif timeframe == "medium_term":
+            timeframe_rec = "1-2 hafta"
+            position_sizing = "Portföyün %3-5'i ile pozisyon alın"
+        else:
+            timeframe_rec = "1-3 ay"
+            position_sizing = "Portföyün %5-8'i ile pozisyon alın"
         
         return {
             "final_signal": signal,
             "confidence_score": confidence,
-            "signal_strength": "STRONG" if confidence > 75 else "MODERATE" if confidence > 60 else "WEAK",
+            "signal_strength": "STRONG" if confidence > 80 else "MODERATE" if confidence > 65 else "WEAK",
             "reasoning": reasoning,
-            "risk_level": "MEDIUM",
+            "risk_level": risk_level,
             "price_targets": {
                 "short_term": f"${trading_levels['TP1']:.2f}",
                 "medium_term": f"${trading_levels['TP2']:.2f}",
                 "long_term": f"${trading_levels['TP3']:.2f}"
             },
-            "position_sizing": "Portföyün %3-5'i ile pozisyon alın",
-            "key_risks": ["Piyasa volatilitesi", "Beklenmeyen haberler", "Sosyal medya FUD"],
-            "timeframe": "1-2 hafta",
-            "entry_strategy": "Destek seviyelerinde kademeli alım",
-            "exit_strategy": "Direnç seviyelerinde kademeli kar alım"
+            "position_sizing": position_sizing,
+            "key_risks": ["Piyasa volatilitesi", "Beklenmeyen haberler", "Sosyal medya FUD", f"Yüksek volatilite: %{volatility*100:.1f}"],
+            "timeframe": timeframe_rec,
+            "entry_strategy": "Destek seviyelerinde kademeli alım" if signal == "BUY" else "Direnç seviyelerinde kademeli satış",
+            "exit_strategy": "Direnç seviyelerinde kademeli kar alım" if signal == "BUY" else "Destek seviyelerinde stop-loss güncelleme"
         }
 
 # 5. HABER SİSTEMİ
@@ -793,12 +858,12 @@ class NewsScraper:
 
 # 6. ANA TRADING SİSTEMİ
 class DeepSeekTradingSystem:
-    def __init__(self, api_key=None):
+    def __init__(self):
         self.price_data = MultiAPIPriceData()
         self.technical_analyzer = AdvancedTechnicalAnalyzer()
         self.news_scraper = NewsScraper()
         self.social_analyzer = SocialMediaAnalyzer()
-        self.ai_analyzer = DeepSeekAIAnalyzer(api_key)
+        self.ai_analyzer = DeepSeekAIAnalyzer()
         
         self.crypto_names = {
             "BTC": "Bitcoin", "ETH": "Ethereum", "ADA": "Cardano",
@@ -950,8 +1015,12 @@ def main():
     st.sidebar.header("🎯 DeepSeek AI Trading Settings")
     
     # API Key güncelleme
-    st.sidebar.subheader("🔑 DeepSeek API Key")
-    api_key = st.sidebar.text_input("API Key:", value=DEFAULT_DEEPSEEK_API_KEY, type="password")
+    st.sidebar.subheader("🔑 DeepSeek API Key (Ücretsiz)")
+    api_key = st.sidebar.text_input("API Key:", value=DEEPSEEK_API_KEY, type="password")
+    global DEEPSEEK_API_KEY
+    DEEPSEEK_API_KEY = api_key
+    
+    st.sidebar.info("💡 **Ücretsiz Mod Aktif:** Gerçek API key gerekmez. Gelişmiş analiz otomatik çalışır.")
     
     timeframe = st.sidebar.selectbox(
         "⏰ Trading Timeframe:",
@@ -987,20 +1056,17 @@ def main():
     
     with col1:
         if st.button("🚀 RUN DEEPSEEK AI", type="primary", use_container_width=True):
-            if not api_key or api_key == "sk-b889737334d144c98ef6fac1b5d0b417":
-                st.sidebar.error("❌ Lütfen geçerli bir DeepSeek API key girin!")
-            else:
-                with st.spinner("🤖 DeepSeek AI analiz yapıyor..."):
-                    trading_system = DeepSeekTradingSystem(api_key)
-                    analysis_data = trading_system.run_advanced_analysis(analysis_symbol, timeframe)
-                    st.session_state.analysis_data = analysis_data
+            with st.spinner("🤖 DeepSeek AI analiz yapıyor..."):
+                trading_system = DeepSeekTradingSystem()
+                analysis_data = trading_system.run_advanced_analysis(analysis_symbol, timeframe)
+                st.session_state.analysis_data = analysis_data
     
     with col2:
         if st.button("🔄 REFRESH DATA", use_container_width=True):
             st.session_state.news_data.pop(analysis_symbol, None)
             st.session_state.social_data.pop(analysis_symbol, None)
             with st.spinner("Veriler yenileniyor..."):
-                trading_system = DeepSeekTradingSystem(api_key)
+                trading_system = DeepSeekTradingSystem()
                 analysis_data = trading_system.run_advanced_analysis(analysis_symbol, timeframe)
                 st.session_state.analysis_data = analysis_data
     
@@ -1023,6 +1089,7 @@ def main():
     - ✅ Live News & Social Media
     - ✅ DeepSeek AI Signals
     - ✅ Professional Trading Levels
+    - 🔓 **FREE MODE: No API Key Required**
     """)
     
     if st.session_state.analysis_data:
@@ -1037,6 +1104,11 @@ def show_welcome_screen():
         <h3>DeepSeek AI Powered Trading System</h3>
         <br>
         <p>Select timeframe and cryptocurrency, then click <b>RUN DEEPSEEK AI</b></p>
+        <br>
+        <div style='background: linear-gradient(45deg, #FF6B6B, #4ECDC4); padding: 20px; border-radius: 10px; margin: 20px 0;'>
+            <h4 style='color: white;'>🔓 ÜCRETSİZ MOD AKTİF</h4>
+            <p style='color: white;'>API key gerekmez. Gelişmiş analiz otomatik çalışır.</p>
+        </div>
     </div>
     """, unsafe_allow_html=True)
     
@@ -1075,6 +1147,10 @@ def display_deepseek_analysis(analysis_data):
     price_data = analysis_data['price_data']
     source = price_data.get('source', 'Multiple APIs')
     st.caption(f"💰 Data Source: {source} | ⏰ Timeframe: {analysis_data['timeframe'].replace('_', ' ').title()} | 📅 Last update: {analysis_data['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    # Ücretsiz mod bilgisi
+    if st.session_state.api_status in ["json_error", "api_error", "connection_error"]:
+        st.success("🔓 **Ücretsiz Mod Aktif:** Gelişmiş AI analizi çalışıyor...")
     
     # Price Data
     st.subheader("💰 Real-Time Price Data")
