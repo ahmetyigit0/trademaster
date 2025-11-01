@@ -22,7 +22,7 @@ st.title("🚀 AI Crypto Trading Pro - DeepSeek AI Trading System")
 st.markdown("---")
 
 # DeepSeek API Key - BU KISMI KENDİ API KEY'İNLE DEĞİŞTİR
-DEEPSEEK_API_KEY = "sk-b889737334d144c98ef6fac1b5d0b417"
+DEFAULT_DEEPSEEK_API_KEY = "sk-b889737334d144c98ef6fac1b5d0b417"
 
 # Session state
 if 'analysis_data' not in st.session_state:
@@ -361,8 +361,6 @@ class SocialMediaAnalyzer:
     def get_twitter_sentiment(self, symbol, crypto_name):
         """Twitter sentiment analizi (simüle)"""
         try:
-            # Gerçek uygulamada Twitter API kullanılır
-            # Şimdilik simüle ediyoruz
             base_mentions = np.random.randint(50, 500)
             sentiment_score = np.random.uniform(-0.3, 0.3)
             
@@ -445,7 +443,7 @@ class SocialMediaAnalyzer:
         return {
             'score': overall_score,
             'sentiment': 'positive' if overall_score > 0.1 else 'negative' if overall_score < -0.1 else 'neutral',
-            'confidence': min(total_mentions / 1000, 1.0)  # 1000 mention = %100 confidence
+            'confidence': min(total_mentions / 1000, 1.0)
         }
     
     def get_sentiment_trend(self, social_data):
@@ -492,8 +490,8 @@ class SocialMediaAnalyzer:
 
 # 4. DEEPSEEK AI ANALİZ SİSTEMİ
 class DeepSeekAIAnalyzer:
-    def __init__(self):
-        self.api_key = DEEPSEEK_API_KEY
+    def __init__(self, api_key=None):
+        self.api_key = api_key or DEFAULT_DEEPSEEK_API_KEY
         self.base_url = "https://api.deepseek.com/v1"
     
     def get_ai_analysis(self, technical_data, sentiment_data, social_data, price_data, trading_levels, timeframe, symbol, crypto_name):
@@ -795,12 +793,12 @@ class NewsScraper:
 
 # 6. ANA TRADING SİSTEMİ
 class DeepSeekTradingSystem:
-    def __init__(self):
+    def __init__(self, api_key=None):
         self.price_data = MultiAPIPriceData()
         self.technical_analyzer = AdvancedTechnicalAnalyzer()
         self.news_scraper = NewsScraper()
         self.social_analyzer = SocialMediaAnalyzer()
-        self.ai_analyzer = DeepSeekAIAnalyzer()
+        self.ai_analyzer = DeepSeekAIAnalyzer(api_key)
         
         self.crypto_names = {
             "BTC": "Bitcoin", "ETH": "Ethereum", "ADA": "Cardano",
@@ -953,9 +951,7 @@ def main():
     
     # API Key güncelleme
     st.sidebar.subheader("🔑 DeepSeek API Key")
-    api_key = st.sidebar.text_input("API Key:", value=DEEPSEEK_API_KEY, type="password")
-    global DEEPSEEK_API_KEY
-    DEEPSEEK_API_KEY = api_key
+    api_key = st.sidebar.text_input("API Key:", value=DEFAULT_DEEPSEEK_API_KEY, type="password")
     
     timeframe = st.sidebar.selectbox(
         "⏰ Trading Timeframe:",
@@ -991,11 +987,11 @@ def main():
     
     with col1:
         if st.button("🚀 RUN DEEPSEEK AI", type="primary", use_container_width=True):
-            if not DEEPSEEK_API_KEY or DEEPSEEK_API_KEY == "sk-b889737334d144c98ef6fac1b5d0b417":
+            if not api_key or api_key == "sk-b889737334d144c98ef6fac1b5d0b417":
                 st.sidebar.error("❌ Lütfen geçerli bir DeepSeek API key girin!")
             else:
                 with st.spinner("🤖 DeepSeek AI analiz yapıyor..."):
-                    trading_system = DeepSeekTradingSystem()
+                    trading_system = DeepSeekTradingSystem(api_key)
                     analysis_data = trading_system.run_advanced_analysis(analysis_symbol, timeframe)
                     st.session_state.analysis_data = analysis_data
     
@@ -1004,7 +1000,7 @@ def main():
             st.session_state.news_data.pop(analysis_symbol, None)
             st.session_state.social_data.pop(analysis_symbol, None)
             with st.spinner("Veriler yenileniyor..."):
-                trading_system = DeepSeekTradingSystem()
+                trading_system = DeepSeekTradingSystem(api_key)
                 analysis_data = trading_system.run_advanced_analysis(analysis_symbol, timeframe)
                 st.session_state.analysis_data = analysis_data
     
