@@ -1014,11 +1014,16 @@ class DeepSeekTradingSystem:
 def main():
     st.sidebar.header("🎯 DeepSeek AI Trading Settings")
     
-    # API Key güncelleme
+    # API Key güncelleme - global değişken kullanmadan
     st.sidebar.subheader("🔑 DeepSeek API Key (Ücretsiz)")
-    api_key = st.sidebar.text_input("API Key:", value=DEEPSEEK_API_KEY, type="password")
-    global DEEPSEEK_API_KEY
-    DEEPSEEK_API_KEY = api_key
+    api_key_input = st.sidebar.text_input("API Key:", value=DEEPSEEK_API_KEY, type="password")
+    
+    # API key'i güncelle
+    if api_key_input != DEEPSEEK_API_KEY:
+        # Global değişkeni güncellemek yerine, analyzer sınıfında kullan
+        DEEPSEEK_API_KEY_UPDATED = api_key_input
+    else:
+        DEEPSEEK_API_KEY_UPDATED = DEEPSEEK_API_KEY
     
     st.sidebar.info("💡 **Ücretsiz Mod Aktif:** Gerçek API key gerekmez. Gelişmiş analiz otomatik çalışır.")
     
@@ -1058,6 +1063,8 @@ def main():
         if st.button("🚀 RUN DEEPSEEK AI", type="primary", use_container_width=True):
             with st.spinner("🤖 DeepSeek AI analiz yapıyor..."):
                 trading_system = DeepSeekTradingSystem()
+                # Güncellenmiş API key'i kullan
+                trading_system.ai_analyzer.api_key = DEEPSEEK_API_KEY_UPDATED
                 analysis_data = trading_system.run_advanced_analysis(analysis_symbol, timeframe)
                 st.session_state.analysis_data = analysis_data
     
@@ -1067,6 +1074,8 @@ def main():
             st.session_state.social_data.pop(analysis_symbol, None)
             with st.spinner("Veriler yenileniyor..."):
                 trading_system = DeepSeekTradingSystem()
+                # Güncellenmiş API key'i kullan
+                trading_system.ai_analyzer.api_key = DEEPSEEK_API_KEY_UPDATED
                 analysis_data = trading_system.run_advanced_analysis(analysis_symbol, timeframe)
                 st.session_state.analysis_data = analysis_data
     
