@@ -1,14 +1,17 @@
 from __future__ import annotations
+import sys, os
+sys.path.append(os.path.dirname(__file__))
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 
-from utils.data import load_ohlcv
-from utils.patterns import annotate_patterns
-from utils.sr import pivot_zones, tag_price_context, acceptance_rejection
-from utils.price_action import price_volume_assessment, wick_stats
-from utils.backtest import simulate
+from pa.data import load_ohlcv
+from pa.patterns import annotate_patterns
+from pa.sr import pivot_zones, tag_price_context, acceptance_rejection
+from pa.price_action import price_volume_assessment, wick_stats
+from pa.backtest import simulate
 
 st.set_page_config(page_title="Price Action (Streamlit)", layout="wide")
 
@@ -34,17 +37,14 @@ ar = acceptance_rejection(df, zones)
 pva = price_volume_assessment(df, win=vol_win, z=vol_z)
 w = wick_stats(df)
 
-# Grafik
 fig = go.Figure()
 fig.add_trace(go.Candlestick(
     x=df.index, open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"],
     name="OHLC"
 ))
-# S/R bantları
 for _, z in zones.iterrows():
     fig.add_hrect(y0=z.lo, y1=z.hi, line_width=0, fillcolor="rgba(59,130,246,0.08)" if z.kind=="S" else "rgba(239,68,68,0.08)",
                   annotation_text=("S" if z.kind=="S" else "R"), annotation_position="inside top left")
-# Acceptance / Rejection işaretleri
 markers = []
 markers.append({"series": ar=="reject_res", "name":"Reject@Res", "symbol":"triangle-down"})
 markers.append({"series": ar=="reject_sup", "name":"Reject@Sup", "symbol":"triangle-up"})
@@ -60,7 +60,6 @@ for m in markers:
 
 st.plotly_chart(fig, use_container_width=True)
 
-# Hacim ve wick tablo
 tab1, tab2, tab3 = st.tabs(["🔎 Pattern & Bağlam", "📊 Hacim Yorumu", "🧪 Basit Backtest"])
 
 with tab1:
@@ -75,7 +74,6 @@ with tab2:
 
 with tab3:
     st.subheader("Swing/Trend mantığına uygun basit girişler")
-    # Giriş mantığı: S/R bandı yakınında pattern + acceptance/rejection onayı
     entries = []
     close = df["Close"]; high=df["High"]; low=df["Low"]
 
@@ -85,11 +83,9 @@ with tab3:
         long_ok = near_sup and (pats.loc[ts, ["hammer","pin_bull","bull_engulf","harami_bull","morning_star"]].any() or ar.loc[ts]=="reject_sup" or ar.loc[ts]=="accept_res_break") and (pva.loc[ts]!="vol_bear")
         short_ok= near_res and (pats.loc[ts, ["hangman","pin_bear","bear_engulf","harami_bear","evening_star"]].any() or ar.loc[ts]=="reject_res" or ar.loc[ts]=="accept_sup_break") and (pva.loc[ts]!="vol_bull")
         if long_ok:
-            # stop = son barın dibi, hedef = en yakın direnç bandı (yoksa RRR=1.8)
             stop = low.loc[ts]
             next_res = zones[zones.kind=="R"]
             if not next_res.empty:
-                # mevcut fiyattan yukarıdaki en yakın R
                 above = next_res[next_res.lo > close.loc[ts]]
                 target = (above.lo.min() if not above.empty else close.loc[ts]*(1+0.03))
             else:
