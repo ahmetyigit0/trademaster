@@ -4,132 +4,137 @@ import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime
 
-# ---------------- CONFIG ----------------
-st.set_page_config(
-    page_title="Finansal Net Worth Dashboard",
-    layout="wide"
-)
+st.set_page_config(layout="wide", page_title="Portföy Dashboard")
 
-st.title("📊 Finansal Durum Dashboard")
-st.caption("Kaynak: Kişisel Excel → Otomatik CSV")
+st.title("📊 Yatırım Portföyü Dashboard")
+st.caption("Demo veriler – yapı gerçek portföy mantığında")
 
-# ---------------- LOAD DATA ----------------
-df = pd.read_csv("data.csv")
-df = df.sort_values("period").reset_index(drop=True)
+# ======================================================
+# 🔹 DEMO PORTFÖY VERİLERİ
+# ======================================================
 
-# ---------------- SIDEBAR ----------------
+portfolio = [
+    # --- KRIPTO ---
+    {"category": "Kripto", "asset": "THETA", "amount": 56400, "price": 0.45, "currency": "USD"},
+    {"category": "Kripto", "asset": "BTC", "amount": 0.15, "price": 95000, "currency": "USD"},
+    {"category": "Kripto", "asset": "ETH", "amount": 2.3, "price": 3800, "currency": "USD"},
+
+    # --- HISSE ---
+    {"category": "Hisse", "asset": "AAPL", "amount": 25, "price": 195, "currency": "USD"},
+    {"category": "Hisse", "asset": "MSFT", "amount": 15, "price": 420, "currency": "USD"},
+    {"category": "Hisse", "asset": "TSLA", "amount": 10, "price": 260, "currency": "USD"},
+
+    # --- ALTIN ---
+    {"category": "Altın", "asset": "Gram Altın", "amount": 120, "price": 2500, "currency": "TRY"},
+
+    # --- GÜMÜŞ ---
+    {"category": "Gümüş", "asset": "Gram Gümüş", "amount": 300, "price": 30, "currency": "TRY"},
+
+    # --- FON ---
+    {"category": "Fon", "asset": "BIST 30 Fon", "amount": 1, "price": 250000, "currency": "TRY"},
+    {"category": "Fon", "asset": "ABD Teknoloji Fon", "amount": 1, "price": 180000, "currency": "TRY"},
+]
+
+USDTRY = 32.0  # demo kur
+
+df = pd.DataFrame(portfolio)
+
+# ======================================================
+# 🔹 HESAPLAMALAR
+# ======================================================
+
+def to_try(row):
+    if row["currency"] == "USD":
+        return row["amount"] * row["price"] * USDTRY
+    return row["amount"] * row["price"]
+
+df["value_try"] = df.apply(to_try, axis=1)
+
+# ======================================================
+# 🔹 SIDEBAR
+# ======================================================
+
 st.sidebar.header("⚙️ Ayarlar")
 
 target = st.sidebar.number_input(
-    "🎯 Net Varlık Hedefi (TRY)",
-    value=3_000_000,
-    step=100_000
+    "🎯 Portföy Hedefi (TRY)",
+    value=5_000_000,
+    step=250_000
 )
 
-show_raw = st.sidebar.checkbox("Ham veriyi göster", False)
+# ======================================================
+# 🔹 ÖZET METRİKLER
+# ======================================================
 
-# ---------------- CORE METRICS ----------------
-current = df.iloc[-1]["net_worth_try"]
-previous = df.iloc[-2]["net_worth_try"] if len(df) > 1 else current
-delta = current - previous
-delta_pct = (delta / previous * 100) if previous != 0 else 0
+total_value = df["value_try"].sum()
 
-c1, c2, c3, c4 = st.columns(4)
+c1, c2, c3 = st.columns(3)
+c1.metric("💰 Toplam Portföy", f"{total_value:,.0f} ₺")
+c2.metric("🎯 Hedef", f"{target:,.0f} ₺")
+c3.metric("📈 Hedefe Kalan", f"{target - total_value:,.0f} ₺")
 
-c1.metric("💰 Güncel Net", f"{current:,.0f} ₺")
-c2.metric("📅 Önceki Ay", f"{previous:,.0f} ₺")
-c3.metric(
-    "📈 Aylık Değişim",
-    f"{delta:,.0f} ₺",
-    f"{delta_pct:.2f}%"
-)
-c4.metric(
-    "🎯 Hedefe Kalan",
-    f"{target - current:,.0f} ₺"
-)
+st.progress(min(total_value / target, 1.0))
 
-st.progress(min(current / target, 1.0))
+# ======================================================
+# 🔹 KATEGORİ DAĞILIMI
+# ======================================================
 
-# ---------------- TIME SERIES ----------------
-st.subheader("📈 Ay Ay Net Varlık")
+st.subheader("📊 Kategori Dağılımı")
 
-st.line_chart(
-    df.set_index("period")["net_worth_try"],
-    height=320
-)
-
-# ---------------- MONTHLY CHANGE ----------------
-df["Prev"] = df["net_worth_try"].shift(1)
-df["Delta"] = df["net_worth_try"] - df["Prev"]
-df["Delta_%"] = (df["Delta"] / df["Prev"]) * 100
-
-df["Durum"] = df["Delta"].apply(
-    lambda x: "🟢 Artış" if x > 0 else ("🔴 Düşüş" if x < 0 else "—")
-)
-
-st.subheader("🟢🔴 Ay Ay Değişim Tablosu")
-
-st.dataframe(
-    df[["period", "net_worth_try", "Delta", "Delta_%", "Durum"]],
-    use_container_width=True,
-    height=320
-)
-
-# ---------------- BEST / WORST ----------------
-best = df.loc[df["Delta"].idxmax()]
-worst = df.loc[df["Delta"].idxmin()]
-
-c5, c6 = st.columns(2)
-
-c5.success(
-    f"🏆 En İyi Ay: {best['period']}\n\n"
-    f"+{best['Delta']:,.0f} ₺ (%{best['Delta_%']:.1f})"
-)
-
-c6.error(
-    f"💀 En Kötü Ay: {worst['period']}\n\n"
-    f"{worst['Delta']:,.0f} ₺ (%{worst['Delta_%']:.1f})"
-)
-
-# ---------------- DRAWDOWN ----------------
-st.subheader("📉 Drawdown (Zirveden Düşüş)")
-
-df["Peak"] = df["net_worth_try"].cummax()
-df["Drawdown_%"] = (df["net_worth_try"] - df["Peak"]) / df["Peak"] * 100
+cat = df.groupby("category")["value_try"].sum()
 
 fig, ax = plt.subplots()
-ax.fill_between(
-    df["period"],
-    df["Drawdown_%"],
-    color="red",
-    alpha=0.4
-)
-ax.set_ylabel("Drawdown %")
-ax.set_xlabel("Dönem")
-plt.xticks(rotation=45)
+ax.pie(cat.values, labels=cat.index, autopct="%1.1f%%")
 st.pyplot(fig)
 
-# ---------------- AUTO COMMENT ----------------
-st.subheader("🧠 Otomatik Yorum")
+# ======================================================
+# 🔹 VARLIK TABLOSU
+# ======================================================
 
-if delta > 0:
-    st.success(
-        f"{df.iloc[-1]['period']} ayında net varlık artışı var. "
-        f"Aylık +{delta:,.0f} ₺ (%{delta_pct:.2f}). "
-        "Mevcut trend pozitif."
-    )
-elif delta < 0:
-    st.warning(
-        f"{df.iloc[-1]['period']} ayında net varlık düşüşü var. "
-        f"Aylık {delta:,.0f} ₺ (%{delta_pct:.2f}). "
-        "Risk yönetimi ve nakit dengesi gözden geçirilmeli."
-    )
+st.subheader("📋 Varlık Detayı")
+
+st.dataframe(
+    df[["category", "asset", "amount", "price", "currency", "value_try"]]
+    .sort_values("value_try", ascending=False),
+    use_container_width=True
+)
+
+# ======================================================
+# 🔹 KRIPTO ÖZEL
+# ======================================================
+
+st.subheader("🪙 Kripto Özel")
+
+crypto = df[df["category"] == "Kripto"]
+
+st.bar_chart(
+    crypto.set_index("asset")["value_try"]
+)
+
+# ======================================================
+# 🔹 HISSE ÖZEL
+# ======================================================
+
+st.subheader("📈 Hisse Özel")
+
+stocks = df[df["category"] == "Hisse"]
+
+st.bar_chart(
+    stocks.set_index("asset")["value_try"]
+)
+
+# ======================================================
+# 🔹 OTOMATİK YORUM
+# ======================================================
+
+st.subheader("🧠 Portföy Yorumu")
+
+if cat["Kripto"] / total_value > 0.4:
+    st.warning("Kripto ağırlığı yüksek. Volatilite riski var.")
 else:
-    st.info("Bu ay net varlık değişimi yok.")
+    st.success("Kripto ağırlığı dengeli.")
 
-# ---------------- RAW DATA ----------------
-if show_raw:
-    st.subheader("🧾 Ham CSV Verisi")
-    st.dataframe(df, use_container_width=True)
+if cat.get("Altın", 0) + cat.get("Gümüş", 0) > total_value * 0.2:
+    st.info("Kıymetli metaller portföyü dengeliyor.")
 
-st.caption(f"Son güncelleme: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
+st.caption(f"Demo Dashboard – {datetime.now().strftime('%d.%m.%Y %H:%M')}")
