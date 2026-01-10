@@ -1,112 +1,224 @@
-from __future__ import annotations
-import sys, os
-sys.path.append(os.path.dirname(__file__))
-
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
+import yfinance as yf
+from pycoingecko import CoinGeckoAPI
+import matplotlib.pyplot as plt
+import json
+from datetime import datetime
 
-from pa.data import load_ohlcv
-from pa.patterns import annotate_patterns
-from pa.sr import pivot_zones, tag_price_context, acceptance_rejection
-from pa.price_action import price_volume_assessment, wick_stats
-from pa.backtest import simulate
+st.set_page_config(page_title="Net Worth Dashboard", layout="wide")
 
-st.set_page_config(page_title="Price Action (Streamlit)", layout="wide")
+@st.cache_data(ttl=60)
+def load_portfolio(path="portfolio.csv"):
+    df = pd.read_csv(path)
+    # normalize blanks
+    for col in ["avg_cost_usd","avg_cost_try","manual_price_try","manual_price_usd","quantity"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+    df["currency"] = df.get("currency", "USD").fillna("USD")
+    df["group"] = df.get("group", "Other").fillna("Other")
+    df["name"] = df.get("name", df["symbol"]).fillna(df["symbol"])
+    return df
 
-st.title("📈 Price Action – Streamlit App")
-st.caption("S/R + Candlestick + Acceptance/Rejection + Hacim yorumu + Basit backtest (swing/trend).")
+@st.cache_data(ttl=300)
+def load_notes(path="notes.json"):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {"goals": [], "expectations": {}, "rules": []}
 
-with st.sidebar:
-    symbol = st.text_input("Sembol", value="BTC-USD")
-    interval = st.selectbox("Zaman Dilimi", ["1h","4h","1d","1wk"], index=2)
-    period = st.selectbox("Veri Aralığı", ["1y","2y","3y","5y","max"], index=2)
-    order = st.slider("Pivot order (S/R)", 3, 20, 7)
-    band = st.slider("S/R birleştirme bandı (%)", 0.1, 1.0, 0.3, step=0.1) / 100.0
-    tol = st.slider("S/R yakınlık toleransı (%)", 0.1, 1.0, 0.3, step=0.1) / 100.0
-    vol_win = st.slider("Hacim spike pencere", 10, 60, 20)
-    vol_z = st.slider("Hacim spike z-skoru", 1.0, 4.0, 2.0, step=0.1)
-    min_rr = st.slider("Min Risk/Ödül", 1.0, 3.0, 1.5, step=0.1)
+@st.cache_data(ttl=60)
+def fetch_fx_usdtry():
+    # USDTRY from Yahoo
+    try:
+        t = yf.Ticker("USDTRY=X")
+        px = t.history(period="2d")["Close"].dropna()
+        return float(px.iloc[-1]) if len(px) else np.nan
+    except Exception:
+        return np.nan
 
-df = load_ohlcv(symbol, interval=interval, period=period)
-pats = annotate_patterns(df)
-zones = pivot_zones(df, order=order, band=band)
-ctx = tag_price_context(df, zones, tol=tol)
-ar = acceptance_rejection(df, zones)
-pva = price_volume_assessment(df, win=vol_win, z=vol_z)
-w = wick_stats(df)
+@st.cache_data(ttl=60)
+def fetch_yf_last_close(tickers):
+    if not tickers:
+        return {}
+    data = yf.download(tickers=tickers, period="5d", interval="1d", group_by="ticker", auto_adjust=True, progress=False)
+    out = {}
+    # yf returns different shapes for 1 ticker vs many
+    if isinstance(tickers, str) or len(tickers) == 1:
+        # single
+        try:
+            close = data["Close"].dropna()
+            out[tickers if isinstance(tickers, str) else tickers[0]] = float(close.iloc[-1])
+        except Exception:
+            pass
+        return out
 
-fig = go.Figure()
-fig.add_trace(go.Candlestick(
-    x=df.index, open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"],
-    name="OHLC"
-))
-for _, z in zones.iterrows():
-    fig.add_hrect(y0=z.lo, y1=z.hi, line_width=0, fillcolor="rgba(59,130,246,0.08)" if z.kind=="S" else "rgba(239,68,68,0.08)",
-                  annotation_text=("S" if z.kind=="S" else "R"), annotation_position="inside top left")
-markers = []
-markers.append({"series": ar=="reject_res", "name":"Reject@Res", "symbol":"triangle-down"})
-markers.append({"series": ar=="reject_sup", "name":"Reject@Sup", "symbol":"triangle-up"})
-markers.append({"series": ar=="accept_res_break", "name":"Accept Res Break", "symbol":"circle"})
-markers.append({"series": ar=="accept_sup_break", "name":"Accept Sup Break", "symbol":"circle-open"})
+    for tkr in tickers:
+        try:
+            close = data[tkr]["Close"].dropna()
+            out[tkr] = float(close.iloc[-1]) if len(close) else np.nan
+        except Exception:
+            out[tkr] = np.nan
+    return out
 
-for m in markers:
-    idxs = df.index[m["series"]]
-    fig.add_trace(go.Scatter(
-        x=idxs, y=df.loc[idxs, "Close"], mode="markers",
-        marker_symbol=m["symbol"], marker_size=10, name=m["name"]
-    ))
+@st.cache_data(ttl=60)
+def fetch_coingecko_prices(ids, vs="usd"):
+    if not ids:
+        return {}
+    cg = CoinGeckoAPI()
+    prices = cg.get_price(ids=ids, vs_currencies=vs)
+    # returns dict: {id: {vs: price}}
+    out = {}
+    for _id in ids:
+        try:
+            out[_id] = float(prices[_id][vs])
+        except Exception:
+            out[_id] = np.nan
+    return out
 
-st.plotly_chart(fig, use_container_width=True)
+def to_try(price, currency, usdtry):
+    if currency.upper() == "TRY":
+        return price
+    if currency.upper() == "USD":
+        return price * usdtry if np.isfinite(usdtry) else np.nan
+    return np.nan
 
-tab1, tab2, tab3 = st.tabs(["🔎 Pattern & Bağlam", "📊 Hacim Yorumu", "🧪 Basit Backtest"])
+st.title("📌 Net Worth Dashboard (Altın / Hisse / USD / Kripto)")
 
-with tab1:
-    st.subheader("Candlestick Pattern Etiketleri")
-    view = pd.concat([df[["Open","High","Low","Close","Volume"]], pats.astype(int), ctx.rename("context"), ar.rename("acc_rej")], axis=1)
-    st.dataframe(view.tail(200))
+# Sidebar
+st.sidebar.header("Ayarlar")
+portfolio_path = st.sidebar.text_input("portfolio.csv yolu", "portfolio.csv")
+notes_path = st.sidebar.text_input("notes.json yolu", "notes.json")
+st.sidebar.divider()
 
-with tab2:
-    st.subheader("Hacim Spike + Wick Tespiti")
-    vol_df = pd.concat([df["Volume"].rename("Volume"), w, pva.rename("vol_flag")], axis=1)
-    st.dataframe(vol_df.tail(200))
+df = load_portfolio(portfolio_path)
+notes = load_notes(notes_path)
 
-with tab3:
-    st.subheader("Swing/Trend mantığına uygun basit girişler")
-    entries = []
-    close = df["Close"]; high=df["High"]; low=df["Low"]
+usdtry = fetch_fx_usdtry()
+st.sidebar.metric("USD/TRY", f"{usdtry:,.2f}" if np.isfinite(usdtry) else "N/A")
 
-    for ts in df.index[5:]:
-        near_sup = (ctx.loc[ts] == "near_sup")
-        near_res = (ctx.loc[ts] == "near_res")
-        long_ok = near_sup and (pats.loc[ts, ["hammer","pin_bull","bull_engulf","harami_bull","morning_star"]].any() or ar.loc[ts]=="reject_sup" or ar.loc[ts]=="accept_res_break") and (pva.loc[ts]!="vol_bear")
-        short_ok= near_res and (pats.loc[ts, ["hangman","pin_bear","bear_engulf","harami_bear","evening_star"]].any() or ar.loc[ts]=="reject_res" or ar.loc[ts]=="accept_sup_break") and (pva.loc[ts]!="vol_bull")
-        if long_ok:
-            stop = low.loc[ts]
-            next_res = zones[zones.kind=="R"]
-            if not next_res.empty:
-                above = next_res[next_res.lo > close.loc[ts]]
-                target = (above.lo.min() if not above.empty else close.loc[ts]*(1+0.03))
-            else:
-                target = close.loc[ts]*(1+0.03)
-            entries.append({"ts": ts, "side":"long", "entry_price": close.loc[ts], "stop": stop, "target": float(target)})
-        elif short_ok:
-            stop = high.loc[ts]
-            next_sup = zones[zones.kind=="S"]
-            if not next_sup.empty:
-                below = next_sup[next_sup.hi < close.loc[ts]]
-                target = (below.hi.max() if not below.empty else close.loc[ts]*(1-0.03))
-            else:
-                target = close.loc[ts]*(1-0.03)
-            entries.append({"ts": ts, "side":"short", "entry_price": close.loc[ts], "stop": stop, "target": float(target)})
+# Collect tickers/ids
+crypto_ids = df.loc[df["asset_type"].str.lower()=="crypto", "symbol"].str.lower().tolist()
+yf_tickers = df.loc[df["asset_type"].str.lower().isin(["equity","fx","commodity"]), "symbol"].tolist()
 
-    if entries:
-        ent = pd.DataFrame(entries).set_index("ts")
-        res = simulate(df, ent, min_rr=min_rr)
-        st.write("Toplam İşlem:", len(res))
-        if not res.empty:
-            st.write("Toplam PnL:", round(res["pnl"].sum(), 4))
-            st.dataframe(res.tail(100))
+# fetch prices
+crypto_px_usd = fetch_coingecko_prices(sorted(set(crypto_ids)), vs="usd")
+yf_px = fetch_yf_last_close(sorted(set(yf_tickers)))
+
+# build valuation
+rows = []
+for _, r in df.iterrows():
+    atype = str(r["asset_type"]).lower()
+    symbol = str(r["symbol"])
+    qty = float(r["quantity"])
+    avg_cost_usd = float(r["avg_cost_usd"])
+    avg_cost_try = float(r["avg_cost_try"])
+    manual_try = float(r.get("manual_price_try", 0.0))
+    manual_usd = float(r.get("manual_price_usd", 0.0))
+    currency = str(r.get("currency", "USD"))
+
+    live_usd = np.nan
+    live_try = np.nan
+
+    if atype == "crypto":
+        live_usd = crypto_px_usd.get(symbol.lower(), np.nan)
+        live_try = to_try(live_usd, "USD", usdtry)
+    elif atype in ["equity","fx","commodity"]:
+        live_price = yf_px.get(symbol, np.nan)
+        # For yf tickers, assume currency is provided by you (USD/TRY)
+        live_try = to_try(live_price, currency, usdtry)
+        live_usd = live_price if currency.upper()=="USD" else (live_try/usdtry if np.isfinite(usdtry) else np.nan)
+    elif atype == "manual":
+        # Use manual price if provided
+        if manual_try > 0:
+            live_try = manual_try
+            live_usd = manual_try/usdtry if np.isfinite(usdtry) else np.nan
+        elif manual_usd > 0:
+            live_usd = manual_usd
+            live_try = to_try(manual_usd, "USD", usdtry)
+
+    value_try = live_try * qty if np.isfinite(live_try) else np.nan
+    value_usd = live_usd * qty if np.isfinite(live_usd) else np.nan
+
+    # cost basis (best-effort)
+    cost_try = (avg_cost_try * qty) if avg_cost_try > 0 else (avg_cost_usd * qty * usdtry if avg_cost_usd > 0 and np.isfinite(usdtry) else np.nan)
+    pl_try = (value_try - cost_try) if np.isfinite(value_try) and np.isfinite(cost_try) else np.nan
+    pl_pct = (pl_try / cost_try * 100.0) if np.isfinite(pl_try) and np.isfinite(cost_try) and cost_try != 0 else np.nan
+
+    rows.append({
+        "Group": r.get("group","Other"),
+        "Type": atype,
+        "Symbol": symbol,
+        "Name": r.get("name", symbol),
+        "Qty": qty,
+        "Live (USD)": live_usd,
+        "Live (TRY)": live_try,
+        "Value (TRY)": value_try,
+        "Cost (TRY)": cost_try,
+        "P/L (TRY)": pl_try,
+        "P/L %": pl_pct
+    })
+
+val = pd.DataFrame(rows)
+
+# Summary
+total_try = val["Value (TRY)"].sum(skipna=True)
+total_pl_try = val["P/L (TRY)"].sum(skipna=True)
+
+c1, c2, c3 = st.columns(3)
+c1.metric("Toplam Net Worth (TRY)", f"{total_try:,.0f}")
+c2.metric("Toplam P/L (TRY)", f"{total_pl_try:,.0f}")
+c3.metric("Güncelleme", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+st.divider()
+
+# Main table
+st.subheader("📦 Portföy Detayı")
+st.dataframe(
+    val.sort_values(["Group","Type","Symbol"]),
+    use_container_width=True,
+    height=420
+)
+
+# Allocation chart
+st.subheader("📊 Dağılım")
+grp = val.groupby("Group", dropna=False)["Value (TRY)"].sum().sort_values(ascending=False)
+
+fig = plt.figure()
+ax = plt.gca()
+ax.pie(grp.values, labels=grp.index, autopct="%1.1f%%")
+ax.set_title("Varlık Dağılımı (TRY)")
+st.pyplot(fig)
+
+st.divider()
+
+# Goals / expectations / rules
+st.subheader("🎯 Hedefler & Beklentiler")
+colA, colB = st.columns([1,1])
+
+with colA:
+    st.markdown("### Hedefler")
+    goals = notes.get("goals", [])
+    if goals:
+        st.dataframe(pd.DataFrame(goals), use_container_width=True)
     else:
-        st.info("Bu parametrelerle henüz sinyal yok.")
+        st.info("notes.json içine hedef ekleyebilirsin.")
+
+with colB:
+    st.markdown("### Kural Seti")
+    rules = notes.get("rules", [])
+    if rules:
+        for r in rules:
+            st.write(f"• {r}")
+    else:
+        st.info("notes.json içine kural seti ekleyebilirsin.")
+
+st.markdown("### Beklentiler / Senaryolar")
+exp = notes.get("expectations", {})
+if exp:
+    for k, v in exp.items():
+        st.write(f"**{k.upper()}**: {v}")
+else:
+    st.info("notes.json içine beklenti/senaryo notlarını ekleyebilirsin.")
