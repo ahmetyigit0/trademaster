@@ -1,8 +1,7 @@
-asset_type,symbol,name,quantity,avg_cost_usd,avg_cost_try,manual_price_try,manual_price_usd,currency,group
-crypto,theta,THETA,56400,0.40,,,
-crypto,bitcoin,BTC,0.00,0,,,
-fx,USDTRY,USD Cash,0,0,0,,,TRY,Cash
-equity,AAPL,Apple,0,0,,,USD,Stocks
-commodity,XAU,Gold (grams),100,0,0,0,0,TRY,Gold
-manual,RE1,Home #1,1,0,0,1500000,,TRY,RealEstate
-manual,GOLD_PHYS,Gold Physical,0,0,0,,,TRY,Gold
+category,asset,amount,price,currency
+Kripto,THETA,56400,0.34,USD
+Kripto,BTC,0.15,91700,USD
+Hisse,AAPL,25,195,USD
+Altın,Gram Altın,120,2500,TRY
+Gümüş,Gram Gümüş,300,30,TRY
+Fon,BIST30 Fon,1,250000,TRY
