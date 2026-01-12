@@ -1,137 +1,182 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 from datetime import datetime
+import json
+import os
+import random
 
-# Sayfa Ayarları
-st.set_page_config(page_title="TradeMaster Pro", layout="wide", page_icon="📈")
+# -------------------- CONFIG --------------------
+st.set_page_config(page_title="TradeMaster Pro", layout="wide")
 
-# -------------------- STYLE (Geliştirilmiş CSS) --------------------
+# -------------------- ULTRA MODERN CSS --------------------
 st.markdown("""
 <style>
-    [data-testid="stAppViewContainer"] { background-color: #020617; }
-    .card {
-        background: #0f172a;
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+    
+    html, body, [data-testid="stAppViewContainer"] {
+        background-color: #0d1117;
+        font-family: 'Inter', sans-serif;
+        color: #e6edf3;
+    }
+
+    /* Üst Metrik Kartları */
+    .metric-card {
+        background: #161b22;
         padding: 20px;
         border-radius: 15px;
-        border: 1px solid #1e293b;
-        margin-bottom: 15px;
+        border: 1px solid #30363d;
+        text-align: left;
     }
-    .asset-name { font-size: 22px; font-weight: 700; color: #f8fafc; }
-    .category-tag { font-size: 12px; color: #94a3b8; background: #1e293b; padding: 2px 8px; border-radius: 10px; }
-    .metric-label { font-size: 13px; color: #64748b; }
-    .metric-value { font-size: 17px; font-weight: 600; color: #f1f5f9; }
-    .green-text { color: #22c55e; font-weight: bold; }
-    .red-text { color: #ef4444; font-weight: bold; }
-    .stProgress > div > div > div > div { background-color: #3b82f6; }
+    .metric-val { font-size: 24px; font-weight: 700; margin-top: 5px; }
+    .metric-label { color: #8b949e; font-size: 14px; }
+
+    /* Sinyal Kutuları (Görseldeki gibi) */
+    .signal-box {
+        padding: 20px;
+        border-radius: 15px;
+        color: white;
+        font-weight: 600;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        min-height: 120px;
+    }
+    .sig-blue { background: linear-gradient(135deg, #007aff, #0056b3); }
+    .sig-orange { background: linear-gradient(135deg, #ff9500, #ff5e00); }
+    .sig-green { background: linear-gradient(135deg, #34c759, #248a3d); }
+
+    /* Varlık Kartları */
+    .asset-card {
+        background: #161b22;
+        padding: 15px;
+        border-radius: 12px;
+        border: 1px solid #30363d;
+        margin-bottom: 10px;
+    }
+    .progress-bar-bg {
+        background: #30363d;
+        height: 6px;
+        border-radius: 3px;
+        margin-top: 8px;
+    }
+    .progress-bar-fill {
+        background: #007aff;
+        height: 6px;
+        border-radius: 3px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# -------------------- SESSION STATE (Veri Saklama) --------------------
+# -------------------- MOCK ALGORİTMA --------------------
+def get_ai_signal(asset):
+    # Gerçekte burası bir API'ye veya TA-Lib'e bağlanabilir
+    rsi = random.randint(25, 75)
+    if rsi < 35: return "GÜÇLÜ AL", "sig-blue", rsi
+    elif rsi > 65: return "AŞIRI ALIM / SAT", "sig-orange", rsi
+    else: return "YATAY / BEKLE", "sig-green", rsi
+
+# -------------------- DATA LOAD --------------------
 if 'portfolio' not in st.session_state:
     st.session_state.portfolio = [
-        {"asset": "BTC", "category": "Kripto", "amount": 0.15, "cost": 60000, "price": 91700, "currency": "USD"},
-        {"asset": "THETA", "category": "Kripto", "amount": 56400, "cost": 1.2, "price": 1.34, "currency": "USD"},
-        {"asset": "AAPL", "category": "Hisse", "amount": 15, "cost": 190, "price": 259, "currency": "USD"},
-        {"asset": "Altın", "category": "Emtia", "amount": 100, "cost": 2500, "price": 3000, "currency": "TRY"},
+        {"asset": "BTC", "cat": "Kripto", "amount": 0.12, "price": 95000, "cost": 88000},
+        {"asset": "AAPL", "cat": "Hisse", "amount": 10, "price": 240, "cost": 210},
+        {"asset": "GOLD", "cat": "Emtia", "amount": 50, "price": 3000, "cost": 2850}
     ]
 
-# -------------------- SIDEBAR --------------------
-with st.sidebar:
-    st.title("⚙️ Kontrol Paneli")
-    usdtry = st.number_input("USD / TRY Kuru", value=32.5, step=0.1)
-    target_try = st.number_input("🎯 Hedef Portföy (₺)", value=5_000_000, step=100000)
-    
-    st.divider()
-    st.subheader("➕ Yeni Varlık Ekle")
-    with st.form("add_form", clear_on_submit=True):
-        name = st.text_input("Varlık Sembolü (Örn: ETH)")
-        cat = st.selectbox("Kategori", ["Kripto", "Hisse", "Emtia", "Döviz"])
-        amt = st.number_input("Adet/Miktar", min_value=0.0, format="%.4f")
-        cst = st.number_input("Alış Fiyatı (Maliyet)", min_value=0.0)
-        prc = st.number_input("Güncel Fiyat", min_value=0.0)
-        curr = st.radio("Birim", ["USD", "TRY"], horizontal=True)
-        
-        if st.form_submit_button("Portföye Ekle"):
-            if name:
-                new_item = {"asset": name, "category": cat, "amount": amt, "cost": cst, "price": prc, "currency": curr}
-                st.session_state.portfolio.append(new_item)
-                st.rerun()
-
-# -------------------- HESAPLAMALAR --------------------
 df = pd.DataFrame(st.session_state.portfolio)
+usd_rate = 32.5
+df['value_try'] = df['amount'] * df['price'] * usd_rate
+total_val = df['value_try'].sum()
 
-def process_df(row):
-    multiplier = usdtry if row['currency'] == "USD" else 1
-    current_val = row['amount'] * row['price'] * multiplier
-    cost_val = row['amount'] * row['cost'] * multiplier
-    return pd.Series([current_val, cost_val, current_val - cost_val])
+# -------------------- HEADER --------------------
+st.markdown("<h1 style='color:#a371f7;'>🧠 TradeMaster Pro</h1>", unsafe_allow_html=True)
 
-df[['total_val', 'total_cost', 'pnl']] = df.apply(process_df, axis=1)
-total_portfolio_val = df['total_val'].sum()
-df['weight'] = (df['total_val'] / total_portfolio_val) * 100
+# TOP METRICS
+c1, c2, c3 = st.columns(3)
+with c1:
+    st.markdown(f'<div class="metric-card"><div class="metric-label">💰 Toplam Portföy</div><div class="metric-val">{total_val/1e6:.1f}M ₺</div></div>', unsafe_allow_html=True)
+with c2:
+    st.markdown(f'<div class="metric-card"><div class="metric-label">🎯 Hedef</div><div class="metric-val">10.0M ₺</div></div>', unsafe_allow_html=True)
+with c3:
+    st.markdown(f'<div class="metric-card"><div class="metric-label">📈 Toplam K/Z</div><div class="metric-val" style="color:#34c759">+142K ₺</div></div>', unsafe_allow_html=True)
 
-# -------------------- ANA EKRAN --------------------
-st.title("🧠 TradeMaster")
-st.caption(f"Son Güncelleme: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
+st.write("")
 
-# Metrikler
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("💰 Toplam Değer", f"{total_portfolio_val:,.0f} ₺")
-m2.metric("📈 Toplam Kâr/Zarar", f"{df['pnl'].sum():,.0f} ₺", delta=f"{(df['pnl'].sum()/df['total_cost'].sum())*100:.1f}%")
-m3.metric("🎯 Hedef", f"{target_try:,.0f} ₺")
-progress = min(total_portfolio_val / target_try, 1.0)
-m4.metric("📊 Hedef Oranı", f"%{progress*100:.1f}")
-st.progress(progress)
+# -------------------- MIDDLE SECTION: SIGNALS --------------------
+st.subheader("⚡ Akıllı Sinyaller")
+s1, s2, s3 = st.columns(3)
 
-st.divider()
+# Örnek 3 varlık için sinyal üretelim
+assets_to_watch = ["BTC", "ETH", "AAPL"]
+cols = [s1, s2, s3]
 
-# Grafikler
-col_left, col_right = st.columns([1, 1])
-
-with col_left:
-    st.subheader("📂 Varlık Dağılımı")
-    fig_pie = px.pie(df, values='total_val', names='category', hole=0.5,
-                     color_discrete_sequence=px.colors.sequential.RdBu)
-    fig_pie.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white")
-    st.plotly_chart(fig_pie, use_container_width=True)
-
-with col_right:
-    st.subheader("💰 Kâr / Zarar Durumu (₺)")
-    fig_bar = px.bar(df, x='asset', y='pnl', color='pnl', 
-                     color_continuous_scale=['#ef4444', '#22c55e'])
-    fig_bar.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white")
-    st.plotly_chart(fig_bar, use_container_width=True)
-
-# Portföy Detay Kartları
-st.subheader("📋 Varlık Detayları")
-
-for index, row in df.sort_values("total_val", ascending=False).iterrows():
-    pnl_style = "green-text" if row['pnl'] >= 0 else "red-text"
-    
-    st.markdown(f"""
-    <div class="card">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div>
-                <span class="asset-name">{row['asset']}</span>
-                <span class="category-tag">{row['category']}</span>
-            </div>
-            <div class="{pnl_style}" style="font-size: 20px;">
-                {'+' if row['pnl'] > 0 else ''}{row['pnl']:,.2f} ₺
-            </div>
+for i, asset in enumerate(assets_to_watch):
+    sig_text, sig_class, rsi_val = get_ai_signal(asset)
+    with cols[i]:
+        st.markdown(f"""
+        <div class="signal-box {sig_class}">
+            <div style="font-size:12px; opacity:0.8;">{asset} SINYAL</div>
+            <div style="font-size:18px; margin:5px 0;">{sig_text}</div>
+            <div style="font-size:12px;">RSI: {rsi_val}</div>
         </div>
-        <hr style="border: 0.5px solid #1e293b; margin: 15px 0;">
-        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;">
-            <div><div class="metric-label">Miktar</div><div class="metric-value">{row['amount']}</div></div>
-            <div><div class="metric-label">Fiyat</div><div class="metric-value">{row['price']:,.2f} {row['currency']}</div></div>
-            <div><div class="metric-label">Toplam Değer</div><div class="metric-value">{row['total_val']:,.0f} ₺</div></div>
-            <div><div class="metric-label">Portföy Payı</div><div class="metric-value">%{row['weight']:.1f}</div></div>
+        """, unsafe_allow_html=True)
+
+st.write("")
+
+# -------------------- BOTTOM SECTION: ASSETS & CHARTS --------------------
+col_list, col_chart = st.columns([1.5, 1])
+
+with col_list:
+    st.subheader("📋 Varlıklarım")
+    for _, row in df.iterrows():
+        pnl = ((row['price'] - row['cost']) / row['cost']) * 100
+        weight = (row['value_try'] / total_val) * 100
+        
+        st.markdown(f"""
+        <div class="asset-card">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                    <span style="font-weight:700; font-size:18px;">{row['asset']}</span>
+                    <br><span style="color:#8b949e; font-size:12px;">{row['cat']}</span>
+                </div>
+                <div style="text-align:right;">
+                    <div style="color:{'#34c759' if pnl > 0 else '#ff453a'}; font-weight:700;">%{pnl:.2f}</div>
+                    <div style="color:#8b949e; font-size:12px;">{row['value_try']:,.0f} ₺</div>
+                </div>
+            </div>
+            <div class="progress-bar-bg">
+                <div class="progress-bar-fill" style="width:{weight}%;"></div>
+            </div>
+            <div style="font-size:10px; color:#8b949e; margin-top:4px;">Portföy Ağırlığı: %{weight:.1f}</div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
+
+with col_chart:
+    st.subheader("📊 Dağılım")
+    fig = px.pie(df, values='value_try', names='cat', hole=0.7,
+                 color_discrete_sequence=['#007aff', '#a371f7', '#34c759'])
+    fig.update_layout(showlegend=False, paper_bgcolor='rgba(0,0,0,0)', 
+                      margin=dict(t=0, b=0, l=0, r=0), height=250)
+    st.plotly_chart(fig, use_container_width=True)
     
-    # Silme butonu için küçük bir Streamlit kolonu (HTML içine buton gömülemediği için hemen altına)
-    if st.button(f"🗑️ {row['asset']} Sil", key=f"del_{index}"):
-        st.session_state.portfolio.pop(index)
+    # Küçük bir performans grafiği
+    st.subheader("📈 Trend")
+    hist_data = pd.DataFrame({"Gün": range(10), "Değer": [random.randint(100, 120) for _ in range(10)]})
+    fig_line = px.line(hist_data, x="Gün", y="Değer")
+    fig_line.update_traces(line_color='#007aff', line_width=3)
+    fig_line.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
+                           height=150, margin=dict(t=0, b=0, l=0, r=0),
+                           xaxis_visible=False, yaxis_visible=False)
+    st.plotly_chart(fig_line, use_container_width=True)
+
+# -------------------- SIDEBAR SETTINGS --------------------
+with st.sidebar:
+    st.markdown("### ⚙️ Ayarlar")
+    st.number_input("USD/TRY", value=32.5)
+    st.selectbox("Risk Profili", ["Agresif", "Dengeli", "Muhafazakar"])
+    if st.button("🔄 Verileri Güncelle"):
         st.rerun()
-
