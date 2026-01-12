@@ -6,13 +6,10 @@ from datetime import datetime
 # --------------------------------------------------
 # PAGE CONFIG
 # --------------------------------------------------
-st.set_page_config(
-    page_title="TradeMaster",
-    layout="wide"
-)
+st.set_page_config(page_title="TradeMaster", layout="wide")
 
 # --------------------------------------------------
-# PREMIUM DARK STYLE (ÖNCEKİ GÜZEL TEMA)
+# PREMIUM DARK STYLE
 # --------------------------------------------------
 st.markdown("""
 <style>
@@ -27,29 +24,13 @@ body { background-color:#020617; }
     margin-bottom:14px;
 }
 
-.asset {
-    font-size:20px;
-    font-weight:600;
-    color:white;
-}
+.asset { font-size:20px;font-weight:600;color:white; }
+.cat { font-size:13px;color:#94a3b8; }
+.label { font-size:12px;color:#64748b; }
+.val { font-size:16px;color:#e5e7eb; }
 
-.cat {
-    font-size:13px;
-    color:#94a3b8;
-}
-
-.label {
-    font-size:12px;
-    color:#64748b;
-}
-
-.val {
-    font-size:16px;
-    color:#e5e7eb;
-}
-
-.green { color:#22c55e; font-weight:600; }
-.red { color:#ef4444; font-weight:600; }
+.green { color:#22c55e;font-weight:600; }
+.red { color:#ef4444;font-weight:600; }
 
 .progress-wrap {
     background:#020617;
@@ -58,12 +39,20 @@ body { background-color:#020617; }
     height:8px;
     margin-top:8px;
 }
-.progress-bar {
-    height:8px;
-    background:#22c55e;
-}
+.progress-bar { height:8px; }
 </style>
 """, unsafe_allow_html=True)
+
+# --------------------------------------------------
+# CATEGORY META
+# --------------------------------------------------
+CATEGORY_META = {
+    "Crypto": {"color": "#22c55e", "icon": "🪙"},
+    "Stock": {"color": "#38bdf8", "icon": "📈"},
+    "Gold": {"color": "#facc15", "icon": "🥇"},
+    "Cash": {"color": "#94a3b8", "icon": "💵"},
+    "Fund": {"color": "#a78bfa", "icon": "📊"},
+}
 
 # --------------------------------------------------
 # HEADER
@@ -89,17 +78,19 @@ def value_try(row):
     return row["amount"] * row["price"]
 
 df["value_try"] = df.apply(value_try, axis=1)
-df["cost_try"] = df["value_try"] * 0.85  # örnek maliyet
+
+# varsayımsal maliyet (istersen CSV’ye eklersin)
+df["cost_try"] = df["value_try"] * 0.85
 df["pnl_try"] = df["value_try"] - df["cost_try"]
+df["pnl_pct"] = (df["pnl_try"] / df["cost_try"]) * 100
 
 total_value = df["value_try"].sum()
 df["weight"] = (df["value_try"] / total_value) * 100
 
 # --------------------------------------------------
-# TOP METRICS (KART GİBİ)
+# TOP METRICS
 # --------------------------------------------------
 c1, c2, c3 = st.columns(3)
-
 c1.metric("💰 Toplam Portföy", f"{total_value:,.0f} ₺")
 c2.metric("🎯 Hedef", f"{target:,.0f} ₺")
 c3.metric("📉 Kalan", f"{max(target-total_value,0):,.0f} ₺")
@@ -121,25 +112,34 @@ fig = px.pie(
 st.plotly_chart(fig, use_container_width=True)
 
 # --------------------------------------------------
-# 🔥 PORTFÖY DETAYI – ARTIK TABLO YOK
+# FILTER
 # --------------------------------------------------
 st.subheader("📋 Portföy Detayı")
+filter_cat = st.selectbox(
+    "Kategori Filtresi",
+    ["Tümü"] + sorted(df["category"].unique().tolist())
+)
 
-for _, r in df.sort_values("value_try", ascending=False).iterrows():
+view_df = df if filter_cat == "Tümü" else df[df["category"] == filter_cat]
 
+# --------------------------------------------------
+# PORTFÖY CARDS
+# --------------------------------------------------
+for _, r in view_df.sort_values("value_try", ascending=False).iterrows():
+
+    meta = CATEGORY_META.get(r["category"], {"color":"#22c55e","icon":"💼"})
     pnl_class = "green" if r["pnl_try"] >= 0 else "red"
-    pnl_text = f"{r['pnl_try']:,.0f} ₺"
-    weight_pct = r["weight"]
 
     st.markdown(f"""
     <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;">
             <div>
-                <div class="asset">{r['asset']}</div>
+                <div class="asset">{meta["icon"]} {r['asset']}</div>
                 <div class="cat">{r['category']}</div>
             </div>
             <div class="{pnl_class}">
-                {pnl_text}
+                {r['pnl_try']:,.0f} ₺<br/>
+                <span style="font-size:12px;">{r['pnl_pct']:.1f}%</span>
             </div>
         </div>
 
@@ -159,9 +159,9 @@ for _, r in df.sort_values("value_try", ascending=False).iterrows():
         </div>
 
         <div class="progress-wrap">
-            <div class="progress-bar" style="width:{weight_pct:.1f}%"></div>
+            <div class="progress-bar" style="width:{r['weight']:.1f}%;background:{meta['color']}"></div>
         </div>
-        <div class="label">{weight_pct:.1f}% portföy ağırlığı</div>
+        <div class="label">{r['weight']:.1f}% portföy ağırlığı</div>
     </div>
     """, unsafe_allow_html=True)
 
