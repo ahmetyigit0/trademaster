@@ -2,16 +2,11 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from datetime import datetime
-import json
-import os
 
-# -------------------- KONFİGÜRASYON --------------------
-st.set_page_config(page_title="TradeMaster Pro", page_icon="📈", layout="wide")
+# Sayfa Ayarları
+st.set_page_config(page_title="TradeMaster Pro", layout="wide", page_icon="📈")
 
-DATA_FILE = "portfolio_data.json"
-HISTORY_FILE = "portfolio_history.csv"
-
-# -------------------- STİLLER --------------------
+# -------------------- STYLE (Geliştirilmiş CSS) --------------------
 st.markdown("""
 <style>
     [data-testid="stAppViewContainer"] { background-color: #020617; }
@@ -22,136 +17,121 @@ st.markdown("""
         border: 1px solid #1e293b;
         margin-bottom: 15px;
     }
-    .asset-name { font-size: 20px; font-weight: 700; color: #f8fafc; }
-    .pnl-pos { color: #22c55e; font-weight: bold; }
-    .pnl-neg { color: #ef4444; font-weight: bold; }
-    .metric-box { text-align: center; padding: 10px; background: #1e293b; border-radius: 10px; flex: 1; }
+    .asset-name { font-size: 22px; font-weight: 700; color: #f8fafc; }
+    .category-tag { font-size: 12px; color: #94a3b8; background: #1e293b; padding: 2px 8px; border-radius: 10px; }
+    .metric-label { font-size: 13px; color: #64748b; }
+    .metric-value { font-size: 17px; font-weight: 600; color: #f1f5f9; }
+    .green-text { color: #22c55e; font-weight: bold; }
+    .red-text { color: #ef4444; font-weight: bold; }
+    .stProgress > div > div > div > div { background-color: #3b82f6; }
 </style>
 """, unsafe_allow_html=True)
 
-# -------------------- VERİ YÖNETİMİ --------------------
-def load_data():
-    if os.path.exists(DATA_FILE):
-        try:
-            with open(DATA_FILE, "r") as f:
-                data = json.load(f)
-                # Eksik anahtarları kontrol et (Hata almamak için kritik)
-                for item in data.get("portfolio", []):
-                    if "cost" not in item:
-                        item["cost"] = item.get("cost_basis", item.get("price", 0))
-                return data
-        except:
-            pass
-    return {"portfolio": [], "settings": {"target": 5000000, "usdtry": 32.5}}
-
-def save_data(data):
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f, indent=4)
-
-def update_history(total_val):
-    today = datetime.now().strftime("%Y-%m-%d")
-    new_entry = pd.DataFrame({"tarih": [today], "deger": [total_val]})
-    if os.path.exists(HISTORY_FILE):
-        hist_df = pd.read_csv(HISTORY_FILE)
-        if hist_df.empty or hist_df.iloc[-1]["tarih"] != today:
-            pd.concat([hist_df, new_entry]).to_csv(HISTORY_FILE, index=False)
-    else:
-        new_entry.to_csv(HISTORY_FILE, index=False)
-
-# -------------------- BAŞLATMA --------------------
-data = load_data()
-df = pd.DataFrame(data["portfolio"])
+# -------------------- SESSION STATE (Veri Saklama) --------------------
+if 'portfolio' not in st.session_state:
+    st.session_state.portfolio = [
+        {"asset": "BTC", "category": "Kripto", "amount": 0.15, "cost": 60000, "price": 91700, "currency": "USD"},
+        {"asset": "THETA", "category": "Kripto", "amount": 56400, "cost": 1.2, "price": 1.34, "currency": "USD"},
+        {"asset": "AAPL", "category": "Hisse", "amount": 15, "cost": 190, "price": 259, "currency": "USD"},
+        {"asset": "Altın", "category": "Emtia", "amount": 100, "cost": 2500, "price": 3000, "currency": "TRY"},
+    ]
 
 # -------------------- SIDEBAR --------------------
 with st.sidebar:
-    st.title("🚀 TradeMaster")
-    usdtry = st.number_input("USD / TRY", value=float(data["settings"].get("usdtry", 32.5)), step=0.1)
-    target = st.number_input("Hedef Portföy (₺)", value=int(data["settings"].get("target", 5000000)))
+    st.title("⚙️ Kontrol Paneli")
+    usdtry = st.number_input("USD / TRY Kuru", value=32.5, step=0.1)
+    target_try = st.number_input("🎯 Hedef Portföy (₺)", value=5_000_000, step=100000)
     
     st.divider()
-    st.subheader("➕ Varlık Ekle")
+    st.subheader("➕ Yeni Varlık Ekle")
     with st.form("add_form", clear_on_submit=True):
-        name = st.text_input("Sembol (BTC, THY vb.)")
+        name = st.text_input("Varlık Sembolü (Örn: ETH)")
         cat = st.selectbox("Kategori", ["Kripto", "Hisse", "Emtia", "Döviz"])
-        amt = st.number_input("Miktar", min_value=0.0, format="%.4f")
-        cst = st.number_input("Maliyet (Birim Alış)", min_value=0.0)
+        amt = st.number_input("Adet/Miktar", min_value=0.0, format="%.4f")
+        cst = st.number_input("Alış Fiyatı (Maliyet)", min_value=0.0)
         prc = st.number_input("Güncel Fiyat", min_value=0.0)
         curr = st.radio("Birim", ["USD", "TRY"], horizontal=True)
-        if st.form_submit_button("Ekle") and name:
-            data["portfolio"].append({
-                "asset": name, "category": cat, "amount": amt, 
-                "cost": cst, "price": prc, "currency": curr
-            })
-            save_data(data)
-            st.rerun()
+        
+        if st.form_submit_button("Portföye Ekle"):
+            if name:
+                new_item = {"asset": name, "category": cat, "amount": amt, "cost": cst, "price": prc, "currency": curr}
+                st.session_state.portfolio.append(new_item)
+                st.rerun()
 
 # -------------------- HESAPLAMALAR --------------------
-if not df.empty:
-    # Sütun isimlerinin varlığından emin olalım
-    if 'cost' not in df.columns:
-        df['cost'] = 0
-        
-    df['multiplier'] = df['currency'].apply(lambda x: usdtry if x == "USD" else 1)
-    df['current_val_try'] = df['amount'] * df['price'] * df['multiplier']
-    df['total_cost_try'] = df['amount'] * df['cost'] * df['multiplier']
-    df['pnl_try'] = df['current_val_try'] - df['total_cost_try']
-    
-    # Sıfıra bölünme hatasını engelle
-    df['pnl_perc'] = df.apply(lambda r: (r['pnl_try'] / r['total_cost_try'] * 100) if r['total_cost_try'] > 0 else 0, axis=1)
-    
-    total_val = df['current_val_try'].sum()
-    total_pnl = df['pnl_try'].sum()
-    update_history(total_val)
-else:
-    total_val, total_pnl = 0, 0
+df = pd.DataFrame(st.session_state.portfolio)
 
-# -------------------- ANA PANEL --------------------
-st.title("📊 Portföy Dashboard")
+def process_df(row):
+    multiplier = usdtry if row['currency'] == "USD" else 1
+    current_val = row['amount'] * row['price'] * multiplier
+    cost_val = row['amount'] * row['cost'] * multiplier
+    return pd.Series([current_val, cost_val, current_val - cost_val])
 
-c1, c2, c3 = st.columns(3)
-c1.metric("Toplam Varlık", f"{total_val:,.0f} ₺")
-pnl_perc_total = (total_pnl / (total_val - total_pnl) * 100) if (total_val - total_pnl) > 0 else 0
-c2.metric("Toplam Kâr/Zarar", f"{total_pnl:,.0f} ₺", f"{pnl_perc_total:.1f}%")
-c3.metric("Hedef İlerleme", f"%{(total_val/target*100):.1f}")
+df[['total_val', 'total_cost', 'pnl']] = df.apply(process_df, axis=1)
+total_portfolio_val = df['total_val'].sum()
+df['weight'] = (df['total_val'] / total_portfolio_val) * 100
 
-st.progress(min(total_val/target, 1.0))
+# -------------------- ANA EKRAN --------------------
+st.title("🧠 TradeMaster")
+st.caption(f"Son Güncelleme: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
+
+# Metrikler
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("💰 Toplam Değer", f"{total_portfolio_val:,.0f} ₺")
+m2.metric("📈 Toplam Kâr/Zarar", f"{df['pnl'].sum():,.0f} ₺", delta=f"{(df['pnl'].sum()/df['total_cost'].sum())*100:.1f}%")
+m3.metric("🎯 Hedef", f"{target_try:,.0f} ₺")
+progress = min(total_portfolio_val / target_try, 1.0)
+m4.metric("📊 Hedef Oranı", f"%{progress*100:.1f}")
+st.progress(progress)
+
+st.divider()
 
 # Grafikler
-if not df.empty:
-    g1, g2 = st.columns(2)
-    with g1:
-        fig_pie = px.pie(df, values='current_val_try', names='category', hole=0.4, title="Dağılım")
-        fig_pie.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="white", showlegend=False)
-        st.plotly_chart(fig_pie, use_container_width=True)
-    with g2:
-        if os.path.exists(HISTORY_FILE):
-            hist_df = pd.read_csv(HISTORY_FILE)
-            fig_line = px.line(hist_df, x="tarih", y="deger", title="Performans")
-            fig_line.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="white")
-            st.plotly_chart(fig_line, use_container_width=True)
+col_left, col_right = st.columns([1, 1])
 
-# Kartlar
-st.subheader("📋 Detaylar")
-for i, row in df.iterrows():
-    pnl_class = "pnl-pos" if row['pnl_try'] >= 0 else "pnl-neg"
+with col_left:
+    st.subheader("📂 Varlık Dağılımı")
+    fig_pie = px.pie(df, values='total_val', names='category', hole=0.5,
+                     color_discrete_sequence=px.colors.sequential.RdBu)
+    fig_pie.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white")
+    st.plotly_chart(fig_pie, use_container_width=True)
+
+with col_right:
+    st.subheader("💰 Kâr / Zarar Durumu (₺)")
+    fig_bar = px.bar(df, x='asset', y='pnl', color='pnl', 
+                     color_continuous_scale=['#ef4444', '#22c55e'])
+    fig_bar.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white")
+    st.plotly_chart(fig_bar, use_container_width=True)
+
+# Portföy Detay Kartları
+st.subheader("📋 Varlık Detayları")
+
+for index, row in df.sort_values("total_val", ascending=False).iterrows():
+    pnl_style = "green-text" if row['pnl'] >= 0 else "red-text"
+    
     st.markdown(f"""
     <div class="card">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
             <div>
-                <span class="asset-name">{row['asset']}</span> 
-                <span style="color:#64748b; font-size:12px;">{row['category']}</span>
+                <span class="asset-name">{row['asset']}</span>
+                <span class="category-tag">{row['category']}</span>
             </div>
-            <div class="{pnl_class}">{row['pnl_try']:,.0f} ₺ ({row['pnl_perc']:+.1f}%)</div>
+            <div class="{pnl_style}" style="font-size: 20px;">
+                {'+' if row['pnl'] > 0 else ''}{row['pnl']:,.2f} ₺
+            </div>
         </div>
-        <div style="display: flex; gap: 15px; margin-top:15px; flex-wrap: wrap;">
-            <div class="metric-box"><div style="font-size:11px; color:#94a3b8">Miktar</div><div>{row['amount']}</div></div>
-            <div class="metric-box"><div style="font-size:11px; color:#94a3b8">Maliyet</div><div>{row['cost']:,.2f}</div></div>
-            <div class="metric-box"><div style="font-size:11px; color:#94a3b8">Fiyat</div><div>{row['price']:,.2f}</div></div>
-            <div class="metric-box"><div style="font-size:11px; color:#94a3b8">Değer</div><div>{row['current_val_try']:,.0f} ₺</div></div>
+        <hr style="border: 0.5px solid #1e293b; margin: 15px 0;">
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;">
+            <div><div class="metric-label">Miktar</div><div class="metric-value">{row['amount']}</div></div>
+            <div><div class="metric-label">Fiyat</div><div class="metric-value">{row['price']:,.2f} {row['currency']}</div></div>
+            <div><div class="metric-label">Toplam Değer</div><div class="metric-value">{row['total_val']:,.0f} ₺</div></div>
+            <div><div class="metric-label">Portföy Payı</div><div class="metric-value">%{row['weight']:.1f}</div></div>
         </div>
     </div>
     """, unsafe_allow_html=True)
-    if st.button(f"🗑️ {row['asset']} Sil", key=f"del_{i}"):
-        data["portfolio"].pop(i)
-        save_data(data)
+    
+    # Silme butonu için küçük bir Streamlit kolonu (HTML içine buton gömülemediği için hemen altına)
+    if st.button(f"🗑️ {row['asset']} Sil", key=f"del_{index}"):
+        st.session_state.portfolio.pop(index)
         st.rerun()
+
