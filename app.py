@@ -1,182 +1,156 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
-import plotly.graph_objects as go
 from datetime import datetime
-import json
-import os
-import random
+import time
 
-# -------------------- CONFIG --------------------
-st.set_page_config(page_title="TradeMaster Pro", layout="wide")
+# -------------------- PREMIUM CONFIG --------------------
+st.set_page_config(page_title="TradeMaster Pro Premium", layout="wide", initial_sidebar_state="collapsed")
 
-# -------------------- ULTRA MODERN CSS --------------------
+# -------------------- PREMIUM CSS (Glassmorphism & Neon) --------------------
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
     
-    html, body, [data-testid="stAppViewContainer"] {
-        background-color: #0d1117;
-        font-family: 'Inter', sans-serif;
-        color: #e6edf3;
-    }
-
-    /* Üst Metrik Kartları */
-    .metric-card {
-        background: #161b22;
+    * { font-family: 'Plus Jakarta Sans', sans-serif; }
+    [data-testid="stAppViewContainer"] { background: #05070a; }
+    
+    /* Premium Kart Yapısı */
+    .premium-card {
+        background: rgba(22, 27, 34, 0.7);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 24px;
         padding: 20px;
-        border-radius: 15px;
-        border: 1px solid #30363d;
-        text-align: left;
+        margin-bottom: 20px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
     }
-    .metric-val { font-size: 24px; font-weight: 700; margin-top: 5px; }
-    .metric-label { color: #8b949e; font-size: 14px; }
 
-    /* Sinyal Kutuları (Görseldeki gibi) */
-    .signal-box {
-        padding: 20px;
-        border-radius: 15px;
-        color: white;
-        font-weight: 600;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        text-align: center;
-        min-height: 120px;
-    }
-    .sig-blue { background: linear-gradient(135deg, #007aff, #0056b3); }
-    .sig-orange { background: linear-gradient(135deg, #ff9500, #ff5e00); }
-    .sig-green { background: linear-gradient(135deg, #34c759, #248a3d); }
+    /* Üst Metrikler */
+    .stat-label { color: #8b949e; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
+    .stat-value { font-size: 28px; font-weight: 800; color: #fff; margin-top: 5px; }
+    .stat-delta { font-size: 14px; font-weight: 600; margin-top: 5px; }
 
-    /* Varlık Kartları */
-    .asset-card {
-        background: #161b22;
-        padding: 15px;
-        border-radius: 12px;
-        border: 1px solid #30363d;
-        margin-bottom: 10px;
+    /* Neon Sinyal Kutuları */
+    .signal-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin: 20px 0; }
+    .sig-card {
+        padding: 25px; border-radius: 20px; text-align: center; font-weight: 700;
+        transition: all 0.3s ease; border: 1px solid rgba(255,255,255,0.1);
     }
-    .progress-bar-bg {
-        background: #30363d;
-        height: 6px;
-        border-radius: 3px;
-        margin-top: 8px;
-    }
-    .progress-bar-fill {
-        background: #007aff;
-        height: 6px;
-        border-radius: 3px;
-    }
+    .sig-buy { background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%); box-shadow: 0 0 20px rgba(59, 130, 246, 0.3); }
+    .sig-sell { background: linear-gradient(135deg, #7c2d12 0%, #ea580c 100%); box-shadow: 0 0 20px rgba(234, 88, 12, 0.3); }
+    .sig-neutral { background: linear-gradient(135deg, #064e3b 0%, #10b981 100%); box-shadow: 0 0 20px rgba(16, 185, 129, 0.3); }
+
+    /* Custom Progress Bar */
+    .custom-progress { background: #30363d; height: 8px; border-radius: 4px; overflow: hidden; margin-top: 10px; }
+    .custom-progress-fill { background: linear-gradient(90deg, #3b82f6, #8b5cf6); height: 100%; border-radius: 4px; }
+
+    /* Gizli Sidebar ve Temiz Arayüz */
+    [data-testid="stSidebar"] { background-color: #0d1117; }
 </style>
 """, unsafe_allow_html=True)
 
-# -------------------- MOCK ALGORİTMA --------------------
-def get_ai_signal(asset):
-    # Gerçekte burası bir API'ye veya TA-Lib'e bağlanabilir
-    rsi = random.randint(25, 75)
-    if rsi < 35: return "GÜÇLÜ AL", "sig-blue", rsi
-    elif rsi > 65: return "AŞIRI ALIM / SAT", "sig-orange", rsi
-    else: return "YATAY / BEKLE", "sig-green", rsi
+# -------------------- PREMIUM LOGIC (Sinyal Motoru) --------------------
+def analyze_market(price, cost, rsi):
+    pnl = (price - cost) / cost * 100
+    if rsi < 30: return "GÜÇLÜ ALIM", "sig-buy", "RSI Aşırı Satım Bölgesinde"
+    if rsi > 70: return "KÂR REALİZE", "sig-sell", "RSI Aşırı Alım Bölgesinde"
+    if pnl > 10: return "TREND TAKİP", "sig-neutral", "Yükseliş Trendi Korunuyor"
+    return "BEKLE", "sig-neutral", "Piyasa Doygunluk Noktasında"
 
-# -------------------- DATA LOAD --------------------
-if 'portfolio' not in st.session_state:
-    st.session_state.portfolio = [
-        {"asset": "BTC", "cat": "Kripto", "amount": 0.12, "price": 95000, "cost": 88000},
-        {"asset": "AAPL", "cat": "Hisse", "amount": 10, "price": 240, "cost": 210},
-        {"asset": "GOLD", "cat": "Emtia", "amount": 50, "price": 3000, "cost": 2850}
-    ]
+# -------------------- MOCK DATA --------------------
+portfolio = [
+    {"symbol": "BTC", "name": "Bitcoin", "amt": 0.45, "price": 96200.0, "cost": 82000.0, "rsi": 28},
+    {"symbol": "ETH", "name": "Ethereum", "amt": 4.2, "price": 3850.0, "cost": 3100.0, "rsi": 72},
+    {"symbol": "AAPL", "name": "Apple Inc.", "amt": 25, "price": 242.0, "cost": 195.0, "rsi": 55}
+]
+usd_try = 32.80
 
-df = pd.DataFrame(st.session_state.portfolio)
-usd_rate = 32.5
-df['value_try'] = df['amount'] * df['price'] * usd_rate
-total_val = df['value_try'].sum()
+# -------------------- APP LAYOUT --------------------
 
-# -------------------- HEADER --------------------
-st.markdown("<h1 style='color:#a371f7;'>🧠 TradeMaster Pro</h1>", unsafe_allow_html=True)
+# 1. HEADER & TİCKER
+st.markdown("<div style='text-align: center; padding: 10px 0;'><h2 style='color: #fff; letter-spacing: -1px;'>TRADEMASTER <span style='color: #3b82f6;'>PREMIUM</span></h2></div>", unsafe_allow_html=True)
 
-# TOP METRICS
-c1, c2, c3 = st.columns(3)
-with c1:
-    st.markdown(f'<div class="metric-card"><div class="metric-label">💰 Toplam Portföy</div><div class="metric-val">{total_val/1e6:.1f}M ₺</div></div>', unsafe_allow_html=True)
-with c2:
-    st.markdown(f'<div class="metric-card"><div class="metric-label">🎯 Hedef</div><div class="metric-val">10.0M ₺</div></div>', unsafe_allow_html=True)
-with c3:
-    st.markdown(f'<div class="metric-card"><div class="metric-label">📈 Toplam K/Z</div><div class="metric-val" style="color:#34c759">+142K ₺</div></div>', unsafe_allow_html=True)
+# 2. TOP METRICS (Üçlü Özet)
+m1, m2, m3 = st.columns(3)
+total_val = sum(p['amt'] * p['price'] * usd_try for p in portfolio)
+total_pnl = sum((p['price'] - p['cost']) * p['amt'] * usd_try for p in portfolio)
 
-st.write("")
+with m1:
+    st.markdown(f'<div class="premium-card"><div class="stat-label">Toplam Portföy</div><div class="stat-value">{total_val/1e6:.2f}M ₺</div><div class="stat-delta" style="color:#3b82f6;">↗ %12.4 Bu Ay</div></div>', unsafe_allow_html=True)
+with m2:
+    st.markdown(f'<div class="premium-card"><div class="stat-label">Net Kar/Zarar</div><div class="stat-value" style="color:#10b981;">+{total_pnl/1e3:.1f}K ₺</div><div class="stat-delta" style="color:#10b981;">🚀 Rekor Seviye</div></div>', unsafe_allow_html=True)
+with m3:
+    st.markdown(f'<div class="premium-card"><div class="stat-label">Hedef (5M ₺)</div><div class="stat-value">{int(total_val/5000000*100)}%</div><div class="stat-delta" style="color:#8b949e;">Kalan: {(5e6-total_val)/1e3:.0f}K ₺</div></div>', unsafe_allow_html=True)
 
-# -------------------- MIDDLE SECTION: SIGNALS --------------------
-st.subheader("⚡ Akıllı Sinyaller")
+# 3. AI SİNYAL MERKEZİ (Görseldeki 3'lü renkli kutu)
+st.markdown("<h4 style='color:#fff; margin-bottom:15px;'>⚡ Algoritmik Sinyaller</h4>", unsafe_allow_html=True)
 s1, s2, s3 = st.columns(3)
-
-# Örnek 3 varlık için sinyal üretelim
-assets_to_watch = ["BTC", "ETH", "AAPL"]
 cols = [s1, s2, s3]
 
-for i, asset in enumerate(assets_to_watch):
-    sig_text, sig_class, rsi_val = get_ai_signal(asset)
+for i, p in enumerate(portfolio):
+    action, style, reason = analyze_market(p['price'], p['cost'], p['rsi'])
     with cols[i]:
         st.markdown(f"""
-        <div class="signal-box {sig_class}">
-            <div style="font-size:12px; opacity:0.8;">{asset} SINYAL</div>
-            <div style="font-size:18px; margin:5px 0;">{sig_text}</div>
-            <div style="font-size:12px;">RSI: {rsi_val}</div>
+        <div class="sig-card {style}">
+            <div style="font-size:14px; opacity:0.8; margin-bottom:5px;">{p['symbol']} / USD</div>
+            <div style="font-size:22px; margin-bottom:5px;">{action}</div>
+            <div style="font-size:11px; opacity:0.9; font-weight:400;">{reason}</div>
         </div>
         """, unsafe_allow_html=True)
 
+# 4. PORTFÖY DETAY & GRAFİK
 st.write("")
+c_left, c_right = st.columns([1.5, 1])
 
-# -------------------- BOTTOM SECTION: ASSETS & CHARTS --------------------
-col_list, col_chart = st.columns([1.5, 1])
-
-with col_list:
-    st.subheader("📋 Varlıklarım")
-    for _, row in df.iterrows():
-        pnl = ((row['price'] - row['cost']) / row['cost']) * 100
-        weight = (row['value_try'] / total_val) * 100
+with c_left:
+    st.markdown("<h4 style='color:#fff;'>📋 Varlık Yönetimi</h4>", unsafe_allow_html=True)
+    for p in portfolio:
+        val = p['amt'] * p['price'] * usd_try
+        weight = (val / total_val) * 100
+        pnl_p = (p['price'] - p['cost']) / p['cost'] * 100
         
         st.markdown(f"""
-        <div class="asset-card">
+        <div class="premium-card">
             <div style="display:flex; justify-content:space-between; align-items:center;">
-                <div>
-                    <span style="font-weight:700; font-size:18px;">{row['asset']}</span>
-                    <br><span style="color:#8b949e; font-size:12px;">{row['cat']}</span>
+                <div style="display:flex; align-items:center; gap:15px;">
+                    <div style="background:#3b82f6; width:40px; height:40px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-weight:800;">{p['symbol'][0]}</div>
+                    <div>
+                        <div style="font-weight:700; color:#fff;">{p['name']}</div>
+                        <div style="font-size:12px; color:#8b949e;">{p['amt']} {p['symbol']} @ ${p['price']:,}</div>
+                    </div>
                 </div>
                 <div style="text-align:right;">
-                    <div style="color:{'#34c759' if pnl > 0 else '#ff453a'}; font-weight:700;">%{pnl:.2f}</div>
-                    <div style="color:#8b949e; font-size:12px;">{row['value_try']:,.0f} ₺</div>
+                    <div style="color:#10b981; font-weight:700;">+{pnl_p:.1f}%</div>
+                    <div style="font-size:14px; color:#fff;">{val:,.0f} ₺</div>
                 </div>
             </div>
-            <div class="progress-bar-bg">
-                <div class="progress-bar-fill" style="width:{weight}%;"></div>
+            <div class="custom-progress"><div class="custom-progress-fill" style="width:{weight}%;"></div></div>
+            <div style="display:flex; justify-content:space-between; margin-top:8px; font-size:11px; color:#8b949e;">
+                <span>Portföy Ağırlığı: %{weight:.1f}</span>
+                <span>Maliyet: ${p['cost']:,}</span>
             </div>
-            <div style="font-size:10px; color:#8b949e; margin-top:4px;">Portföy Ağırlığı: %{weight:.1f}</div>
         </div>
         """, unsafe_allow_html=True)
 
-with col_chart:
-    st.subheader("📊 Dağılım")
-    fig = px.pie(df, values='value_try', names='cat', hole=0.7,
-                 color_discrete_sequence=['#007aff', '#a371f7', '#34c759'])
-    fig.update_layout(showlegend=False, paper_bgcolor='rgba(0,0,0,0)', 
+with c_right:
+    st.markdown("<h4 style='color:#fff;'>📊 Dağılım Analizi</h4>", unsafe_allow_html=True)
+    # Donut Chart
+    fig = px.pie(portfolio, values=[p['amt']*p['price'] for p in portfolio], names=[p['symbol'] for p in portfolio], hole=0.7)
+    fig.update_layout(showlegend=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
                       margin=dict(t=0, b=0, l=0, r=0), height=250)
+    fig.update_traces(marker=dict(colors=['#3b82f6', '#8b5cf6', '#10b981']))
     st.plotly_chart(fig, use_container_width=True)
-    
-    # Küçük bir performans grafiği
-    st.subheader("📈 Trend")
-    hist_data = pd.DataFrame({"Gün": range(10), "Değer": [random.randint(100, 120) for _ in range(10)]})
-    fig_line = px.line(hist_data, x="Gün", y="Değer")
-    fig_line.update_traces(line_color='#007aff', line_width=3)
-    fig_line.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
-                           height=150, margin=dict(t=0, b=0, l=0, r=0),
-                           xaxis_visible=False, yaxis_visible=False)
+
+    # Performans Line Chart
+    st.markdown("<h4 style='color:#fff; margin-top:20px;'>📈 Haftalık Trend</h4>", unsafe_allow_html=True)
+    df_line = pd.DataFrame({'x': range(10), 'y': np.random.randint(90, 110, size=10).cumsum()})
+    fig_line = px.line(df_line, x='x', y='y')
+    fig_line.update_traces(line_color='#3b82f6', line_width=4)
+    fig_line.update_layout(xaxis_visible=False, yaxis_visible=False, paper_bgcolor='rgba(0,0,0,0)', 
+                           plot_bgcolor='rgba(0,0,0,0)', margin=dict(t=0, b=0, l=0, r=0), height=150)
     st.plotly_chart(fig_line, use_container_width=True)
 
-# -------------------- SIDEBAR SETTINGS --------------------
-with st.sidebar:
-    st.markdown("### ⚙️ Ayarlar")
-    st.number_input("USD/TRY", value=32.5)
-    st.selectbox("Risk Profili", ["Agresif", "Dengeli", "Muhafazakar"])
-    if st.button("🔄 Verileri Güncelle"):
-        st.rerun()
+# -------------------- FOOTER --------------------
+st.markdown(f"<div style='text-align:center; color:#444; font-size:12px; margin-top:50px;'>TradeMaster AI Engine v2.4 Premium • Son Güncelleme: {datetime.now().strftime('%H:%M:%S')}</div>", unsafe_allow_html=True)
