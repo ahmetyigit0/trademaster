@@ -6,147 +6,159 @@ import os
 import plotly.express as px
 from datetime import datetime
 
-# --- AYARLAR ---
-DATA_FILE = "premium_portfolio.json"
-st.set_page_config(page_title="TradeMaster Ultra", layout="wide")
+# --- KONFİGÜRASYON ---
+DATA_FILE = "orion_portfolio.json"
+st.set_page_config(page_title="TradeMaster Orion", layout="wide")
 
 # --- VERİ YÖNETİMİ ---
 def load_data():
     if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
-            return json.load(f)
+        try:
+            with open(DATA_FILE, "r") as f:
+                return json.load(f)
+        except: return []
     return []
 
 def save_data(data):
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
-# --- CSS (PREMIUM DARK MODE) ---
+# --- İLK KURULUM (İstediğin Varlıkları Başlangıçta Ekleme) ---
+if not os.path.exists(DATA_FILE):
+    initial_assets = [
+        {"symbol": "NVDA", "name": "Nvidia", "amount": 1.0, "cost": 120.0},
+        {"symbol": "GOOGL", "name": "Google", "amount": 1.0, "cost": 140.0},
+        {"symbol": "MSFT", "name": "Microsoft", "amount": 1.0, "cost": 400.0},
+        {"symbol": "AMZN", "name": "Amazon", "amount": 1.0, "cost": 175.0},
+        {"symbol": "THYAO.IS", "name": "THY", "amount": 10.0, "cost": 280.0},
+        {"symbol": "FROTO.IS", "name": "Ford Otosan", "amount": 5.0, "cost": 900.0},
+        {"symbol": "TUPRS.IS", "name": "Tüpraş", "amount": 20.0, "cost": 160.0},
+        {"symbol": "GC=F", "name": "Altın", "amount": 1.0, "cost": 2300.0},
+        {"symbol": "BTC-USD", "name": "Bitcoin", "amount": 0.01, "cost": 60000.0},
+    ]
+    save_data(initial_assets)
+
+# --- CSS (MODERN ORION STYLE) ---
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
-    html, body, [data-testid="stAppViewContainer"] { font-family: 'Inter', sans-serif; background-color: #0d1117; color: white; }
-    .metric-box { background: #161b22; padding: 20px; border-radius: 15px; border: 1px solid #30363d; text-align: center; }
-    .asset-card { background: #1c2128; padding: 20px; border-radius: 15px; margin-bottom: 15px; border: 1px solid #30363d; transition: 0.3s; }
-    .asset-card:hover { border-color: #58a6ff; }
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;700&display=swap');
+    html, body, [data-testid="stAppViewContainer"] { background-color: #05070a; font-family: 'Plus Jakarta Sans', sans-serif; }
+    .asset-card { 
+        background: #0d1117; padding: 15px; border-radius: 15px; 
+        border: 1px solid #1f2937; margin-bottom: 10px;
+    }
+    .metric-v { font-size: 20px; font-weight: 800; color: #fff; }
+    .stButton>button { border-radius: 8px; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- SIDEBAR (VARLIK EKLEME) ---
+# --- SIDEBAR (YENİ VARLIK EKLEME) ---
 with st.sidebar:
-    st.title("➕ Varlık Ekle")
-    st.markdown("Hisse, Kripto veya Emtia ara:")
-    search_query = st.text_input("Arama (Örn: THY, BTC, Altın, Tesla)", key="search_box")
-    
-    if search_query:
-        search_results = yf.Search(search_query, max_results=5).quotes
-        if search_results:
-            options = {f"{res.get('shortname', 'Bilinmeyen')} ({res['symbol']})": res['symbol'] for res in search_results}
-            selected_display = st.selectbox("Sonuç Seç:", list(options.keys()))
-            ticker_symbol = options[selected_display]
-            
-            with st.form("add_form", clear_on_submit=True):
-                amount = st.number_input("Adet / Miktar", min_value=0.0, step=0.01)
-                cost = st.number_input("Birim Maliyet", min_value=0.0)
-                buy_date = st.date_input("Alım Tarihi", datetime.now())
-                
-                if st.form_submit_button("Portföye Ekle"):
-                    current_portfolio = load_data()
-                    current_portfolio.append({
-                        "symbol": ticker_symbol,
-                        "name": selected_display.split(' (')[0],
-                        "amount": amount,
-                        "cost": cost,
-                        "date": str(buy_date)
-                    })
-                    save_data(current_portfolio)
-                    st.success("Eklendi! Sayfa güncelleniyor...")
-                    st.rerun()
-        else:
-            st.error("Sonuç bulunamadı.")
+    st.title("🛡️ Konsey Paneli")
+    with st.expander("➕ Yeni Varlık Ara & Ekle"):
+        query = st.text_input("Arama (Örn: Apple, SASA, Ethereum)")
+        if query:
+            res = yf.Search(query, max_results=3).quotes
+            if res:
+                opt = {f"{r.get('shortname','')} ({r['symbol']})": r['symbol'] for r in res}
+                sel = st.selectbox("Seç:", list(opt.keys()))
+                with st.form("add_form"):
+                    amt = st.number_input("Adet", min_value=0.0)
+                    cst = st.number_input("Maliyet", min_value=0.0)
+                    if st.form_submit_button("Sisteme Ekle"):
+                        p = load_data()
+                        p.append({"symbol": opt[sel], "name": sel.split(' (')[0], "amount": amt, "cost": cst})
+                        save_data(p)
+                        st.rerun()
 
-    st.divider()
-    if st.button("🔴 Tüm Portföyü Sıfırla"):
-        save_data([])
-        st.rerun()
+# --- ANA EKRAN ---
+st.markdown("<h1 style='text-align: center; color: #10b981;'>ORION <span style='color:white;'>DASHBOARD</span></h1>", unsafe_allow_html=True)
 
-# --- ANA SAYFA ---
-st.markdown("<h2 style='text-align: center; color: #58a6ff;'>📊 TRADEMASTER PREMIUM</h2>", unsafe_allow_html=True)
-portfolio_list = load_data()
+portfolio = load_data()
 
-if not portfolio_list:
-    st.info("Kanka yan taraftan varlık ekle de portföyünü analiz edelim! 🔥")
-else:
-    # Verileri Hazırla ve Canlı Fiyat Çek
-    processed_data = []
-    with st.spinner('Piyasa verileri canlı çekiliyor...'):
-        for item in portfolio_list:
+if portfolio:
+    processed = []
+    with st.spinner('Piyasa verileri senkronize ediliyor...'):
+        for item in portfolio:
             try:
-                ticker = yf.Ticker(item['symbol'])
-                live_price = ticker.history(period="1d")['Close'].iloc[-1]
-                
-                total_value = live_price * item['amount']
-                total_cost = item['cost'] * item['amount']
-                pnl = total_value - total_cost
-                pnl_perc = (pnl / total_cost * 100) if total_cost > 0 else 0
-                
-                item.update({
-                    "live_price": live_price,
-                    "total_value": total_value,
-                    "pnl": pnl,
-                    "pnl_perc": pnl_perc
-                })
-                processed_data.append(item)
-            except:
-                st.warning(f"{item['symbol']} için veri alınamadı.")
+                price = yf.Ticker(item['symbol']).history(period="1d")['Close'].iloc[-1]
+                item['current_price'] = price
+                item['total_val'] = price * item['amount']
+                item['pnl'] = (price - item['cost']) * item['amount']
+                item['pnl_perc'] = ((price - item['cost']) / item['cost'] * 100) if item['cost'] > 0 else 0
+                processed.append(item)
+            except: continue
 
-    df = pd.DataFrame(processed_data)
+    df = pd.DataFrame(processed)
     
-    # --- ÜST ÖZET METRİKLER ---
-    total_port_val = df['total_value'].sum()
-    total_port_pnl = df['pnl'].sum()
-    total_pnl_perc = (total_port_pnl / (total_port_val - total_port_pnl) * 100) if (total_port_val - total_port_pnl) > 0 else 0
+    # --- ÜST ÖZET ---
+    t_val = df['total_val'].sum()
+    t_pnl = df['pnl'].sum()
+    c1, c2 = st.columns(2)
+    c1.metric("Toplam Varlık", f"{t_val:,.2f} $", f"{t_pnl:,.2f} $")
+    
+    # --- DAĞILIM ---
+    fig = px.pie(df, values='total_val', names='name', hole=0.7, title="Portföy Dağılımı")
+    fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="white", showlegend=False)
+    st.plotly_chart(fig, use_container_width=True)
 
-    m1, m2, m3 = st.columns(3)
-    with m1:
-        st.markdown(f'<div class="metric-box"><small>TOPLAM PORTFÖY DEĞERİ</small><br><span style="font-size:24px; font-weight:bold;">{total_port_val:,.2f}</span></div>', unsafe_allow_html=True)
-    with m2:
-        color = "#238636" if total_port_pnl >= 0 else "#da3633"
-        st.markdown(f'<div class="metric-box"><small>TOPLAM KAR/ZARAR</small><br><span style="font-size:24px; font-weight:bold; color:{color};">{total_port_pnl:+,.2f} (%{total_pnl_perc:+.2f})</span></div>', unsafe_allow_html=True)
-    with m3:
-        st.markdown(f'<div class="metric-box"><small>VARLIK SAYISI</small><br><span style="font-size:24px; font-weight:bold;">{len(df)}</span></div>', unsafe_allow_html=True)
-
-    # --- GRAFİKLER (DAĞILIM) ---
-    st.write("")
-    col_chart, col_list = st.columns([1, 1.2])
-
-    with col_chart:
-        st.subheader("🥧 Portföy Dağılımı")
-        fig = px.pie(df, values='total_value', names='symbol', hole=0.6, color_discrete_sequence=px.colors.qualitative.Pastel)
-        fig.update_layout(showlegend=True, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white")
-        st.plotly_chart(fig, use_container_width=True)
-
-    with col_list:
-        st.subheader("📋 Varlık Detayları")
-        for i, row in df.iterrows():
-            color = "#34d399" if row['pnl'] >= 0 else "#f87171"
-            st.markdown(f"""
-            <div class="asset-card">
-                <div style="display:flex; justify-content:space-between;">
-                    <div>
-                        <span style="font-size:18px; font-weight:bold;">{row['name']}</span> <small>({row['symbol']})</small><br>
-                        <small style="color:#8b949e;">{row['amount']} Adet x {row['live_price']:.2f}</small>
-                    </div>
-                    <div style="text-align:right;">
-                        <div style="font-size:18px; font-weight:bold;">{row['total_value']:,.2f}</div>
-                        <div style="color:{color}; font-weight:bold;">{row['pnl']:+,.2f} (%{row['pnl_perc']:+.2f})</div>
+    # --- VARLIK LİSTESİ ---
+    st.subheader("📋 Varlık Yönetimi")
+    
+    for i, row in df.iterrows():
+        with st.container():
+            col_info, col_edit, col_del = st.columns([4, 0.5, 0.5])
+            
+            with col_info:
+                color = "#10b981" if row['pnl'] >= 0 else "#ef4444"
+                st.markdown(f"""
+                <div class="asset-card">
+                    <div style="display:flex; justify-content:space-between;">
+                        <div><b>{row['name']}</b> ({row['symbol']}) <br> <small>{row['amount']} Adet @ {row['cost']:.2f}</small></div>
+                        <div style="text-align:right;">
+                            <div class="metric-v">{row['total_val']:,.2f} $</div>
+                            <div style="color:{color}; font-weight:bold;">%{row['pnl_perc']:+.2f}</div>
+                        </div>
                     </div>
                 </div>
-            </div>
-            """, unsafe_allow_html=True)
-            if st.button(f"🗑️ {row['symbol']} Sil", key=f"del_{i}"):
-                portfolio_list.pop(i)
-                save_data(portfolio_list)
-                st.rerun()
+                """, unsafe_allow_html=True)
 
-st.caption(f"Veriler Yahoo Finance üzerinden canlı çekilmektedir. Son Güncelleme: {datetime.now().strftime('%H:%M:%S')}")
+            # DÜZENLEME BUTONU (📝)
+            with col_edit:
+                if st.button("📝", key=f"edit_{i}"):
+                    st.session_state[f"edit_mode_{i}"] = True
+
+            # SİLME BUTONU (🗑️)
+            with col_del:
+                if st.button("🗑️", key=f"del_{i}"):
+                    st.session_state[f"confirm_del_{i}"] = True
+
+            # DÜZENLEME FORMU (Popup gibi açılır)
+            if st.session_state.get(f"edit_mode_{i}", False):
+                with st.form(f"form_edit_{i}"):
+                    new_amt = st.number_input("Yeni Adet", value=row['amount'])
+                    new_cst = st.number_input("Yeni Maliyet", value=row['cost'])
+                    if st.form_submit_button("Güncelle"):
+                        portfolio[i]['amount'] = new_amt
+                        portfolio[i]['cost'] = new_cst
+                        save_data(portfolio)
+                        st.session_state[f"edit_mode_{i}"] = False
+                        st.rerun()
+                    if st.form_submit_button("İptal"):
+                        st.session_state[f"edit_mode_{i}"] = False
+                        st.rerun()
+
+            # SİLME ONAYI (Emin misiniz?)
+            if st.session_state.get(f"confirm_del_{i}", False):
+                st.warning(f"{row['name']} silinecek. Emin misin?")
+                col_evet, col_hayir = st.columns(2)
+                if col_evet.button("✅ Evet, Sil", key=f"yes_{i}"):
+                    portfolio.pop(i)
+                    save_data(portfolio)
+                    del st.session_state[f"confirm_del_{i}"]
+                    st.rerun()
+                if col_hayir.button("❌ Hayır", key=f"no_{i}"):
+                    del st.session_state[f"confirm_del_{i}"]
+                    st.rerun()
+
+st.caption(f"TradeMaster Orion v3.0 • Son Güncelleme: {datetime.now().strftime('%H:%M:%S')}")
