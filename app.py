@@ -1,59 +1,22 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
+from data import portfolio, USDTRY
+from utils import value_in_try
 from datetime import datetime
 
-st.set_page_config(layout="wide", page_title="Portföy Dashboard")
+st.set_page_config(layout="wide", page_title="Portföy Yönetimi")
 
-st.title("📊 Yatırım Portföyü Dashboard")
-st.caption("Demo veriler – yapı gerçek portföy mantığında")
+st.title("📊 Portföy Yönetimi Dashboard")
+st.caption("Kişisel yatırım kokpiti")
 
-# ======================================================
-# 🔹 DEMO PORTFÖY VERİLERİ
-# ======================================================
-
-portfolio = [
-    # --- KRIPTO ---
-    {"category": "Kripto", "asset": "THETA", "amount": 56400, "price": 0.45, "currency": "USD"},
-    {"category": "Kripto", "asset": "BTC", "amount": 0.15, "price": 95000, "currency": "USD"},
-    {"category": "Kripto", "asset": "ETH", "amount": 2.3, "price": 3800, "currency": "USD"},
-
-    # --- HISSE ---
-    {"category": "Hisse", "asset": "AAPL", "amount": 25, "price": 195, "currency": "USD"},
-    {"category": "Hisse", "asset": "MSFT", "amount": 15, "price": 420, "currency": "USD"},
-    {"category": "Hisse", "asset": "TSLA", "amount": 10, "price": 260, "currency": "USD"},
-
-    # --- ALTIN ---
-    {"category": "Altın", "asset": "Gram Altın", "amount": 120, "price": 2500, "currency": "TRY"},
-
-    # --- GÜMÜŞ ---
-    {"category": "Gümüş", "asset": "Gram Gümüş", "amount": 300, "price": 30, "currency": "TRY"},
-
-    # --- FON ---
-    {"category": "Fon", "asset": "BIST 30 Fon", "amount": 1, "price": 250000, "currency": "TRY"},
-    {"category": "Fon", "asset": "ABD Teknoloji Fon", "amount": 1, "price": 180000, "currency": "TRY"},
-]
-
-USDTRY = 32.0  # demo kur
-
+# ---------- DATA ----------
 df = pd.DataFrame(portfolio)
+df["value_try"] = df.apply(lambda r: value_in_try(r, USDTRY), axis=1)
 
-# ======================================================
-# 🔹 HESAPLAMALAR
-# ======================================================
+total_value = df["value_try"].sum()
 
-def to_try(row):
-    if row["currency"] == "USD":
-        return row["amount"] * row["price"] * USDTRY
-    return row["amount"] * row["price"]
-
-df["value_try"] = df.apply(to_try, axis=1)
-
-# ======================================================
-# 🔹 SIDEBAR
-# ======================================================
-
+# ---------- SIDEBAR ----------
 st.sidebar.header("⚙️ Ayarlar")
 
 target = st.sidebar.number_input(
@@ -62,23 +25,22 @@ target = st.sidebar.number_input(
     step=250_000
 )
 
-# ======================================================
-# 🔹 ÖZET METRİKLER
-# ======================================================
+usdtry_input = st.sidebar.number_input(
+    "💱 USD/TRY",
+    value=USDTRY,
+    step=0.1
+)
 
-total_value = df["value_try"].sum()
-
+# ---------- METRICS ----------
 c1, c2, c3 = st.columns(3)
+
 c1.metric("💰 Toplam Portföy", f"{total_value:,.0f} ₺")
 c2.metric("🎯 Hedef", f"{target:,.0f} ₺")
-c3.metric("📈 Hedefe Kalan", f"{target - total_value:,.0f} ₺")
+c3.metric("📉 Kalan", f"{target - total_value:,.0f} ₺")
 
 st.progress(min(total_value / target, 1.0))
 
-# ======================================================
-# 🔹 KATEGORİ DAĞILIMI
-# ======================================================
-
+# ---------- DISTRIBUTION ----------
 st.subheader("📊 Kategori Dağılımı")
 
 cat = df.groupby("category")["value_try"].sum()
@@ -87,10 +49,7 @@ fig, ax = plt.subplots()
 ax.pie(cat.values, labels=cat.index, autopct="%1.1f%%")
 st.pyplot(fig)
 
-# ======================================================
-# 🔹 VARLIK TABLOSU
-# ======================================================
-
+# ---------- ASSET TABLE ----------
 st.subheader("📋 Varlık Detayı")
 
 st.dataframe(
@@ -99,42 +58,18 @@ st.dataframe(
     use_container_width=True
 )
 
-# ======================================================
-# 🔹 KRIPTO ÖZEL
-# ======================================================
+# ---------- CATEGORY DETAILS ----------
+st.subheader("🔍 Kategori Bazlı Detay")
 
-st.subheader("🪙 Kripto Özel")
-
-crypto = df[df["category"] == "Kripto"]
-
-st.bar_chart(
-    crypto.set_index("asset")["value_try"]
+selected_cat = st.selectbox(
+    "Kategori seç",
+    df["category"].unique()
 )
 
-# ======================================================
-# 🔹 HISSE ÖZEL
-# ======================================================
-
-st.subheader("📈 Hisse Özel")
-
-stocks = df[df["category"] == "Hisse"]
+filtered = df[df["category"] == selected_cat]
 
 st.bar_chart(
-    stocks.set_index("asset")["value_try"]
+    filtered.set_index("asset")["value_try"]
 )
 
-# ======================================================
-# 🔹 OTOMATİK YORUM
-# ======================================================
-
-st.subheader("🧠 Portföy Yorumu")
-
-if cat["Kripto"] / total_value > 0.4:
-    st.warning("Kripto ağırlığı yüksek. Volatilite riski var.")
-else:
-    st.success("Kripto ağırlığı dengeli.")
-
-if cat.get("Altın", 0) + cat.get("Gümüş", 0) > total_value * 0.2:
-    st.info("Kıymetli metaller portföyü dengeliyor.")
-
-st.caption(f"Demo Dashboard – {datetime.now().strftime('%d.%m.%Y %H:%M')}")
+st.caption(f"Son güncelleme: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
