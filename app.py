@@ -1,56 +1,35 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
+import matplotlib.pyplot as plt
 from datetime import datetime
 
-# --------------------------------------------------
-# PAGE CONFIG
-# --------------------------------------------------
+# ----------------- SAYFA AYAR -----------------
 st.set_page_config(
-    page_title="TradeMaster • Portföy Yönetimi",
-    layout="wide"
+    page_title="Portföy Yönetimi",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# --------------------------------------------------
-# STYLE
-# --------------------------------------------------
 st.markdown("""
 <style>
-.card {
-    background:#020617;
-    padding:20px;
-    border-radius:18px;
-    border-left:6px solid #22c55e;
-    box-shadow:0 0 25px rgba(0,0,0,0.5);
-}
-.card h2 {margin:0;color:white;}
-.card h4 {margin:0;color:#94a3b8;}
-.subtle {color:#64748b;font-size:14px;}
-.signal {
-    background:linear-gradient(135deg,#020617,#020617);
-    padding:25px;
-    border-radius:22px;
-    border:1px solid #1e293b;
+[data-testid="metric-container"] {
+    background-color: #020617;
+    border: 1px solid #1e293b;
+    padding: 15px;
+    border-radius: 10px;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# --------------------------------------------------
-# HEADER
-# --------------------------------------------------
-st.title("🧠 TradeMaster")
-st.caption("Kripto • Hisse • Altın • Nakit | Akıllı Portföy Takibi")
+st.title("📊 Kişisel Portföy Yönetimi")
+st.caption("Kripto • Hisse • Altın • Nakit")
 
-# --------------------------------------------------
-# SIDEBAR
-# --------------------------------------------------
+# ----------------- SIDEBAR -----------------
 st.sidebar.header("⚙️ Ayarlar")
 usdtry = st.sidebar.number_input("USD / TRY", value=32.0, step=0.1)
-target = st.sidebar.number_input("🎯 Portföy Hedefi (TRY)", value=5_000_000, step=250_000)
+target = st.sidebar.number_input("🎯 Portföy Hedefi (₺)", value=5_000_000, step=250_000)
 
-# --------------------------------------------------
-# DATA
-# --------------------------------------------------
+# ----------------- DATA -----------------
 df = pd.read_csv("portfolio.csv")
 
 def value_try(row):
@@ -59,99 +38,50 @@ def value_try(row):
     return row["amount"] * row["price"]
 
 df["value_try"] = df.apply(value_try, axis=1)
+df["cost_try"] = df["value_try"] * 0.85  # örnek maliyet varsayımı
+df["pnl_try"] = df["value_try"] - df["cost_try"]
+
 total_value = df["value_try"].sum()
+df["weight"] = (df["value_try"] / total_value) * 100
 
-# --------------------------------------------------
-# METRIC CARDS
-# --------------------------------------------------
-c1, c2, c3 = st.columns(3)
+# ----------------- METRICS -----------------
+c1, c2, c3, c4 = st.columns(4)
 
-with c1:
-    st.markdown(f"""
-    <div class="card">
-        <h4>💰 Toplam Portföy</h4>
-        <h2>{total_value:,.0f} ₺</h2>
-        <span class="subtle">Güncel Değer</span>
-    </div>
-    """, unsafe_allow_html=True)
-
-with c2:
-    st.markdown(f"""
-    <div class="card" style="border-left-color:#38bdf8">
-        <h4>🎯 Hedef</h4>
-        <h2>{target:,.0f} ₺</h2>
-        <span class="subtle">Uzun Vade</span>
-    </div>
-    """, unsafe_allow_html=True)
-
-with c3:
-    remaining = target - total_value
-    color = "#22c55e" if remaining <= 0 else "#facc15"
-    st.markdown(f"""
-    <div class="card" style="border-left-color:{color}">
-        <h4>📉 Kalan</h4>
-        <h2>{remaining:,.0f} ₺</h2>
-        <span class="subtle">Hedefe Mesafe</span>
-    </div>
-    """, unsafe_allow_html=True)
+c1.metric("💰 Toplam Portföy", f"{total_value:,.0f} ₺")
+c2.metric("🎯 Hedef", f"{target:,.0f} ₺")
+c3.metric("📉 Kalan", f"{max(target-total_value,0):,.0f} ₺")
+c4.metric("📈 İlerleme", f"%{(total_value/target)*100:.1f}")
 
 st.progress(min(total_value / target, 1.0))
 
-# --------------------------------------------------
-# DISTRIBUTION
-# --------------------------------------------------
-st.subheader("📊 Varlık Dağılımı")
+# ----------------- DAĞILIM -----------------
+st.subheader("📊 Kategori Dağılımı")
+cat = df.groupby("category")["value_try"].sum()
 
-fig = px.pie(
-    df,
-    values="value_try",
-    names="category",
-    hole=0.6,
-    color_discrete_sequence=px.colors.sequential.Teal
-)
+fig, ax = plt.subplots()
+ax.pie(cat.values, labels=cat.index, autopct="%1.1f%%", startangle=90)
+ax.axis("equal")
+st.pyplot(fig)
 
-st.plotly_chart(fig, use_container_width=True)
-
-# --------------------------------------------------
-# ADVISOR PANEL
-# --------------------------------------------------
-st.subheader("🧠 Yapay Danışman")
-
-signal = "BİRİKTİR"
-confidence = 63
-
-st.markdown(f"""
-<div class="signal">
-    <h2 style="color:#22c55e">📌 {signal}</h2>
-    <p style="color:#94a3b8">
-    BTC ana trend yukarı. Altcoinler henüz tam kopmadı.
-    Theta güçlü destekten dönmüş görünüyor.
-    Swing için kademeli satış, uzun vade için tutma mantıklı.
-    </p>
-    <progress value="{confidence}" max="100" style="width:100%"></progress>
-    <small class="subtle">{confidence}% güven</small>
-</div>
-""", unsafe_allow_html=True)
-
-# --------------------------------------------------
-# TABLE
-# --------------------------------------------------
+# ----------------- PORTFÖY TABLO -----------------
 st.subheader("📋 Portföy Detayı")
-st.dataframe(
-    df.sort_values("value_try", ascending=False),
-    use_container_width=True
-)
 
-# --------------------------------------------------
-# CATEGORY DETAIL
-# --------------------------------------------------
-st.subheader("🔍 Kategori Analizi")
-selected = st.selectbox("Kategori Seç", df["category"].unique())
-filtered = df[df["category"] == selected]
+styled = df.copy()
+styled["Değer (₺)"] = styled["value_try"].map(lambda x: f"{x:,.0f}")
+styled["K/Z (₺)"] = styled["pnl_try"].map(lambda x: f"{x:,.0f}")
+styled["Ağırlık %"] = styled["weight"].map(lambda x: f"{x:.1f}%")
 
-st.bar_chart(filtered.set_index("asset")["value_try"])
+table = styled[[
+    "asset",
+    "category",
+    "amount",
+    "price",
+    "Değer (₺)",
+    "K/Z (₺)",
+    "Ağırlık %"
+]].sort_values("Ağırlık %", ascending=False)
 
-# --------------------------------------------------
-# FOOTER
-# --------------------------------------------------
-st.caption(f"Son güncelleme: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
+def pnl_color(val):
+    try:
+        val = float(val.replace(",", ""))
+        return "color:#22c55e;font-weight:bold" if val >= 0 else "color:#ef4444;font-weight:bold"
