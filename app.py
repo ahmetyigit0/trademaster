@@ -85,3 +85,27 @@ def pnl_color(val):
     try:
         val = float(val.replace(",", ""))
         return "color:#22c55e;font-weight:bold" if val >= 0 else "color:#ef4444;font-weight:bold"
+    except:
+        return ""
+
+st.dataframe(
+    table.style
+        .applymap(pnl_color, subset=["K/Z (₺)"])
+        .set_properties(**{
+            "background-color": "#020617",
+            "color": "#e5e7eb",
+            "border-color": "#1e293b"
+        }),
+    use_container_width=True,
+    height=420
+)
+
+# ----------------- KATEGORİ DETAY -----------------
+st.subheader("🔍 Kategori Bazlı İnceleme")
+selected = st.selectbox("Kategori Seç", df["category"].unique())
+
+filtered = df[df["category"] == selected]
+st.bar_chart(filtered.set_index("asset")["value_try"])
+
+# ----------------- FOOTER -----------------
+st.caption(f"🕒 Son güncelleme: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
