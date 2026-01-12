@@ -4,3 +4,4 @@ numpy
 yfinance
 pycoingecko
 matplotlib
+plotly
