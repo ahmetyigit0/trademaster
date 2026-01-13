@@ -4,11 +4,12 @@ import yfinance as yf
 import json
 import os
 import plotly.express as px
-from datetime import datetime, timedelta
+import numpy as np
+from datetime import datetime
 
 # --- KONFİGÜRASYON ---
-DATA_FILE = "orion_test_v5.json"
-st.set_page_config(page_title="Orion Ultimate Test", layout="wide")
+DATA_FILE = "orion_v6_final.json"
+st.set_page_config(page_title="Orion V6 Terminal", layout="wide")
 
 # --- VERİ YÖNETİMİ ---
 def load_data():
@@ -21,126 +22,133 @@ def load_data():
 def save_data(data):
     with open(DATA_FILE, "w") as f: json.dump(data, f, indent=4)
 
-# --- TEST VERİLERİNİ OLUŞTURMA (İLK AÇILIŞ) ---
-if not os.path.exists(DATA_FILE):
-    test_assets = [
-        {"symbol": "NVDA", "name": "Nvidia", "amount": 10.0, "cost": 95.0, "date": "2024-05-15"},
-        {"symbol": "BTC-USD", "name": "Bitcoin", "amount": 0.25, "cost": 42000.0, "date": "2023-11-10"},
-        {"symbol": "THYAO.IS", "name": "Türk Hava Yolları", "amount": 100.0, "cost": 210.0, "date": "2024-01-20"},
-        {"symbol": "TUPRS.IS", "name": "Tüpraş", "amount": 150.0, "cost": 145.0, "date": "2024-03-05"},
-        {"symbol": "GOOGL", "name": "Google", "amount": 5.0, "cost": 130.0, "date": "2023-08-12"},
-        {"symbol": "GC=F", "name": "Altın ONS", "amount": 2.0, "cost": 1950.0, "date": "2023-06-01"}
-    ]
-    save_data(test_assets)
-
-# --- CSS ---
+# --- CSS (GRID ZORLAMA & PREMIUM LOOK) ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
     * { font-family: 'Plus Jakarta Sans', sans-serif; }
-    [data-testid="stAppViewContainer"] { background: #05070a; color: #e6edf3; }
-    .glass-card {
-        background: rgba(23, 28, 36, 0.7);
-        backdrop-filter: blur(15px);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 20px; padding: 20px; margin-bottom: 15px;
-        min-height: 160px;
+    [data-testid="stAppViewContainer"] { background: #05070a; }
+    
+    /* Kartların yan yana durması için konteyner */
+    .asset-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 15px;
+        margin-bottom: 20px;
     }
-    .symbol-badge { background: #1e293b; color: #3b82f6; padding: 4px 8px; border-radius: 8px; font-weight: 800; font-size: 11px; }
-    .price-text { font-size: 20px; font-weight: 800; color: #fff; margin-top: 5px; }
+    
+    .glass-card {
+        background: rgba(23, 28, 36, 0.8);
+        backdrop-filter: blur(15px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 18px; padding: 15px;
+    }
+    .symbol-badge { background: #1e293b; color: #3b82f6; padding: 3px 8px; border-radius: 6px; font-weight: 800; font-size: 11px; }
+    .price-val { font-size: 20px; font-weight: 800; color: #fff; margin: 5px 0; }
+    .analysis-box { background: rgba(59, 130, 246, 0.1); border: 1px solid #3b82f6; border-radius: 12px; padding: 10px; margin-top: 10px; font-size: 13px; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- ANALİZ ---
-@st.cache_data(ttl=300)
-def get_performance(symbol, period_choice):
-    try:
-        t = yf.Ticker(symbol)
-        p_map = {"1 Gün": "2d", "1 Ay": "1mo", "1 Yıl": "1y"}
-        hist = t.history(period=p_map[period_choice])
-        if len(hist) < 2: return 0.0, 0.0
-        start_p, curr_p = hist['Close'].iloc[0], hist['Close'].iloc[-1]
-        return curr_p, ((curr_p - start_p) / start_p) * 100
-    except: return 0.0, 0.0
+# --- TEKNİK ANALİZ MOTORU ---
+def run_technical_analysis(symbol):
+    t = yf.Ticker(symbol)
+    df = t.history(period="60d")
+    if len(df) < 30: return "Yetersiz veri kanka."
+    
+    # RSI Hesaplama
+    delta = df['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rsi = 100 - (100 / (1 + (gain / loss))).iloc[-1]
+    
+    # EMA 20
+    ema20 = df['Close'].ewm(span=20, adjust=False).mean().iloc[-1]
+    curr_price = df['Close'].iloc[-1]
+    
+    # Bollinger Bantları
+    sma20 = df['Close'].rolling(window=20).mean()
+    std20 = df['Close'].rolling(window=20).std()
+    upper_b = sma20.iloc[-1] + (std20.iloc[-1] * 2)
+    lower_b = sma20.iloc[-1] - (std20.iloc[-1] * 2)
+    
+    # Yorumlama
+    yorum = f"📉 **RSI:** {rsi:.1f}. "
+    if rsi > 70: yorum += "Aşırı alım bölgesinde, dikkat! "
+    elif rsi < 30: yorum += "Aşırı satım, tepki gelebilir. "
+    else: yorum += "Nötr bölge. "
+    
+    if curr_price > upper_b: yorum += "\n⚠️ Bollinger üst bandı kırıldı, kâr satışı gelebilir."
+    elif curr_price < lower_b: yorum += "\n🚀 Bollinger alt bandına çarptı, destek bulabilir."
+    
+    if curr_price > ema20: yorum += "\n📈 EMA 20 üzerinde, trend yukarı."
+    else: yorum += "\n📉 EMA 20 altında, baskı devam ediyor."
+    
+    return yorum
 
-# --- SIDEBAR ---
-with st.sidebar:
-    st.markdown("### 🛡️ KONSEY KONTROL")
-    period_btn = st.radio("Zaman Aralığı", ["1 Gün", "1 Ay", "1 Yıl"], horizontal=True)
-    st.divider()
-    if st.button("♻️ Verileri Resetle"):
-        if os.path.exists(DATA_FILE): os.remove(DATA_FILE)
-        st.rerun()
+# --- TEST VERİSİ ---
+if not os.path.exists(DATA_FILE):
+    test_data = [
+        {"symbol": "NVDA", "name": "Nvidia", "amount": 5.0, "cost": 105.0, "date": "2024-06-01"},
+        {"symbol": "BTC-USD", "name": "Bitcoin", "amount": 0.1, "cost": 55000.0, "date": "2023-12-15"},
+        {"symbol": "THYAO.IS", "name": "THY", "amount": 200.0, "cost": 240.0, "date": "2024-02-10"}
+    ]
+    save_data(test_data)
 
-# --- ANA EKRAN ---
-st.markdown("<h1 style='color: #fff; font-weight:800;'>ORION <span style='color:#3b82f6;'>ULTIMATE</span></h1>", unsafe_allow_html=True)
+# --- ANA PANEL ---
+st.markdown("<h2 style='color: #fff; font-weight:800;'>ORION <span style='color:#3b82f6;'>V6 PRO</span></h2>", unsafe_allow_html=True)
 
 portfolio = load_data()
-
 if portfolio:
-    total_val = 0
-    cols = st.columns(3) # Semboller yan yana
+    # Yan yana dizilim için kolonları dinamik oluşturuyoruz
+    rows = [portfolio[i:i + 3] for i in range(0, len(portfolio), 3)]
     
-    for i, item in enumerate(portfolio):
-        curr_p, p_perc = get_performance(item['symbol'], period_btn)
-        t_val = curr_p * item['amount']
-        total_val += t_val
-        
-        with cols[i % 3]:
-            color = "#10b981" if p_perc >= 0 else "#ef4444"
-            st.markdown(f"""
-            <div class="glass-card">
-                <div style="display:flex; justify-content:space-between; align-items:start;">
-                    <span class="symbol-badge">{item['symbol']}</span>
-                    <span style="color:{color}; font-size:12px; font-weight:700;">{p_perc:+.2f}%</span>
-                </div>
-                <div class="price-text">${curr_p:,.2f}</div>
-                <small style="color:#8b949e;">{item['name']}</small><br>
-                <small style="color:#3b82f6; font-weight:600;">Portföy: ${t_val:,.2f}</small>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Aksiyonlar
-            b_edit, b_del, b_det = st.columns(3)
-            if b_edit.button("📝", key=f"ed_{i}"): st.session_state[f"m_ed_{i}"] = True
-            if b_del.button("🗑️", key=f"de_{i}"): st.session_state[f"m_cf_{i}"] = True
-            if b_det.button("🔍", key=f"dt_{i}"): st.session_state[f"m_dt_{i}"] = True
-
-            # DETAY MODAL
-            if st.session_state.get(f"m_dt_{i}", False):
-                st.info(f"🔍 **{item['name']}** Analizi")
-                b_date = datetime.strptime(item['date'], '%Y-%m-%d')
-                days = (datetime.now() - b_date).days
-                st.write(f"📅 **{days // 30} aydır** cüzdanında.")
-                st.write(f"📍 Giriş Tarihi: {item['date']}")
-                st.write(f"💵 Maliyet: ${item['cost']:.2f}")
-                if st.button("Kapat", key=f"c_dt_{i}"):
-                    st.session_state[f"m_dt_{i}"] = False; st.rerun()
-
-            # DÜZENLE MODAL
-            if st.session_state.get(f"m_ed_{i}", False):
-                with st.form(f"f_ed_{i}"):
-                    na, nc = st.number_input("Adet", value=item['amount']), st.number_input("Maliyet", value=item['cost'])
-                    if st.form_submit_button("Güncelle"):
-                        portfolio[i].update({"amount": na, "cost": nc})
-                        save_data(portfolio); st.rerun()
-
-            # SİL MODAL
-            if st.session_state.get(f"m_cf_{i}", False):
-                st.error("Emin misin?")
-                if st.button("Evet, SİL", key=f"y_{i}"):
-                    portfolio.pop(i); save_data(portfolio); st.rerun()
-                if st.button("İptal", key=f"n_{i}"):
-                    st.session_state[f"m_cf_{i}"] = False; st.rerun()
+    total_val = 0
+    for row_items in rows:
+        cols = st.columns(3) # Her satırda 3 kolon
+        for idx, item in enumerate(row_items):
+            with cols[idx]:
+                try:
+                    t = yf.Ticker(item['symbol'])
+                    curr_p = t.history(period="1d")['Close'].iloc[-1]
+                    total_val += (curr_p * item['amount'])
+                    
+                    st.markdown(f"""
+                    <div class="glass-card">
+                        <div style="display:flex; justify-content:space-between;">
+                            <span class="symbol-badge">{item['symbol']}</span>
+                            <span style="color:#8b949e; font-size:10px;">{item['date']}</span>
+                        </div>
+                        <div class="price-val">${curr_p:,.2f}</div>
+                        <div style="color:#3b82f6; font-size:13px; font-weight:600;">Portföy: ${(curr_p * item['amount']):,.2f}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Buton Grubu
+                    b1, b2, b3, b4 = st.columns(4)
+                    if b1.button("📝", key=f"e_{item['symbol']}"): st.session_state[f"edit_{i}"] = True
+                    if b2.button("🗑️", key=f"d_{item['symbol']}"): st.session_state[f"del_{i}"] = True
+                    if b3.button("🔍", key=f"dt_{item['symbol']}"): st.info(f"📍 {item['name']} - {item['amount']} Adet")
+                    if b4.button("📊", key=f"ta_{item['symbol']}"):
+                        analysis_res = run_technical_analysis(item['symbol'])
+                        st.markdown(f'<div class="analysis-box">{analysis_res}</div>', unsafe_allow_html=True)
+                except:
+                    st.error(f"{item['symbol']} hatası")
 
     st.markdown(f"### 💰 Toplam Servet: ${total_val:,.2f}")
     
-    # Pasta Grafiği
+    # Dağılım Grafiği
     fig = px.pie(names=[x['symbol'] for x in portfolio], 
                  values=[yf.Ticker(x['symbol']).history(period="1d")['Close'].iloc[-1] * x['amount'] for x in portfolio],
                  hole=0.7, template="plotly_dark")
-    fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', showlegend=False, height=350)
+    fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', showlegend=False, height=300)
     st.plotly_chart(fig, use_container_width=True)
 
-else:
-    st.info("Veri yok kanka. Resetle butonuna bas veya ekle.")
+with st.sidebar:
+    st.markdown("### ➕ Varlık Ekle")
+    with st.form("sidebar_add"):
+        s = st.text_input("Sembol (Örn: AAPL, BTC-USD)").upper()
+        a = st.number_input("Adet", min_value=0.0)
+        c = st.number_input("Maliyet", min_value=0.0)
+        if st.form_submit_button("Sisteme Ekle"):
+            p = load_data(); p.append({"symbol": s, "name": s, "amount": a, "cost": c, "date": str(datetime.now().date())})
+            save_data(p); st.rerun()
