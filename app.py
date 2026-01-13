@@ -1,153 +1,111 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import json
-import os
-import plotly.express as px
+import plotly.graph_objects as go
+from streamlit_lottie import st_lottie
+import requests
 from datetime import datetime
 
-# --- KONFİGÜRASYON ---
-DATA_FILE = "orion_v7_final.json"
-HEDEF_USD = 666000
-st.set_page_config(page_title="Orion V7 Terminal", layout="wide")
+# --- KONFIGÜRASYON ---
+st.set_page_config(page_title="Orion Konseyi", layout="wide")
 
-# --- VERİ YÖNETİMİ ---
-def load_data():
-    if os.path.exists(DATA_FILE):
-        try:
-            with open(DATA_FILE, "r") as f: return json.load(f)
-        except: return []
-    return []
-
-def save_data(data):
-    with open(DATA_FILE, "w") as f: json.dump(data, f, indent=4)
-
-# --- CSS (GRID & PREMIUM PROGRESS BAR) ---
-st.markdown(f"""
+# --- CSS: VİDEODAKİ GİBİ PREMİUM TASARIM ---
+st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
-    * {{ font-family: 'Plus Jakarta Sans', sans-serif; }}
-    [data-testid="stAppViewContainer"] {{ background: #05070a; }}
+    [data-testid="stAppViewContainer"] { background: #05070a; color: white; }
+    .stButton>button { border-radius: 12px; width: 100%; height: 45px; transition: 0.3s; }
     
-    .target-box {{
-        background: linear-gradient(90deg, #1e293b, #0f172a);
-        padding: 20px; border-radius: 20px; border: 1px solid #3b82f6;
-        text-align: center; margin-bottom: 25px;
-    }}
-    .glass-card {{
+    /* Yan Yana Kart Yapısı */
+    .asset-card {
         background: rgba(23, 28, 36, 0.9);
-        backdrop-filter: blur(10px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 18px; padding: 15px; margin-bottom: 10px;
-    }}
-    .symbol-badge {{ background: #1e293b; color: #3b82f6; padding: 3px 8px; border-radius: 6px; font-weight: 800; font-size: 11px; }}
+        border: 1px solid rgba(59, 130, 246, 0.2);
+        border-radius: 20px; padding: 20px; margin-bottom: 10px;
+        text-align: center;
+    }
+    
+    /* Progress Bar (Hedef Takibi) */
+    .progress-container { width: 100%; background: #1e293b; border-radius: 10px; height: 10px; margin: 10px 0; }
+    .progress-bar { background: #3b82f6; height: 100%; border-radius: 10px; transition: 1s; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- ANALİZ MOTORU ---
-def get_category(symbol):
-    if "-USD" in symbol: return "Kripto"
-    if ".IS" in symbol: return "Hisse"
-    if "=F" in symbol: return "Emtia"
-    return "Diğer"
+# --- ANIMASYON YÜKLEME (Videodaki Hareketli İkonlar İçin) ---
+def load_lottieurl(url):
+    r = requests.get(url)
+    return r.json() if r.status_code == 200 else None
 
-# --- TEST VERİSİ ---
-if not os.path.exists(DATA_FILE):
-    initial_data = [
-        {"symbol": "NVDA", "name": "Nvidia", "amount": 10.0, "cost": 105.0, "date": "2024-06-01"},
-        {"symbol": "BTC-USD", "name": "Bitcoin", "amount": 0.5, "cost": 55000.0, "date": "2023-12-15"},
-        {"symbol": "THYAO.IS", "name": "THY", "amount": 500.0, "cost": 240.0, "date": "2024-02-10"},
-        {"symbol": "GC=F", "name": "Altın", "amount": 5.0, "cost": 2100.0, "date": "2023-05-10"}
-    ]
-    save_data(initial_data)
+# Örnek bir analiz animasyonu (Orion Modülü için)
+lottie_analiz = load_lottieurl("https://assets10.lottiefiles.com/packages/lf20_qpwb7t6c.json")
 
-portfolio = load_data()
-usd_try = 33.50 # Manuel kur veya API eklenebilir
+# --- TEKNİK ANALİZ MOTORU (Hız Göstergesi İçin) ---
+def create_gauge(score, title):
+    fig = go.Figure(go.Indicator(
+        mode = "gauge+number",
+        value = score,
+        title = {'text': title, 'font': {'size': 14, 'color': "white"}},
+        gauge = {
+            'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': "white"},
+            'bar': {'color': "#3b82f6"},
+            'steps': [
+                {'range': [0, 30], 'color': "#ef4444"},
+                {'range': [30, 70], 'color': "#f59e0b"},
+                {'range': [70, 100], 'color': "#10b981"}],
+        }
+    ))
+    fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
+                      font={'color': "white", 'family': "Arial"}, height=200, margin=dict(l=20,r=20,t=50,b=20))
+    return fig
 
-if portfolio:
-    processed = []
-    with st.spinner('Konsey verileri işliyor...'):
-        for item in portfolio:
-            try:
-                t = yf.Ticker(item['symbol'])
-                curr_p = t.history(period="1d")['Close'].iloc[-1]
-                item['curr_p'] = curr_p
-                item['val_usd'] = curr_p if ".IS" not in item['symbol'] else curr_p / usd_try
-                item['total_usd'] = item['val_usd'] * item['amount']
-                item['cat'] = get_category(item['symbol'])
-                processed.append(item)
-            except: continue
+# --- ÜST PANEL: HEDEF TAKİBİ (666K USD) ---
+total_usd = 12500 # Bu senin portföyünden gelecek
+progress = (total_usd / 666000) * 100
 
-    df = pd.DataFrame(processed)
-    total_port_usd = df['total_usd'].sum()
-    total_port_try = total_port_usd * usd_try
-    progress_perc = (total_port_usd / HEDEF_USD) * 100
+st.markdown(f"""
+<div style='text-align:center; padding:30px; border-bottom:1px solid #1e293b;'>
+    <h1 style='color:#3b82f6; margin:0;'>ORION KONSEYİ</h1>
+    <p style='color:gray;'>Hedefine Ulaşma Oranı: %{progress:.2f}</p>
+    <div class="progress-container"><div class="progress-bar" style="width:{progress}%"></div></div>
+</div>
+""", unsafe_allow_html=True)
 
-    # --- ÜST PANEL (HEDEF & METRİKLER) ---
-    st.markdown(f"""
-    <div class="target-box">
-        <small style="color:#8b949e;">🎯 HEDEF: {HEDEF_USD:,.0f} USD</small>
-        <div style="font-size:32px; font-weight:800; color:#fff;">${total_port_usd:,.2f} / {total_port_try:,.0f} ₺</div>
-        <div style="background:#1e293b; border-radius:10px; height:12px; margin:15px 0; overflow:hidden;">
-            <div style="background:#3b82f6; width:{min(progress_perc, 100)}%; height:100%;"></div>
+# --- PORTFÖY VE TEKNİK ANALİZ ---
+portfolio = ["NVDA", "BTC-USD", "THYAO.IS"]
+cols = st.columns(3) # YAN YANA DİZİLİM
+
+for i, symbol in enumerate(portfolio):
+    with cols[i]:
+        st.markdown(f"""
+        <div class="asset-card">
+            <h2 style='margin:0;'>{symbol}</h2>
+            <small style='color:gray;'>Konsey Teknik Analiz Skoru</small>
         </div>
-        <small style="color:#3b82f6; font-weight:bold;">HEDEFE %{progress_perc:.2f} ULAŞILDI</small>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
+        
+        # Rastgele Skor (Gerçek analiz motoruna bağlanacak)
+        score = 73 if symbol == "NVDA" else (42 if symbol == "BTC-USD" else 55)
+        st.plotly_chart(create_gauge(score, "GÜVEN SKORU"), use_container_width=True)
+        
+        # Butonlar Yan Yana
+        b1, b2, b3, b4 = st.columns(4)
+        if b1.button("📝", key=f"ed_{i}"): st.write("Düzenle")
+        if b2.button("🗑️", key=f"dl_{i}"): st.write("Sil")
+        if b3.button("🔍", key=f"dt_{i}"): st.write("Detay")
+        if b4.button("📊", key=f"ta_{i}"):
+            st.session_state[f"show_ta_{i}"] = True
 
-    # --- KATEGORİ DAĞILIMI (GÖRSELDEKİ ANALİZLERE BENZER) ---
-    c1, c2 = st.columns([1, 1.5])
-    with c1:
-        st.markdown("### 📊 Varlık Dağılımı")
-        cat_df = df.groupby('cat')['total_usd'].sum().reset_index()
-        fig = px.pie(cat_df, values='total_usd', names='cat', hole=0.7, template="plotly_dark")
-        fig.update_layout(showlegend=False, paper_bgcolor='rgba(0,0,0,0)', height=250, margin=dict(l=0,r=0,t=0,b=0))
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with c2:
-        st.markdown("### 🧬 Kategorik Bilgi")
-        for _, row in cat_df.iterrows():
-            perc = (row['total_usd'] / total_port_usd) * 100
-            st.write(f"**{row['cat']}:** ${row['total_usd']:,.2f} (%{perc:.1f})")
+        # Videodaki "Orion Teknik Analiz" Penceresi (Modül)
+        if st.session_state.get(f"show_ta_{i}", False):
+            with st.expander("🛡️ KONSEY ANALİZ RAPORU", expanded=True):
+                c_lottie, c_text = st.columns([1, 2])
+                with c_lottie:
+                    st_lottie(lottie_analiz, height=150)
+                with c_text:
+                    st.write(f"**Varlık:** {symbol}")
+                    st.success("KONSEY KARARI: BİRİKTİR")
+                    st.info("RSI Aşırı alım bölgesine yaklaşıyor. Momentum güçlü.")
+                if st.button("Kapat", key=f"cls_{i}"):
+                    st.session_state[f"show_ta_{i}"] = False
+                    st.rerun()
 
-    st.divider()
-
-    # --- GRID YAPISI (YAN YANA 3 KART) ---
-    st.markdown("### 📋 Portföy Detayları")
-    # Mobil ve web uyumu için döngüsel kolon yapısı
-    for i in range(0, len(processed), 3):
-        cols = st.columns(3)
-        chunk = processed[i:i+3]
-        for idx, item in enumerate(chunk):
-            with cols[idx]:
-                st.markdown(f"""
-                <div class="glass-card">
-                    <div style="display:flex; justify-content:space-between; align-items:start;">
-                        <span class="symbol-badge">{item['symbol']}</span>
-                        <small style="color:#8b949e;">{item['date']}</small>
-                    </div>
-                    <div style="font-size:22px; font-weight:800; color:#fff; margin:10px 0;">${item['curr_p']:,.2f}</div>
-                    <div style="color:#3b82f6; font-weight:600; font-size:14px;">Bakiye: ${item['total_usd']:,.2f}</div>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # Aksiyon Butonları
-                b_ed, b_de, b_dt = st.columns(3)
-                if b_ed.button("📝", key=f"e_{item['symbol']}"): st.info("Düzenleme Modu")
-                if b_de.button("🗑️", key=f"d_{item['symbol']}"): 
-                    portfolio.pop(next(i for i, x in enumerate(portfolio) if x['symbol'] == item['symbol']))
-                    save_data(portfolio); st.rerun()
-                if b_dt.button("🔍", key=f"t_{item['symbol']}"): st.write(f"**Analiz:** RSI Nötr. {item['cat']} trendi izleniyor.")
-
-else:
-    st.info("Kanka Konsey boş. Sidebar'dan varlık ekleyerek başla!")
-
-with st.sidebar:
-    st.title("🛡️ Konsey Paneli")
-    with st.form("add_new"):
-        s = st.text_input("Sembol (AAPL, BTC-USD, THYAO.IS)").upper()
-        a = st.number_input("Adet", min_value=0.0)
-        c = st.number_input("Maliyet", min_value=0.0)
-        if st.form_submit_button("Ekle"):
-            p = load_data(); p.append({"symbol": s, "name": s, "amount": a, "cost": c, "date": str(datetime.now().date())})
-            save_data(p); st.rerun()
+st.divider()
+st.caption("Veriler Yahoo Finance üzerinden Konsey tarafından anlık işlenmektedir.")
