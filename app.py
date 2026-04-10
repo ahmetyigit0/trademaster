@@ -2,114 +2,141 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-# Sayfa Yapılandırması
-st.set_page_config(page_title="Pro-Trade Executive", layout="wide")
+# OKX Teması ve Kart Tasarımı için CSS
+st.set_page_config(page_title="Terminal", layout="wide")
 
-# Stil Dosyası (Kart Görünümü İçin Custom CSS)
 st.markdown("""
     <style>
+    /* OKX Dark Theme Renkleri */
+    .stApp { background-color: #000000; color: #FFFFFF; }
+    div[data-testid="stExpander"] { background-color: #1a1a1a; border: 1px solid #333; border-radius: 4px; }
+    .stButton>button { background-color: #ffffff; color: #000; border-radius: 4px; font-weight: bold; width: 100%; }
+    .stButton>button:hover { background-color: #cccccc; }
+    
+    /* İşlem Kartları */
     .trade-card {
-        background-color: #1e1e1e;
-        border-radius: 10px;
+        background-color: #121212;
+        border: 1px solid #2b2b2b;
+        border-radius: 8px;
         padding: 20px;
-        border-left: 5px solid #00ffcc;
-        margin-bottom: 15px;
+        margin-bottom: 12px;
     }
-    .metric-label { color: #888; font-size: 14px; }
-    .metric-value { font-size: 18px; font-weight: bold; }
+    .metric-box { text-align: left; }
+    .label { color: #5e5e5e; font-size: 12px; text-transform: uppercase; }
+    .value { font-size: 16px; font-weight: 600; margin-top: 4px; }
+    .long { color: #00b07c; } /* OKX Yeşil */
+    .short { color: #ff3e2e; } /* OKX Kırmızı */
     </style>
     """, unsafe_allow_html=True)
 
-# Veri Yönetimi
+# Session State Başlatma
 if 'trades' not in st.session_state:
     st.session_state.trades = []
 
-# --- BAŞLIK VE ÖZET ---
-st.title("⚡ Pro-Trade Executive Terminal")
-c1, c2, c3 = st.columns(3)
+# --- FONKSİYONLAR ---
+def delete_trade(index):
+    st.session_state.trades.pop(index)
+    st.rerun()
 
-# --- İŞLEM EKLEME ALANI ---
-with st.expander("➕ Yeni Pozisyon Planla / Aç", expanded=True):
-    with st.form("quick_trade"):
-        col1, col2, col3, col4 = st.columns(4)
-        asset = col1.text_input("Enstrüman", placeholder="Örn: BTCUSDT")
-        side = col2.selectbox("Yön", ["LONG", "SHORT"])
-        entry = col3.number_input("Giriş Fiyatı", format="%.4f")
-        size = col4.number_input("Pozisyon Büyüklüğü ($)", min_value=0.0)
-        
-        col5, col6, col7 = st.columns(3)
-        sl = col5.number_input("Stop Loss (SL)", format="%.4f")
-        tp = col6.number_input("Take Profit (TP)", format="%.4f")
-        status = col7.selectbox("Durum", ["Açık", "Kapalı"])
-        
-        submit = st.form_submit_button("Pozisyonu Kaydet")
-        
-        if submit and asset:
-            # R:R ve Hesaplamalar
-            risk = abs(entry - sl)
-            reward = abs(tp - entry)
-            rr_ratio = round(reward / risk, 2) if risk != 0 else 0
-            
-            new_trade = {
-                "id": len(st.session_state.trades) + 1,
-                "asset": asset.upper(),
-                "side": side,
-                "entry": entry,
-                "sl": sl,
-                "tp": tp,
-                "rr": rr_ratio,
-                "size": size,
-                "status": status,
-                "date": datetime.now().strftime("%H:%M:%S")
-            }
-            st.session_state.trades.append(new_trade)
-            st.success(f"{asset} Kaydedildi! R:R Oranı: 1:{rr_ratio}")
+def close_trade(index, exit_price):
+    trade = st.session_state.trades[index]
+    trade['exit'] = exit_price
+    trade['status'] = "Kapalı"
+    # Kar/Zarar Hesapla
+    if trade['side'] == "LONG":
+        trade['pnl'] = (exit_price - trade['entry']) * (trade['size'] / trade['entry'])
+    else:
+        trade['pnl'] = (trade['entry'] - exit_price) * (trade['size'] / trade['entry'])
+    st.rerun()
 
-# --- SEKMELER (Açık / Kapalı Pozisyonlar) ---
-tab1, tab2 = st.tabs(["📂 Açık Pozisyonlar", "✅ Kapanmış İşlemler"])
-
-def render_trade_card(t):
-    # Renk belirleme (Yön ve Duruma göre)
-    border_color = "#00ffcc" if t['side'] == "LONG" else "#ff4b4b"
-    
-    st.markdown(f"""
-        <div style="background-color: #262730; border-radius: 10px; padding: 15px; border-left: 6px solid {border_color}; margin-bottom: 10px;">
-            <div style="display: flex; justify-content: space-between;">
-                <span style="font-size: 20px; font-weight: bold;">{t['asset']} ({t['side']})</span>
-                <span style="color: #888;">{t['date']}</span>
-            </div>
-            <hr style="margin: 10px 0; border-color: #444;">
-            <div style="display: flex; justify-content: space-between; text-align: center;">
-                <div><div class="metric-label">Giriş</div><div class="metric-value">{t['entry']}</div></div>
-                <div><div class="metric-label">Stop</div><div class="metric-value" style="color: #ff4b4b;">{t['sl']}</div></div>
-                <div><div class="metric-label">Hedef</div><div class="metric-value" style="color: #00ffcc;">{t['tp']}</div></div>
-                <div><div class="metric-label">Risk/Reward</div><div class="metric-value">1:{t['rr']}</div></div>
-                <div><div class="metric-label">Büyüklük</div><div class="metric-value">${t['size']}</div></div>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
-    if st.button(f"Durumu Değiştir / Kapat (#{t['id']})"):
-        t['status'] = "Kapalı" if t['status'] == "Açık" else "Açık"
-        st.rerun()
-
-with tab1:
-    open_trades = [t for t in st.session_state.trades if t['status'] == "Açık"]
-    if not open_trades:
-        st.write("Şu an açık pozisyonun yok. Disiplin iyidir!")
-    for t in open_trades:
-        render_trade_card(t)
-
-with tab2:
-    closed_trades = [t for t in st.session_state.trades if t['status'] == "Kapalı"]
-    if not closed_trades:
-        st.write("Henüz kapalı işlem yok.")
-    for t in closed_trades:
-        render_trade_card(t)
-
-# --- İSTATİSTİK ÖZETİ (Dashboard Altı) ---
-st.divider()
+# --- ÜST PANEL: İSTATİSTİKLER ---
+st.subheader("Finansal Özet")
 if st.session_state.trades:
     df = pd.DataFrame(st.session_state.trades)
-    total_trades = len(df)
-    avg_rr = df['rr'].mean()
-    st.info(f"📊 Toplam İşlem Sayısı: {total_trades} | Ortalama R:R Oranı: 1:{avg_rr:.2f}")
+    closed_df = df[df['status'] == "Kapalı"]
+    
+    c1, c2, c3, c4, c5 = st.columns(5)
+    
+    total_pnl = closed_df['pnl'].sum() if not closed_df.empty else 0
+    wins = len(closed_df[closed_df['pnl'] > 0])
+    win_rate = (wins / len(closed_df) * 100) if not closed_df.empty else 0
+    max_win = closed_df['pnl'].max() if not closed_df.empty else 0
+    max_loss = closed_df['pnl'].min() if not closed_df.empty else 0
+
+    c1.metric("Toplam PnL", f"${total_pnl:.2f}")
+    c2.metric("Win Rate", f"%{win_rate:.1f}")
+    c3.metric("Max Kazanç", f"${max_win:.2f}", delta_color="normal")
+    c4.metric("Max Kayıp", f"${max_loss:.2f}", delta_color="inverse")
+    c5.metric("Aktif Poz.", len(df[df['status'] == "Açık"]))
+
+st.divider()
+
+# --- İŞLEM GİRİŞ PANELİ ---
+with st.expander("➕ Yeni Pozisyon Aç", expanded=False):
+    with st.form("trade_entry"):
+        col1, col2, col3, col4 = st.columns(4)
+        asset = col1.text_input("Sembol", placeholder="BTC/USDT")
+        side = col2.selectbox("Yön", ["LONG", "SHORT"])
+        entry = col3.number_input("Giriş", format="%.4f")
+        size = col4.number_input("Büyüklük (USDT)", min_value=0.0)
+        
+        col5, col6, col7 = st.columns(3)
+        sl = col5.number_input("Stop Loss", format="%.4f")
+        tp = col6.number_input("Take Profit", format="%.4f")
+        
+        if st.form_submit_button("EMRİ GÖNDER"):
+            risk = abs(entry - sl) if sl != 0 else 1
+            reward = abs(tp - entry)
+            rr = round(reward / risk, 2)
+            
+            st.session_state.trades.append({
+                "asset": asset.upper(), "side": side, "entry": entry,
+                "sl": sl, "tp": tp, "size": size, "rr": rr,
+                "status": "Açık", "pnl": 0, "exit": 0,
+                "time": datetime.now().strftime("%H:%M")
+            })
+            st.rerun()
+
+# --- LİSTELEME ---
+tab1, tab2 = st.tabs(["Açık Pozisyonlar", "İşlem Geçmişi"])
+
+def show_trades(status_filter):
+    for idx, t in enumerate(st.session_state.trades):
+        if t['status'] == status_filter:
+            side_class = "long" if t['side'] == "LONG" else "short"
+            with st.container():
+                st.markdown(f"""
+                <div class="trade-card">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 18px; font-weight: bold;">{t['asset']} <span class="{side_class}">{t['side']}</span></span>
+                        <span style="color: #5e5e5e;">{t['time']}</span>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(5, 1fr); margin-top: 15px;">
+                        <div class="metric-box"><div class="label">Giriş</div><div class="value">{t['entry']}</div></div>
+                        <div class="metric-box"><div class="label">Hedef</div><div class="value">{t['tp']}</div></div>
+                        <div class="metric-box"><div class="label">Stop</div><div class="value">{t['sl']}</div></div>
+                        <div class="metric-box"><div class="label">R:R</div><div class="value">1:{t['rr']}</div></div>
+                        <div class="metric-box"><div class="label">PnL</div><div class="value {side_class if t['status']=='Kapalı' else ''}">${t['pnl']:.2f}</div></div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                col_btn1, col_btn2, _ = st.columns([2, 2, 6])
+                
+                if status_filter == "Açık":
+                    with col_btn1:
+                        with st.popover("Pozisyonu Kapat"):
+                            exit_p = st.number_input("Çıkış Fiyatı", key=f"exit_{idx}", format="%.4f")
+                            if st.button("Onayla", key=f"conf_{idx}"):
+                                close_trade(idx, exit_p)
+                
+                with col_btn2:
+                    if st.button("Sil", key=f"del_{idx}"):
+                        delete_trade(idx)
+                st.write("")
+
+with tab1:
+    show_trades("Açık")
+
+with tab2:
+    show_trades("Kapalı")
