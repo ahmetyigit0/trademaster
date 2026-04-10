@@ -1,87 +1,115 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 from datetime import datetime
 
-# Sayfa Ayarları
-st.set_page_config(page_title="Orion Trading Journal", layout="wide")
+# Sayfa Yapılandırması
+st.set_page_config(page_title="Pro-Trade Executive", layout="wide")
 
-# Veri Saklama Simülasyonu (Gerçek projede SQLite veya CSV kullanılabilir)
-if 'journal' not in st.session_state:
-    st.session_state.journal = pd.DataFrame(columns=[
-        "Tarih", "Enstrüman", "Yön", "Giriş", "Çıkış", "Miktar", "Kar/Zarar", "Strateji", "Duygu Skoru", "Notlar"
-    ])
+# Stil Dosyası (Kart Görünümü İçin Custom CSS)
+st.markdown("""
+    <style>
+    .trade-card {
+        background-color: #1e1e1e;
+        border-radius: 10px;
+        padding: 20px;
+        border-left: 5px solid #00ffcc;
+        margin-bottom: 15px;
+    }
+    .metric-label { color: #888; font-size: 14px; }
+    .metric-value { font-size: 18px; font-weight: bold; }
+    </style>
+    """, unsafe_allow_html=True)
 
-# --- Yan Panel (Veri Girişi) ---
-with st.sidebar:
-    st.header("➕ Yeni İşlem Ekle")
-    with st.form("trade_form", clear_on_submit=True):
-        asset = st.text_input("Enstrüman (Örn: BTC, THYAO, NVDA)")
-        direction = st.selectbox("Yön", ["Long", "Short"])
-        entry_price = st.number_input("Giriş Fiyatı", min_value=0.0, format="%.4f")
-        exit_price = st.number_input("Çıkış Fiyatı", min_value=0.0, format="%.4f")
-        amount = st.number_input("Miktar", min_value=0.0, format="%.4f")
+# Veri Yönetimi
+if 'trades' not in st.session_state:
+    st.session_state.trades = []
+
+# --- BAŞLIK VE ÖZET ---
+st.title("⚡ Pro-Trade Executive Terminal")
+c1, c2, c3 = st.columns(3)
+
+# --- İŞLEM EKLEME ALANI ---
+with st.expander("➕ Yeni Pozisyon Planla / Aç", expanded=True):
+    with st.form("quick_trade"):
+        col1, col2, col3, col4 = st.columns(4)
+        asset = col1.text_input("Enstrüman", placeholder="Örn: BTCUSDT")
+        side = col2.selectbox("Yön", ["LONG", "SHORT"])
+        entry = col3.number_input("Giriş Fiyatı", format="%.4f")
+        size = col4.number_input("Pozisyon Büyüklüğü ($)", min_value=0.0)
         
-        st.divider()
-        strategy = st.selectbox("Strateji", ["Likidasyon Bölgesi", "RSI Uyumsuzluğu", "Trend Takibi", "Haber/FOMO"])
-        emotion = st.slider("İşlem Anındaki Disiplin/Duygu (1-10)", 1, 10, 5)
-        notes = st.text_area("İşlem Notu (Neden açtın?)")
+        col5, col6, col7 = st.columns(3)
+        sl = col5.number_input("Stop Loss (SL)", format="%.4f")
+        tp = col6.number_input("Take Profit (TP)", format="%.4f")
+        status = col7.selectbox("Durum", ["Açık", "Kapalı"])
         
-        submitted = st.form_submit_button("İşlemi Kaydet")
+        submit = st.form_submit_button("Pozisyonu Kaydet")
         
-        if submitted:
-            pnl = (exit_price - entry_price) * amount if direction == "Long" else (entry_price - exit_price) * amount
-            new_data = {
-                "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "Enstrüman": asset.upper(),
-                "Yön": direction,
-                "Giriş": entry_price,
-                "Çıkış": exit_price,
-                "Miktar": amount,
-                "Kar/Zarar": round(pnl, 2),
-                "Strateji": strategy,
-                "Duygu Skoru": emotion,
-                "Notlar": notes
+        if submit and asset:
+            # R:R ve Hesaplamalar
+            risk = abs(entry - sl)
+            reward = abs(tp - entry)
+            rr_ratio = round(reward / risk, 2) if risk != 0 else 0
+            
+            new_trade = {
+                "id": len(st.session_state.trades) + 1,
+                "asset": asset.upper(),
+                "side": side,
+                "entry": entry,
+                "sl": sl,
+                "tp": tp,
+                "rr": rr_ratio,
+                "size": size,
+                "status": status,
+                "date": datetime.now().strftime("%H:%M:%S")
             }
-            st.session_state.journal = pd.concat([st.session_state.journal, pd.DataFrame([new_data])], ignore_index=True)
-            st.success("İşlem günlüğe eklendi!")
+            st.session_state.trades.append(new_trade)
+            st.success(f"{asset} Kaydedildi! R:R Oranı: 1:{rr_ratio}")
 
-# --- Ana Ekran (Dashboard) ---
-st.title("📈 Trading Disiplin Merkezi")
+# --- SEKMELER (Açık / Kapalı Pozisyonlar) ---
+tab1, tab2 = st.tabs(["📂 Açık Pozisyonlar", "✅ Kapanmış İşlemler"])
 
-if not st.session_state.journal.empty:
-    df = st.session_state.journal
+def render_trade_card(t):
+    # Renk belirleme (Yön ve Duruma göre)
+    border_color = "#00ffcc" if t['side'] == "LONG" else "#ff4b4b"
     
-    # Metrikler
-    col1, col2, col3, col4 = st.columns(4)
-    total_pnl = df["Kar/Zarar"].sum()
-    win_rate = len(df[df["Kar/Zarar"] > 0]) / len(df) * 100
-    
-    col1.metric("Net Kar/Zarar", f"${total_pnl:,.2f}")
-    col2.metric("Win Rate", f"%{win_rate:,.1f}")
-    col3.metric("Toplam İşlem", len(df))
-    col4.metric("Ort. Disiplin Skoru", f"{df['Duygu Skoru'].mean():,.1f}/10")
+    st.markdown(f"""
+        <div style="background-color: #262730; border-radius: 10px; padding: 15px; border-left: 6px solid {border_color}; margin-bottom: 10px;">
+            <div style="display: flex; justify-content: space-between;">
+                <span style="font-size: 20px; font-weight: bold;">{t['asset']} ({t['side']})</span>
+                <span style="color: #888;">{t['date']}</span>
+            </div>
+            <hr style="margin: 10px 0; border-color: #444;">
+            <div style="display: flex; justify-content: space-between; text-align: center;">
+                <div><div class="metric-label">Giriş</div><div class="metric-value">{t['entry']}</div></div>
+                <div><div class="metric-label">Stop</div><div class="metric-value" style="color: #ff4b4b;">{t['sl']}</div></div>
+                <div><div class="metric-label">Hedef</div><div class="metric-value" style="color: #00ffcc;">{t['tp']}</div></div>
+                <div><div class="metric-label">Risk/Reward</div><div class="metric-value">1:{t['rr']}</div></div>
+                <div><div class="metric-label">Büyüklük</div><div class="metric-value">${t['size']}</div></div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+    if st.button(f"Durumu Değiştir / Kapat (#{t['id']})"):
+        t['status'] = "Kapalı" if t['status'] == "Açık" else "Açık"
+        st.rerun()
 
-    st.divider()
+with tab1:
+    open_trades = [t for t in st.session_state.trades if t['status'] == "Açık"]
+    if not open_trades:
+        st.write("Şu an açık pozisyonun yok. Disiplin iyidir!")
+    for t in open_trades:
+        render_trade_card(t)
 
-    # Grafikler
-    c1, c2 = st.columns(2)
-    
-    with c1:
-        st.subheader("Kümülatif Kar/Zarar")
-        df['Cum_PnL'] = df['Kar/Zarar'].cumsum()
-        fig_pnl = px.line(df, x=df.index, y='Cum_PnL', markers=True, color_discrete_sequence=['#00FFCC'])
-        st.plotly_chart(fig_pnl, use_container_width=True)
+with tab2:
+    closed_trades = [t for t in st.session_state.trades if t['status'] == "Kapalı"]
+    if not closed_trades:
+        st.write("Henüz kapalı işlem yok.")
+    for t in closed_trades:
+        render_trade_card(t)
 
-    with c2:
-        st.subheader("Strateji Bazlı Performans")
-        strat_pnl = df.groupby("Strateji")["Kar/Zarar"].sum().reset_index()
-        fig_strat = px.bar(strat_pnl, x="Strateji", y="Kar/Zarar", color="Kar/Zarar", color_continuous_scale="RdYlGn")
-        st.plotly_chart(fig_strat, use_container_width=True)
-
-    # İşlem Geçmişi Tablosu
-    st.subheader("📜 İşlem Geçmişi")
-    st.dataframe(df.sort_index(ascending=False), use_container_width=True)
-
-else:
-    st.info("Henüz işlem girilmedi. Sol taraftaki panelden ilk işlemini ekleyerek başlayabilirsin.")
+# --- İSTATİSTİK ÖZETİ (Dashboard Altı) ---
+st.divider()
+if st.session_state.trades:
+    df = pd.DataFrame(st.session_state.trades)
+    total_trades = len(df)
+    avg_rr = df['rr'].mean()
+    st.info(f"📊 Toplam İşlem Sayısı: {total_trades} | Ortalama R:R Oranı: 1:{avg_rr:.2f}")
