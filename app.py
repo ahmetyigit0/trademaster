@@ -5,7 +5,7 @@ import os
 
 st.set_page_config(layout="wide")
 
-# ------------------ STORAGE ------------------
+# ---------------- STORAGE ----------------
 FILE = "trades.json"
 
 def load_data():
@@ -20,21 +20,10 @@ def save_data(data):
 
 data = load_data()
 
-# ------------------ STYLE ------------------
-st.markdown("""
-<style>
-.card {
-    background:#111;
-    padding:15px;
-    border-radius:12px;
-    margin-bottom:10px;
-}
-</style>
-""", unsafe_allow_html=True)
+# ---------------- UI ----------------
+st.title("📊 Trade Journal PRO MAX")
 
-st.title("📊 PRO Trade Journal")
-
-# ------------------ ADD TRADE ------------------
+# ---------------- ADD ----------------
 if st.button("➕ Yeni Trade"):
     data["active"].append({
         "symbol":"BTC",
@@ -45,33 +34,31 @@ if st.button("➕ Yeni Trade"):
         "weights":[100],
         "stop":76000,
         "tp":[80000],
-        "comment":""
     })
     save_data(data)
 
-# ------------------ ACTIVE TRADES ------------------
+# ---------------- ACTIVE ----------------
 st.subheader("🟢 Active Trades")
 
 for i, t in enumerate(data["active"]):
 
-    title = f"#{i+1}-{t['symbol']}-{t['side']}"
-
-    with st.expander(title):
+    with st.expander(f"#{i+1} {t['symbol']} {t['side']}"):
 
         col1, col2 = st.columns(2)
 
         with col1:
             t["symbol"] = st.text_input("Symbol", t["symbol"], key=f"s{i}")
-            t["side"] = st.selectbox("Side", ["LONG","SHORT"], index=0 if t["side"]=="LONG" else 1, key=f"side{i}")
+            t["side"] = st.selectbox("Side", ["LONG","SHORT"], key=f"side{i}")
 
         with col2:
             t["capital"] = st.number_input("Capital", value=t["capital"], key=f"cap{i}")
             t["risk"] = st.number_input("Risk %", value=t["risk"], key=f"risk{i}")
 
+        # ENTRY
         split = st.checkbox("Parçalı Entry", key=f"split{i}")
 
-        entries = []
-        weights = []
+        entries=[]
+        weights=[]
 
         if split:
             cols = st.columns(3)
@@ -86,40 +73,59 @@ for i, t in enumerate(data["active"]):
             entries=[e]
             weights=[100]
 
-        t["stop"] = st.number_input("Stop", value=t["stop"], key=f"stop{i}")
+        stop = st.number_input("Stop Loss", value=t["stop"], key=f"stop{i}")
 
-        # -------- CALCULATION --------
+        # ---- CALC ----
         weights = np.array(weights)
         weights = weights / weights.sum()
         entries = np.array(entries)
 
-        risk_amount = t["capital"] * (t["risk"]/100)
         avg_entry = np.sum(entries * weights)
-        distance = abs(t["stop"] - avg_entry)
+        distance = abs(stop - avg_entry)
 
-        btc_size = risk_amount / distance if distance != 0 else 0
-        usd_pos = btc_size * avg_entry
+        risk_amount = t["capital"] * (t["risk"]/100)
 
-        st.markdown(f"💰 **Pozisyon:** ${usd_pos:.2f}")
+        # FULL POSITION RISK
+        full_position_loss = (distance / avg_entry) * t["capital"]
+
         st.markdown(f"📍 Avg Entry: {avg_entry:.0f}")
 
-        # -------- TP --------
-        tp_split = st.checkbox("Parçalı TP", key=f"tp{i}")
-
-        if tp_split:
-            tp_vals = [st.number_input(f"TP{j+1}", key=f"tp{i}{j}") for j in range(2)]
+        if full_position_loss <= risk_amount:
+            st.success("✅ Full sermaye ile girilebilir")
+            usd_pos = t["capital"]
         else:
-            tp_vals = [st.number_input("TP", key=f"tp_single{i}")]
+            st.error("⚠️ Risk fazla")
 
-        pnl = st.number_input("PnL ($)", key=f"pnl{i}")
-        comment = st.text_area("Trade Yorumu", key=f"c{i}")
+            btc_size = risk_amount / distance if distance != 0 else 0
+            usd_pos = btc_size * avg_entry
 
-        if st.button(f"❌ Pozisyonu Kapat #{i+1}"):
-            rr = abs((tp_vals[0]-avg_entry)/(t["stop"]-avg_entry)) if (t["stop"]-avg_entry)!=0 else 0
+            st.warning(f"👉 Önerilen Pozisyon: ${usd_pos:.2f}")
+
+            if st.button(f"Öneriyi Uygula #{i}"):
+                t["capital"] = usd_pos
+                save_data(data)
+                st.rerun()
+
+        st.markdown(f"💰 Pozisyon: ${usd_pos:.2f}")
+
+        # TP
+        tp = st.number_input("Take Profit", key=f"tp{i}")
+
+        pnl = st.number_input("PnL", key=f"pnl{i}")
+        comment = st.text_area("Yorum", key=f"c{i}")
+
+        colA, colB = st.columns(2)
+
+        if colA.button(f"❌ Kapat #{i}"):
+            rr = abs((tp-avg_entry)/(stop-avg_entry)) if distance!=0 else 0
 
             data["closed"].append({
                 "title":f"#{i+1}-{t['symbol']}-{t['side']}-1:{rr:.2f}",
                 "pnl":pnl,
+                "entries":entries.tolist(),
+                "avg":avg_entry,
+                "stop":stop,
+                "tp":tp,
                 "comment":comment
             })
 
@@ -127,23 +133,20 @@ for i, t in enumerate(data["active"]):
             save_data(data)
             st.rerun()
 
-# ------------------ FILTER ------------------
+        if colB.button(f"🗑 Sil #{i}"):
+            data["active"].pop(i)
+            save_data(data)
+            st.rerun()
+
+# ---------------- CLOSED ----------------
 st.subheader("📉 Closed Trades")
 
-filter_side = st.selectbox("Side Filter", ["ALL","LONG","SHORT"])
-filter_pnl = st.selectbox("PnL Filter", ["ALL","WIN","LOSS"])
-
 for t in data["closed"]:
+    color = "🟢" if t["pnl"]>0 else "🔴"
 
-    show=True
-
-    if filter_pnl=="WIN" and t["pnl"]<=0:
-        show=False
-    if filter_pnl=="LOSS" and t["pnl"]>0:
-        show=False
-
-    if show:
-        color = "🟢" if t["pnl"]>0 else "🔴"
-
-        with st.expander(f"{t['title']} | {color} ${t['pnl']}"):
-            st.write("📝 Comment:", t["comment"])
+    with st.expander(f"{t['title']} | {color} ${t['pnl']}"):
+        st.write("Entries:", t["entries"])
+        st.write("Avg:", round(t["avg"]))
+        st.write("Stop:", t["stop"])
+        st.write("TP:", t["tp"])
+        st.write("Comment:", t["comment"])
