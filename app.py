@@ -1,186 +1,316 @@
 import streamlit as st
-import numpy as np
 import json
 import os
+from datetime import datetime
+from utils.data_manager import load_data, save_data
+from utils.calculations import calculate_position_size, calculate_avg_entry, calculate_rr
+from components.position_form import render_position_form
+from components.active_positions import render_active_positions
+from components.closed_trades import render_closed_trades
+from components.stats_bar import render_stats_bar
 
-st.set_page_config(layout="wide")
+# ── Page config ──────────────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="TradeVault — Trading Journal",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
 
-# ---------------- STORAGE ----------------
-FILE = "trades.json"
+# ── Custom CSS ────────────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap');
 
-def load_data():
-    if os.path.exists(FILE):
-        with open(FILE, "r") as f:
-            return json.load(f)
-    return {"active": [], "closed": []}
+/* ── Reset & Base ── */
+*, *::before, *::after { box-sizing: border-box; }
 
-def save_data(data):
-    with open(FILE, "w") as f:
-        json.dump(data, f)
+html, body, [data-testid="stAppViewContainer"] {
+    background: #0a0c10 !important;
+    color: #e2e8f0 !important;
+    font-family: 'DM Sans', sans-serif;
+}
 
-data = load_data()
+[data-testid="stAppViewContainer"] {
+    background: radial-gradient(ellipse at 20% 0%, #0f1520 0%, #0a0c10 60%) !important;
+}
 
-# ---------------- STATE FIX ----------------
-if "delete_index" not in st.session_state:
-    st.session_state.delete_index = None
+/* ── Hide defaults ── */
+#MainMenu, footer, header, [data-testid="stToolbar"] { visibility: hidden; }
+[data-testid="stDecoration"] { display: none; }
+.block-container { padding: 1.5rem 2rem 4rem !important; max-width: 1400px; }
 
-if "close_index" not in st.session_state:
-    st.session_state.close_index = None
+/* ── Header ── */
+.tv-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.2rem 0 1.5rem;
+    border-bottom: 1px solid #1e2530;
+    margin-bottom: 1.5rem;
+}
+.tv-logo {
+    font-family: 'Space Mono', monospace;
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: #fff;
+}
+.tv-logo span { color: #3b82f6; }
+.tv-tagline {
+    font-size: 0.75rem;
+    color: #4a5568;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-top: 0.15rem;
+}
 
-# ---------------- TITLE ----------------
-st.title("📊 Trade Journal PRO MAX")
+/* ── Section headers ── */
+.section-title {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #4a5568;
+    margin: 1.8rem 0 0.8rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+.section-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #1e2530;
+}
 
-# ---------------- ADD TRADE ----------------
-if st.button("➕ Yeni Trade"):
-    data["active"].append({
-        "symbol":"BTC",
-        "side":"LONG",
-        "capital":18400,
-        "risk":2.0,
-        "entries":[78000],
-        "weights":[100],
-        "stop":76000,
-        "tp":80000
-    })
-    save_data(data)
-    st.rerun()
+/* ── Cards ── */
+.card {
+    background: #0f1520;
+    border: 1px solid #1e2530;
+    border-radius: 12px;
+    padding: 1.25rem;
+    margin-bottom: 0.75rem;
+    transition: border-color 0.2s;
+}
+.card:hover { border-color: #2d3a4e; }
 
-# ---------------- ACTIVE ----------------
-st.subheader("🟢 Active Trades")
+.card-long  { border-left: 3px solid #10b981; }
+.card-short { border-left: 3px solid #ef4444; }
 
-for i in range(len(data["active"])):
-    t = data["active"][i]
+.card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+}
+.card-symbol {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #fff;
+}
+.badge {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    border-radius: 4px;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+.badge-long  { background: #064e3b; color: #34d399; }
+.badge-short { background: #450a0a; color: #f87171; }
+.badge-win   { background: #064e3b; color: #34d399; }
+.badge-loss  { background: #450a0a; color: #f87171; }
 
-    with st.expander(f"#{i+1} {t['symbol']} {t['side']}"):
+.pnl-positive { color: #10b981; font-family: 'Space Mono', monospace; font-weight: 700; }
+.pnl-negative { color: #ef4444; font-family: 'Space Mono', monospace; font-weight: 700; }
+.pnl-neutral  { color: #94a3b8; font-family: 'Space Mono', monospace; font-weight: 700; }
 
-        col1, col2 = st.columns(2)
+/* ── Detail grid ── */
+.detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 0.6rem;
+    margin-top: 1rem;
+}
+.detail-item {
+    background: #131b28;
+    border-radius: 8px;
+    padding: 0.6rem 0.75rem;
+}
+.detail-label {
+    font-size: 0.65rem;
+    color: #4a5568;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.25rem;
+}
+.detail-value {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.85rem;
+    color: #cbd5e1;
+    font-weight: 700;
+}
 
-        with col1:
-            t["symbol"] = st.text_input("Symbol", t["symbol"], key=f"s{i}")
-            t["side"] = st.selectbox("Side", ["LONG","SHORT"], index=0 if t["side"]=="LONG" else 1, key=f"side{i}")
+/* ── Stats bar ── */
+.stats-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+}
+.stat-card {
+    background: #0f1520;
+    border: 1px solid #1e2530;
+    border-radius: 10px;
+    padding: 0.9rem 1rem;
+}
+.stat-label {
+    font-size: 0.65rem;
+    color: #4a5568;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.4rem;
+}
+.stat-value {
+    font-family: 'Space Mono', monospace;
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #fff;
+}
 
-        with col2:
-            t["capital"] = st.number_input("Capital", value=t["capital"], key=f"cap{i}")
-            t["risk"] = st.number_input("Risk %", value=t["risk"], key=f"risk{i}")
+/* ── Inputs ── */
+[data-testid="stTextInput"] input,
+[data-testid="stNumberInput"] input,
+[data-testid="stSelectbox"] select {
+    background: #131b28 !important;
+    border: 1px solid #1e2530 !important;
+    border-radius: 8px !important;
+    color: #e2e8f0 !important;
+    font-family: 'DM Sans', sans-serif !important;
+}
+[data-testid="stTextInput"] input:focus,
+[data-testid="stNumberInput"] input:focus {
+    border-color: #3b82f6 !important;
+    box-shadow: 0 0 0 2px rgba(59,130,246,0.15) !important;
+}
 
-        # -------- ENTRY --------
-        split = st.checkbox("Parçalı Entry", key=f"split{i}")
+/* ── Buttons ── */
+.stButton button {
+    border-radius: 8px !important;
+    font-family: 'DM Sans', sans-serif !important;
+    font-weight: 500 !important;
+    transition: all 0.15s !important;
+}
+.stButton button:hover { transform: translateY(-1px); }
 
-        entries = []
-        weights = []
+/* Primary */
+[data-testid="baseButton-primary"] {
+    background: linear-gradient(135deg, #2563eb, #1d4ed8) !important;
+    border: none !important;
+    color: #fff !important;
+}
 
-        if split:
-            cols = st.columns(3)
-            for j in range(3):
-                with cols[j]:
-                    e = st.number_input(f"E{j+1}", value=78000+(j*1000), key=f"e{i}{j}")
-                    w = st.number_input(f"W{j+1}", value=30, key=f"w{i}{j}")
-                    entries.append(e)
-                    weights.append(w)
-        else:
-            e = st.number_input("Entry", value=78000, key=f"e_single{i}")
-            entries = [e]
-            weights = [100]
+/* ── Expander ── */
+[data-testid="stExpander"] {
+    background: #0f1520 !important;
+    border: 1px solid #1e2530 !important;
+    border-radius: 12px !important;
+    margin-bottom: 0.75rem !important;
+}
+[data-testid="stExpander"] summary {
+    padding: 0.9rem 1.1rem !important;
+    font-family: 'Space Mono', monospace !important;
+    font-size: 0.82rem !important;
+    color: #e2e8f0 !important;
+}
 
-        t["stop"] = st.number_input("Stop Loss", value=t["stop"], key=f"stop{i}")
+/* ── Divider ── */
+hr { border-color: #1e2530 !important; }
 
-        # -------- CALC --------
-        weights = np.array(weights)
-        weights = weights / weights.sum()
-        entries = np.array(entries)
+/* ── Alert / Info ── */
+[data-testid="stInfo"]    { background: #0c1a2e !important; border-color: #1d4ed8 !important; color: #93c5fd !important; border-radius: 8px !important; }
+[data-testid="stSuccess"] { background: #052e16 !important; border-color: #15803d !important; color: #86efac !important; border-radius: 8px !important; }
+[data-testid="stWarning"] { background: #1c1007 !important; border-color: #b45309 !important; color: #fcd34d !important; border-radius: 8px !important; }
+[data-testid="stError"]   { background: #1c0505 !important; border-color: #b91c1c !important; color: #fca5a5 !important; border-radius: 8px !important; }
 
-        avg_entry = np.sum(entries * weights)
-        distance = abs(t["stop"] - avg_entry)
+/* ── Tabs ── */
+[data-testid="stTabs"] [data-baseweb="tab-list"] {
+    background: #0f1520 !important;
+    border-radius: 10px !important;
+    gap: 0.25rem !important;
+    padding: 0.25rem !important;
+    border: 1px solid #1e2530 !important;
+}
+[data-testid="stTabs"] [data-baseweb="tab"] {
+    background: transparent !important;
+    color: #64748b !important;
+    border-radius: 8px !important;
+    font-family: 'DM Sans', sans-serif !important;
+    font-weight: 500 !important;
+}
+[data-testid="stTabs"] [aria-selected="true"] {
+    background: #1e293b !important;
+    color: #e2e8f0 !important;
+}
 
-        risk_amount = t["capital"] * (t["risk"]/100)
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #0a0c10; }
+::-webkit-scrollbar-thumb { background: #1e2530; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #2d3a4e; }
 
-        full_loss = (distance / avg_entry) * t["capital"]
+/* ── Responsive ── */
+@media (max-width: 768px) {
+    .block-container { padding: 1rem 1rem 3rem !important; }
+    .detail-grid { grid-template-columns: repeat(2, 1fr); }
+    .stats-container { grid-template-columns: repeat(2, 1fr); }
+}
+</style>
+""", unsafe_allow_html=True)
 
-        st.markdown(f"📍 Avg Entry: {avg_entry:.0f}")
+# ── Header ───────────────────────────────────────────────────────────────────
+st.markdown("""
+<div class="tv-header">
+    <div>
+        <div class="tv-logo">Trade<span>Vault</span></div>
+        <div class="tv-tagline">Professional Trading Journal</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
-        if full_loss <= risk_amount:
-            st.success("✅ Full sermaye ile girilebilir")
-            usd_pos = t["capital"]
-        else:
-            st.error("⚠️ Risk fazla")
+# ── Session state init ────────────────────────────────────────────────────────
+if "data" not in st.session_state:
+    st.session_state.data = load_data()
 
-            btc_size = risk_amount / distance if distance != 0 else 0
-            usd_pos = btc_size * avg_entry
+if "show_add_form" not in st.session_state:
+    st.session_state.show_add_form = False
 
-            st.warning(f"👉 Önerilen Pozisyon: ${usd_pos:.2f}")
+if "expanded_positions" not in st.session_state:
+    st.session_state.expanded_positions = set()
 
-            if st.button(f"Öneriyi Uygula #{i}"):
-                t["capital"] = usd_pos
-                save_data(data)
-                st.rerun()
+if "close_modal" not in st.session_state:
+    st.session_state.close_modal = None
 
-        st.markdown(f"💰 Pozisyon: ${usd_pos:.2f}")
+# ── Stats bar ─────────────────────────────────────────────────────────────────
+render_stats_bar(st.session_state.data)
 
-        # -------- TP --------
-        tp = st.number_input("Take Profit", value=t["tp"], key=f"tp{i}")
+# ── New Position Button ───────────────────────────────────────────────────────
+col_btn, col_spacer = st.columns([1, 4])
+with col_btn:
+    if st.button("＋ Yeni Pozisyon Ekle", type="primary", use_container_width=True):
+        st.session_state.show_add_form = not st.session_state.show_add_form
 
-        pnl = st.number_input("PnL ($)", key=f"pnl{i}")
-        comment = st.text_area("Yorum", key=f"c{i}")
+# ── Add Position Form ─────────────────────────────────────────────────────────
+if st.session_state.show_add_form:
+    render_position_form()
 
-        colA, colB = st.columns(2)
+# ── Active Positions ──────────────────────────────────────────────────────────
+st.markdown('<div class="section-title">📈 Aktif Pozisyonlar</div>', unsafe_allow_html=True)
+render_active_positions(st.session_state.data)
 
-        if colA.button(f"❌ Kapat #{i+1}"):
-            st.session_state.close_index = i
-            st.session_state.temp_pnl = pnl
-            st.session_state.temp_comment = comment
-
-        if colB.button(f"🗑 Sil #{i+1}"):
-            st.session_state.delete_index = i
-
-# ---------------- DELETE FIX ----------------
-if st.session_state.delete_index is not None:
-    idx = st.session_state.delete_index
-
-    if idx < len(data["active"]):
-        data["active"].pop(idx)
-        save_data(data)
-
-    st.session_state.delete_index = None
-    st.rerun()
-
-# ---------------- CLOSE FIX ----------------
-if st.session_state.close_index is not None:
-    idx = st.session_state.close_index
-
-    if idx < len(data["active"]):
-        t = data["active"][idx]
-
-        avg_entry = np.mean(t["entries"]) if "entries" in t else 0
-        stop = t["stop"]
-        tp = t["tp"]
-
-        rr = abs((tp-avg_entry)/(stop-avg_entry)) if (stop-avg_entry)!=0 else 0
-
-        data["closed"].append({
-            "title":f"#{idx+1}-{t['symbol']}-{t['side']}-1:{rr:.2f}",
-            "pnl":st.session_state.temp_pnl,
-            "entries":t["entries"],
-            "avg":avg_entry,
-            "stop":stop,
-            "tp":tp,
-            "comment":st.session_state.temp_comment
-        })
-
-        data["active"].pop(idx)
-        save_data(data)
-
-    st.session_state.close_index = None
-    st.rerun()
-
-# ---------------- CLOSED ----------------
-st.subheader("📉 Closed Trades")
-
-for t in data["closed"]:
-    color = "🟢" if t["pnl"] > 0 else "🔴"
-
-    with st.expander(f"{t['title']} | {color} ${t['pnl']}"):
-        st.write("Entries:", t["entries"])
-        st.write("Avg:", round(t["avg"]))
-        st.write("Stop:", t["stop"])
-        st.write("TP:", t["tp"])
-        st.write("Comment:", t["comment"])
+# ── Closed Trades ─────────────────────────────────────────────────────────────
+st.markdown('<div class="section-title">📁 Kapalı İşlemler</div>', unsafe_allow_html=True)
+render_closed_trades(st.session_state.data)
