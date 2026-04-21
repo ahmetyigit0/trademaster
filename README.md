@@ -1,28 +1,57 @@
-# Price Action – Streamlit App
+# ⬡ TRADEVAULT — Trading Journal & Position Calculator
 
-Bu repo, **destek/direnç**, **mum formasyonları**, **price acceptance / rejection** ve hacim “spike + wick” yorumunu bir araya getirerek (swing & trend‐following) basit girişler üretir.
+Professional-grade Streamlit trading journal with dark theme, position calculator, and persistent JSON storage.
 
-## Özellikler
-- S/R bantları: yerel tepe/dip kümeleri ile otomatik yakınsayan bantlar
-- Candlestick taraması: engulfing, hammer/hanging man, harami, morning/evening star, doji, pin bar
-- Acceptance vs Rejection algısı (bant içinde iğne + bant dışı kapanış veya üst/alt bölgede kalıcılık)
-- Hacim “spike + wick” sınıflaması (bull/bear/neutral)
-- Basit R/R filtresiyle bar-by-bar hedef/stop backtesti
-- Plotly candlestick + S/R bölgeleri + işaretler
+## 🚀 Kurulum & Çalıştırma
 
-## Hızlı Başlangıç
 ```bash
-pip install -r requirements.txt
+# 1. Gerekli paketi kur
+pip install streamlit
+
+# 2. Uygulamayı başlat
 streamlit run app.py
 ```
 
-## Parametreler
-- `Pivot order`: S/R tespiti için tepe/dip mesafesi
-- `band %`: yakın seviyelerin tek banda birleştirme toleransı
-- `tol %`: banda yakın sayılma toleransı
-- `vol_win / vol_z`: hacim spike penceresi ve z-skor eşiği
-- `min_rr`: minimum risk/ödül
+Tarayıcında otomatik olarak `http://localhost:8501` açılır.
 
-## Notlar
-- Bu çalışma eğitim amaçlıdır; al/sat tavsiyesi değildir.
-- S/R ve hacim analizi sezgisel/heuristic kurallar içerir; gerçek para riske etmeden önce kapsamlı test yapın.
+## 📁 Dosya Yapısı
+
+```
+trading_journal/
+├── app.py            → Ana uygulama (sayfa yapısı, stats, routing)
+├── components.py     → UI bileşenleri (formlar, kartlar)
+├── utils.py          → Hesaplama ve veri yönetimi
+├── style.css         → Dark theme CSS
+├── requirements.txt  → Bağımlılıklar
+└── trades_data.json  → Otomatik oluşturulur (verileriniz burada saklanır)
+```
+
+## ✨ Özellikler
+
+| # | Özellik |
+|---|---------|
+| 1 | Dark theme, kart tabanlı modern UI |
+| 2 | Pozisyon ekleme (symbol, yön, sermaye, risk%) |
+| 3 | Tek / parçalı giriş (3 entry + ağırlık) |
+| 4 | Otomatik risk & pozisyon büyüklüğü hesaplama |
+| 5 | Tek / parçalı TP sistemi |
+| 6 | Aktif pozisyonlar (expand/collapse) |
+| 7 | Pozisyon kapatma (PnL + yorum) |
+| 8 | Kapalı işlemler geçmişi |
+| 9 | LONG/SHORT ve WIN/LOSS filtreleri |
+| 10 | JSON ile kalıcı veri saklama |
+
+## 💡 Risk Hesaplama Mantığı
+
+- Kullanıcı: Sermaye, Risk%, Entry, Stop Loss girer
+- Sistem hesaplar: `Risk Tutarı = Sermaye × Risk%`
+- `Risk/Unit = |Entry - Stop|`
+- `Önerilen Boyut = Risk Tutarı / Risk/Unit × Entry`
+- Full sermaye riski ≤ hedef risk ise → "Full ile girebilirsin" mesajı
+- Aksi halde → önerilen boyutu gösterir + "Uygula" butonu
+
+## 🎨 Tema
+
+- **Font**: Space Mono (başlıklar) + DM Sans (metin)
+- **Renk**: `#0a0d12` arka plan, `#00d4ff` accent, `#00e676` yeşil, `#ff4757` kırmızı
+- **Mobil uyumlu** responsive grid

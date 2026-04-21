@@ -1,7 +1,1 @@
-streamlit
-pandas
-numpy
-yfinance
-pycoingecko
-matplotlib
-plotly
+streamlit>=1.32.0
