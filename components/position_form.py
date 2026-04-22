@@ -1,161 +1,206 @@
 import streamlit as st
 from datetime import datetime
 from utils.data_manager import save_data
-from utils.calculations import calculate_avg_entry, calculate_position_size
+from utils.calculations import (
+    calculate_avg_entry, calculate_position_size, calculate_rr,
+    calculate_position_heat, rr_color
+)
+
+SETUP_TYPES   = ["liquidity", "breakout", "trend", "range", "diğer"]
+EMOTIONS      = ["calm", "fomo", "revenge", "anxious", "confident"]
+MISTAKES      = ["early exit", "late entry", "no stop", "oversize", "revenge trade", "ignored plan"]
+MARKET_CONDS  = ["trend", "range", "news", "volatile", "choppy"]
 
 
 def render_position_form():
     st.markdown("---")
     st.markdown("#### ➕ Yeni Pozisyon")
 
-    with st.container():
-        col1, col2, col3, col4 = st.columns([2, 1, 2, 2])
-        with col1:
-            symbol = st.text_input("Symbol", placeholder="BTC, ETH, AAPL...", key="form_symbol").upper().strip()
-        with col2:
-            direction = st.selectbox("Yön", ["LONG", "SHORT"], key="form_direction")
-        with col3:
-            capital = st.number_input("Toplam Sermaye ($)", min_value=0.0, value=10000.0, step=100.0, key="form_capital")
-        with col4:
-            risk_pct = st.number_input("Risk (%)", min_value=0.1, max_value=100.0, value=2.0, step=0.1, key="form_risk_pct")
+    # ── Basic info ────────────────────────────────────────────────────────────
+    c1, c2, c3, c4 = st.columns([2, 1, 2, 2])
+    with c1:
+        symbol = st.text_input("Symbol", placeholder="BTC, ETH...", key="form_symbol").upper().strip()
+    with c2:
+        direction = st.selectbox("Yön", ["LONG", "SHORT"], key="form_direction")
+    with c3:
+        capital = st.number_input("Sermaye ($)", min_value=0.0, value=10000.0, step=100.0, key="form_capital")
+    with c4:
+        risk_pct = st.number_input("Risk (%)", min_value=0.1, max_value=100.0, value=2.0, step=0.1, key="form_risk_pct")
 
-        st.markdown("##### Entry Noktaları")
-        partial_entry = st.checkbox("Parçalı giriş (3 entry)", key="form_partial")
+    # ── Entry ─────────────────────────────────────────────────────────────────
+    st.markdown("**📍 Entry Noktaları**")
+    num_entries = st.number_input("Entry sayısı", min_value=1, max_value=10, value=1, step=1, key="form_num_entries")
 
-        entries = []
-        if partial_entry:
-            ecol1, ecol2, ecol3 = st.columns(3)
-            weights = [30.0, 40.0, 30.0]
-            for i, (col, default_w) in enumerate(zip([ecol1, ecol2, ecol3], weights)):
-                with col:
-                    price = st.number_input(f"Entry {i+1} Fiyat", min_value=0.0, value=0.0, format="%.4f", key=f"form_entry_price_{i}")
-                    weight = st.number_input(f"Ağırlık {i+1} (%)", min_value=0.0, max_value=100.0, value=default_w, key=f"form_entry_weight_{i}")
-                    if price > 0:
-                        entries.append({"price": price, "weight": weight})
-        else:
-            single_price = st.number_input("Entry Fiyat", min_value=0.0, value=0.0, format="%.4f", key="form_single_entry")
-            if single_price > 0:
-                entries.append({"price": single_price, "weight": 100.0})
+    entries = []
+    if num_entries == 1:
+        ep, ew = st.columns([3, 1])
+        with ep:
+            price = st.number_input("Entry Fiyat", min_value=0.0, value=0.0, format="%.6f", key="form_e0_price")
+        entries = [{"price": price, "weight": 100.0}] if price > 0 else []
+    else:
+        default_w = round(100.0 / num_entries, 1)
+        cols = st.columns(min(int(num_entries), 5))
+        for i in range(int(num_entries)):
+            col = cols[i % len(cols)]
+            with col:
+                p = st.number_input(f"Entry {i+1}", min_value=0.0, value=0.0, format="%.6f", key=f"form_e{i}_price")
+                w = st.number_input(f"Ağırlık {i+1} (%)", min_value=0.0, max_value=100.0, value=default_w, key=f"form_e{i}_weight")
+                if p > 0:
+                    entries.append({"price": p, "weight": w})
 
-        col_sl, col_tp_partial = st.columns([1, 1])
-        with col_sl:
-            stop_loss = st.number_input("Stop Loss ✱", min_value=0.0, value=0.0, format="%.4f", key="form_stop_loss")
-        with col_tp_partial:
-            partial_tp = st.checkbox("Parçalı TP", key="form_partial_tp")
+    # ── Stop / TP ─────────────────────────────────────────────────────────────
+    sl_col, tp_col = st.columns(2)
+    with sl_col:
+        stop_loss = st.number_input("Stop Loss ✱", min_value=0.0, value=0.0, format="%.6f", key="form_stop_loss")
+    with tp_col:
+        num_tp = st.number_input("TP sayısı", min_value=1, max_value=5, value=1, step=1, key="form_num_tp")
 
-        take_profits = []
-        if partial_tp:
-            tp_cols = st.columns(3)
-            tp_defaults = [(33.3, "TP 1"), (33.3, "TP 2"), (33.4, "TP 3")]
-            for i, (tc, (dw, label)) in enumerate(zip(tp_cols, tp_defaults)):
-                with tc:
-                    tp_price = st.number_input(f"{label} Fiyat", min_value=0.0, value=0.0, format="%.4f", key=f"form_tp_price_{i}")
-                    tp_weight = st.number_input(f"{label} Ağırlık (%)", min_value=0.0, max_value=100.0, value=dw, key=f"form_tp_weight_{i}")
-                    if tp_price > 0:
-                        take_profits.append({"price": tp_price, "weight": tp_weight})
-        else:
-            tp_single = st.number_input("Take Profit Fiyat", min_value=0.0, value=0.0, format="%.4f", key="form_tp_single")
-            if tp_single > 0:
-                take_profits.append({"price": tp_single, "weight": 100.0})
+    take_profits = []
+    default_tp_w = round(100.0 / num_tp, 1)
+    tp_cols = st.columns(min(int(num_tp), 5))
+    for i in range(int(num_tp)):
+        col = tp_cols[i % len(tp_cols)]
+        with col:
+            tp_p = st.number_input(f"TP {i+1} Fiyat", min_value=0.0, value=0.0, format="%.6f", key=f"form_tp{i}_price")
+            tp_w = st.number_input(f"TP {i+1} Ağırlık (%)", min_value=0.0, max_value=100.0, value=default_tp_w, key=f"form_tp{i}_weight")
+            if tp_p > 0:
+                take_profits.append({"price": tp_p, "weight": tp_w})
 
-        # ── Risk calculation preview ──────────────────────────────────────────
-        if entries and stop_loss > 0:
-            avg_entry = calculate_avg_entry(entries)
-            calc = calculate_position_size(capital, risk_pct, avg_entry, stop_loss)
-            if calc:
-                st.markdown("---")
-                st.markdown("**📐 Risk Analizi**")
-                rcol1, rcol2, rcol3 = st.columns(3)
-                with rcol1:
-                    st.metric("Ort. Entry", f"${avg_entry:,.4f}")
-                with rcol2:
-                    st.metric("Risk Tutarı", f"${calc['risk_amount']:,.2f}")
-                with rcol3:
-                    st.metric("Tam Sermaye Riski", f"{calc['full_capital_risk_pct']:.2f}%")
+    # ── Risk engine ───────────────────────────────────────────────────────────
+    if entries and stop_loss > 0:
+        avg_entry = calculate_avg_entry(entries)
+        calc = calculate_position_size(capital, risk_pct, avg_entry, stop_loss)
+        rr = calculate_rr(avg_entry, stop_loss, take_profits, direction)
+        rr_str = f"1:{rr}" if rr else "1:?"
+        rrc = rr_color(rr)
 
-                if calc["can_use_full"]:
-                    st.success(f"✅ Tüm sermaye ile girilebilir. Risk: {calc['full_capital_risk_pct']:.2f}% ≤ {risk_pct}%")
-                    st.session_state["suggested_size"] = capital
-                else:
-                    st.warning(f"⚠️ Önerilen pozisyon büyüklüğü: **${calc['recommended_size']:,.2f}** (Tam sermaye riski: {calc['full_capital_risk_pct']:.2f}%)")
-                    st.session_state["suggested_size"] = calc["recommended_size"]
+        if calc:
+            st.markdown("---")
+            st.markdown("**📐 Risk Analizi**")
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Avg Entry", f"${avg_entry:,.4f}")
+            m2.metric("Risk Tutarı", f"${calc['risk_amount']:,.2f}")
+            m3.metric("Tam Sermaye Riski", f"{calc['full_capital_risk_pct']:.2f}%")
+            m4.markdown(f"<div style='padding-top:0.4rem'><div style='font-size:0.75rem;color:#64748b'>R:R</div>"
+                        f"<div style='font-size:1.3rem;font-weight:700;color:{rrc}'>{rr_str}</div></div>",
+                        unsafe_allow_html=True)
 
-                    if st.button("💡 Öneriyi Uygula", key="apply_suggestion"):
-                        st.session_state["form_position_size_override"] = calc["recommended_size"]
+            if calc["can_use_full"]:
+                st.success(f"✅ Tüm sermaye ({capital:,.0f}$) kullanılabilir — Risk: {calc['full_capital_risk_pct']:.2f}% ≤ {risk_pct}%")
+                if "form_pos_size_val" not in st.session_state:
+                    st.session_state["form_pos_size_val"] = capital
+            else:
+                st.warning(
+                    f"⚠️ Tam sermaye riski **{calc['full_capital_risk_pct']:.2f}%** — "
+                    f"Önerilen pozisyon: **${calc['recommended_size']:,.2f}**"
+                )
+                if st.button("💡 Öneriyi Uygula", key="apply_suggestion"):
+                    st.session_state["form_pos_size_val"] = calc["recommended_size"]
+                    st.rerun()
+    else:
+        avg_entry = 0.0
+        calc = {}
+        rr = None
 
-        pos_size_override = st.session_state.get("form_position_size_override", None)
-        pos_size_default = pos_size_override if pos_size_override else (
-            st.session_state.get("suggested_size", capital)
+    pos_size_default = float(st.session_state.get("form_pos_size_val", capital))
+    position_size = st.number_input(
+        "Pozisyon Büyüklüğü ($)", min_value=0.0,
+        value=pos_size_default, step=10.0, key="form_position_size",
+    )
+
+    # ── Position heat display ─────────────────────────────────────────────────
+    if calc.get("risk_per_unit") and position_size > 0:
+        heat = calculate_position_heat(position_size, capital, calc["risk_per_unit"])
+        heat_color = "#ef4444" if heat > risk_pct * 1.5 else "#f59e0b" if heat > risk_pct else "#10b981"
+        st.markdown(
+            f"<span style='font-size:0.8rem;color:#64748b'>Position Heat: "
+            f"<b style='color:{heat_color}'>{heat:.2f}%</b> of capital at risk</span>",
+            unsafe_allow_html=True,
         )
-        position_size = st.number_input(
-            "Pozisyon Büyüklüğü ($)",
-            min_value=0.0,
-            value=float(pos_size_default),
-            step=10.0,
-            key="form_position_size",
-        )
 
-        notes = st.text_area("Notlar (opsiyonel)", placeholder="Analiz, setup açıklaması...", key="form_notes", height=80)
+    st.markdown("---")
 
-        st.markdown("")
-        acol1, acol2 = st.columns([1, 4])
-        with acol1:
-            save_clicked = st.button("💾 Kaydet", type="primary", use_container_width=True, key="save_position_btn")
-        with acol2:
-            if st.button("İptal", use_container_width=False, key="cancel_form_btn"):
-                st.session_state.show_add_form = False
-                _clear_form_state()
-                st.rerun()
+    # ── Journal metadata ──────────────────────────────────────────────────────
+    st.markdown("**📓 Journal Bilgileri**")
+    j1, j2, j3 = st.columns(3)
+    with j1:
+        setup_type = st.selectbox("Setup Tipi", SETUP_TYPES, key="form_setup")
+        market_cond = st.selectbox("Piyasa Koşulu", MARKET_CONDS, key="form_market")
+    with j2:
+        emotion = st.selectbox("Psikoloji", EMOTIONS, key="form_emotion")
+        plan_followed = st.checkbox("Plana uyuldu mu?", value=True, key="form_plan")
+    with j3:
+        execution_score = st.slider("Execution Skoru (0–10)", 0, 10, 7, key="form_exec_score")
+        mistakes = st.multiselect("Hata Etiketleri", MISTAKES, key="form_mistakes")
 
-        if save_clicked:
-            # Validation
-            if not symbol:
-                st.error("Symbol giriniz.")
-                return
-            if not entries:
-                st.error("En az bir entry fiyatı giriniz.")
-                return
-            if stop_loss <= 0:
-                st.error("Stop loss giriniz.")
-                return
+    notes = st.text_area("Notlar", placeholder="Setup analizi, gerekçe...", key="form_notes", height=80)
 
-            avg_entry = calculate_avg_entry(entries)
-            calc = calculate_position_size(capital, risk_pct, avg_entry, stop_loss) if entries else {}
-            from utils.calculations import calculate_rr
-            rr = calculate_rr(avg_entry, stop_loss, take_profits)
-
-            data = st.session_state.data
-            pos_id = data["next_id"]
-            data["next_id"] += 1
-
-            position = {
-                "id": pos_id,
-                "symbol": symbol,
-                "direction": direction,
-                "capital": capital,
-                "risk_pct": risk_pct,
-                "entries": entries,
-                "partial_entry": partial_entry,
-                "avg_entry": avg_entry,
-                "stop_loss": stop_loss,
-                "take_profits": take_profits,
-                "position_size": position_size,
-                "risk_calc": calc,
-                "rr": rr,
-                "notes": notes,
-                "created_at": datetime.now().isoformat(),
-            }
-            data["active_positions"].append(position)
-            save_data(data)
-            st.session_state.data = data
+    # ── Save / Cancel ─────────────────────────────────────────────────────────
+    st.markdown("")
+    ac1, ac2 = st.columns([1, 5])
+    with ac1:
+        save_clicked = st.button("💾 Kaydet", type="primary", use_container_width=True, key="save_pos_btn")
+    with ac2:
+        if st.button("İptal", key="cancel_form_btn"):
             st.session_state.show_add_form = False
             _clear_form_state()
             st.rerun()
+
+    if save_clicked:
+        if not symbol:
+            st.error("Symbol giriniz.")
+            return
+        if not entries:
+            st.error("En az bir entry fiyatı giriniz.")
+            return
+        if stop_loss <= 0:
+            st.error("Stop loss giriniz.")
+            return
+
+        avg_entry = calculate_avg_entry(entries)
+        calc = calculate_position_size(capital, risk_pct, avg_entry, stop_loss)
+        rr = calculate_rr(avg_entry, stop_loss, take_profits, direction)
+        heat = calculate_position_heat(position_size, capital, calc.get("risk_per_unit", 0)) if calc else 0
+
+        data = st.session_state.data
+        pos_id = data["next_id"]
+        data["next_id"] += 1
+
+        position = {
+            "id": pos_id,
+            "symbol": symbol,
+            "direction": direction,
+            "capital": capital,
+            "risk_pct": risk_pct,
+            "entries": entries,
+            "avg_entry": avg_entry,
+            "stop_loss": stop_loss,
+            "take_profits": take_profits,
+            "position_size": position_size,
+            "risk_calc": calc,
+            "rr": rr,
+            "heat": heat,
+            # journal fields
+            "setup_type": setup_type,
+            "market_condition": market_cond,
+            "emotion": emotion,
+            "plan_followed": plan_followed,
+            "execution_score": execution_score,
+            "mistakes": mistakes,
+            "notes": notes,
+            "created_at": datetime.now().isoformat(),
+        }
+        data["active_positions"].append(position)
+        save_data(data)
+        st.session_state.data = data
+        st.session_state.show_add_form = False
+        _clear_form_state()
+        st.rerun()
 
     st.markdown("---")
 
 
 def _clear_form_state():
-    keys_to_clear = [k for k in st.session_state.keys() if k.startswith("form_") or k in ("suggested_size",)]
-    for k in keys_to_clear:
+    remove = [k for k in st.session_state if k.startswith("form_") or k in ("suggested_size", "form_pos_size_val")]
+    for k in remove:
         del st.session_state[k]
