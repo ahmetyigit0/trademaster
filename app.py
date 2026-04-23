@@ -78,9 +78,9 @@ strong, b { color:#e6edf3; }
 .section-title::after { content:''; flex:1; height:1px; background:#21262d; }
 
 /* ── Cards ── */
-.card { background:#161b22; border:1px solid #21262d; border-radius:10px;
+.card { background:#161b22; border:1px solid #21262d; border-radius:16px;
   padding:1.2rem; margin-bottom:0.65rem; transition:border-color 0.2s; }
-.card:hover { border-color:#30363d; }
+.card:hover { border-color:#58a6ff; }
 
 /* ── Detail grid ── */
 .detail-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr));
@@ -96,7 +96,9 @@ strong, b { color:#e6edf3; }
 .stats-container { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
   gap:0.65rem; margin-bottom:1.3rem; }
 .stat-card { background:#161b22; border:1px solid #21262d;
-  border-radius:9px; padding:0.9rem 1rem; }
+  border-radius:16px; padding:0.9rem 1rem;
+  transition:border-color 0.2s; }
+.stat-card:hover { border-color:#58a6ff; }
 .stat-label { font-size:0.68rem; color:#6e7681; text-transform:uppercase;
   letter-spacing:0.1em; margin-bottom:0.35rem; }
 .stat-value { font-family:'Space Mono',monospace; font-size:1.15rem;
@@ -158,23 +160,30 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
 [data-testid="stSlider"] [data-testid="stTickBarMin"],
 [data-testid="stSlider"] [data-testid="stTickBarMax"] { font-size:13px !important; color:#6e7681 !important; }
 
-/* Checkbox — plana uyuldu yeşil ikon kaldırma */
-[data-testid="stCheckbox"] label { color:#c9d1d9 !important; font-size:15px !important; }
-[data-testid="stCheckbox"] [data-baseweb="checkbox"] div {
-    background:#0d1117 !important; border:1.5px solid #30363d !important; border-radius:4px !important;
+/* Checkbox — tek düzgün stil */
+[data-testid="stCheckbox"] { margin-bottom:4px !important; }
+[data-testid="stCheckbox"] label {
+    color:#c9d1d9 !important; font-size:15px !important;
+    gap:8px !important; align-items:center !important;
 }
-/* checked state: sadece border rengi değişsin, svg ikonu gizleyelim */
-[data-testid="stCheckbox"] [data-baseweb="checkbox"] [data-checked="true"] {
-    background:#1f6feb !important; border-color:#1f6feb !important;
+/* unchecked box */
+[data-testid="stCheckbox"] [data-baseweb="checkbox"] > div:first-child {
+    background:#0d1117 !important;
+    border:1.5px solid #30363d !important;
+    border-radius:4px !important;
+    width:18px !important; height:18px !important;
+    box-shadow:none !important;
 }
-/* Checkmark SVG içindeki path rengini beyaz yap (yeşil değil) */
-[data-testid="stCheckbox"] [data-baseweb="checkbox"] svg path {
-    stroke: #ffffff !important; fill: none !important;
+/* checked box — mavi, yeşil değil */
+[data-testid="stCheckbox"] input[type="checkbox"]:checked
+  + [data-baseweb="checkbox"] > div:first-child,
+[data-testid="stCheckbox"] [data-baseweb="checkbox"][data-checked="true"] > div:first-child {
+    background:#1f6feb !important;
+    border-color:#1f6feb !important;
 }
-/* base-web'in oluşturduğu yeşil arka plan kutuyu ezmek için */
-[data-baseweb="checkbox"] [data-checked] {
-    background-color: #1f6feb !important;
-    border-color: #1f6feb !important;
+/* checkmark rengi beyaz */
+[data-testid="stCheckbox"] [data-baseweb="checkbox"] svg {
+    color:#ffffff !important; fill:#ffffff !important;
 }
 
 /* Number stepper */
