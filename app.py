@@ -31,7 +31,6 @@ html, body,
     font-size: 15px !important;
 }
 
-/* ── Hide chrome ── */
 #MainMenu, footer, header,
 [data-testid="stToolbar"],
 [data-testid="stDecoration"],
@@ -39,34 +38,21 @@ html, body,
 
 .block-container { padding:1.25rem 1.5rem 4rem !important; max-width:1400px !important; }
 
-/* ══════════════════════════════════
-   TYPOGRAPHY — bigger everywhere
-══════════════════════════════════ */
+/* ── Typography ── */
 p, li, span, div { font-size:15px; }
-
 label, [data-testid="stWidgetLabel"] > div,
 [data-testid="stWidgetLabel"] p {
-    font-size: 14px !important;
-    font-weight: 500 !important;
-    color: #8b949e !important;
-    margin-bottom: 4px !important;
+    font-size:14px !important; font-weight:500 !important;
+    color:#8b949e !important; margin-bottom:4px !important;
 }
-
-/* Metric labels & values */
-[data-testid="stMetricLabel"]  > div { font-size:13px !important; color:#8b949e !important; }
-[data-testid="stMetricValue"]  > div { font-size:22px !important; font-weight:700 !important; color:#f0f6fc !important; }
-[data-testid="stMetricDelta"]  > div { font-size:13px !important; }
-
-/* Markdown headings */
+[data-testid="stMetricLabel"] > div { font-size:13px !important; color:#8b949e !important; }
+[data-testid="stMetricValue"] > div { font-size:22px !important; font-weight:700 !important; color:#f0f6fc !important; }
+[data-testid="stCaptionContainer"] p { font-size:13px !important; color:#6e7681 !important; }
 h1 { font-size:1.9rem !important; }
 h2 { font-size:1.5rem !important; }
 h3 { font-size:1.25rem !important; }
 h4 { font-size:1.1rem !important; }
-h5 { font-size:1rem !important; }
 strong, b { color:#e6edf3; }
-
-/* Caption */
-[data-testid="stCaptionContainer"] p { font-size:13px !important; color:#6e7681 !important; }
 
 /* ── Header ── */
 .tv-header { display:flex; align-items:center; justify-content:space-between;
@@ -76,6 +62,14 @@ strong, b { color:#e6edf3; }
 .tv-logo span { color:#58a6ff; }
 .tv-tagline { font-size:0.75rem; color:#484f58; letter-spacing:0.12em;
   text-transform:uppercase; margin-top:0.15rem; }
+
+/* ── "Yeni Pozisyon" inline panel ── */
+.new-pos-panel {
+    background:#161b22; border:1px solid #21262d;
+    border-top:3px solid #1f6feb;
+    border-radius:10px; padding:1.4rem 1.4rem 0.2rem;
+    margin-bottom:1.5rem;
+}
 
 /* ── Section titles ── */
 .section-title { font-family:'Space Mono',monospace; font-size:0.72rem; letter-spacing:0.18em;
@@ -108,63 +102,44 @@ strong, b { color:#e6edf3; }
 .stat-value { font-family:'Space Mono',monospace; font-size:1.15rem;
   font-weight:700; color:#f0f6fc; }
 
-/* ══════════════════════════════════
-   FORM CONTROLS — full dark theme
-══════════════════════════════════ */
-input[type="text"],
-input[type="number"],
-input[type="email"],
-input[type="password"],
-input[type="search"],
-textarea,
+/* ── Form controls ── */
+input[type="text"], input[type="number"], input[type="email"],
+input[type="password"], input[type="search"], textarea,
 [data-testid="stTextInput"] input,
 [data-testid="stNumberInput"] input,
 [data-testid="stTextArea"] textarea {
-    background: #0d1117 !important;
-    border: 1px solid #30363d !important;
-    border-radius: 7px !important;
-    color: #c9d1d9 !important;
-    font-family: 'DM Sans', sans-serif !important;
-    font-size: 15px !important;
-    -webkit-text-fill-color: #c9d1d9 !important;
+    background:#0d1117 !important; border:1px solid #30363d !important;
+    border-radius:7px !important; color:#c9d1d9 !important;
+    font-family:'DM Sans',sans-serif !important; font-size:15px !important;
+    -webkit-text-fill-color:#c9d1d9 !important;
 }
-input:-webkit-autofill,
-input:-webkit-autofill:hover,
-input:-webkit-autofill:focus {
-    -webkit-box-shadow: 0 0 0 100px #0d1117 inset !important;
-    -webkit-text-fill-color: #c9d1d9 !important;
-    border-color: #30363d !important;
+input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:focus {
+    -webkit-box-shadow:0 0 0 100px #0d1117 inset !important;
+    -webkit-text-fill-color:#c9d1d9 !important; border-color:#30363d !important;
 }
 [data-testid="stTextInput"] input:focus,
 [data-testid="stNumberInput"] input:focus,
 [data-testid="stTextArea"] textarea:focus {
-    border-color: #58a6ff !important;
-    box-shadow: 0 0 0 2px rgba(88,166,255,0.15) !important;
-    outline: none !important;
+    border-color:#58a6ff !important;
+    box-shadow:0 0 0 2px rgba(88,166,255,0.15) !important; outline:none !important;
 }
 
 /* Selectbox */
 [data-testid="stSelectbox"] > div > div,
 [data-testid="stSelectbox"] [data-baseweb="select"] > div {
-    background: #0d1117 !important;
-    border: 1px solid #30363d !important;
-    border-radius: 7px !important;
-    color: #c9d1d9 !important;
-    font-size: 15px !important;
+    background:#0d1117 !important; border:1px solid #30363d !important;
+    border-radius:7px !important; color:#c9d1d9 !important; font-size:15px !important;
 }
 [data-testid="stSelectbox"] svg { color:#58a6ff !important; fill:#58a6ff !important; }
-
-[data-baseweb="popover"] [role="listbox"],
-[data-baseweb="menu"],
-[data-baseweb="popover"] ul {
+[data-baseweb="popover"] [role="listbox"],[data-baseweb="menu"],[data-baseweb="popover"] ul {
     background:#161b22 !important; border:1px solid #30363d !important; border-radius:8px !important;
 }
-[data-baseweb="popover"] li,
-[data-baseweb="menu"] li {
+[data-baseweb="popover"] li,[data-baseweb="menu"] li {
     background:#161b22 !important; color:#c9d1d9 !important; font-size:15px !important;
 }
-[data-baseweb="popover"] li:hover,
-[data-baseweb="menu"] li:hover { background:#21262d !important; color:#f0f6fc !important; }
+[data-baseweb="popover"] li:hover,[data-baseweb="menu"] li:hover {
+    background:#21262d !important; color:#f0f6fc !important;
+}
 
 /* Multiselect */
 [data-testid="stMultiSelect"] > div > div {
@@ -183,14 +158,26 @@ input:-webkit-autofill:focus {
 [data-testid="stSlider"] [data-testid="stTickBarMin"],
 [data-testid="stSlider"] [data-testid="stTickBarMax"] { font-size:13px !important; color:#6e7681 !important; }
 
-/* Checkbox */
+/* Checkbox — plana uyuldu yeşil ikon kaldırma */
 [data-testid="stCheckbox"] label { color:#c9d1d9 !important; font-size:15px !important; }
 [data-testid="stCheckbox"] [data-baseweb="checkbox"] div {
-    background:#0d1117 !important; border-color:#30363d !important; border-radius:4px !important;
+    background:#0d1117 !important; border:1.5px solid #30363d !important; border-radius:4px !important;
 }
-[data-testid="stCheckbox"] input:checked + div { background:#238636 !important; border-color:#238636 !important; }
+/* checked state: sadece border rengi değişsin, svg ikonu gizleyelim */
+[data-testid="stCheckbox"] [data-baseweb="checkbox"] [data-checked="true"] {
+    background:#1f6feb !important; border-color:#1f6feb !important;
+}
+/* Checkmark SVG içindeki path rengini beyaz yap (yeşil değil) */
+[data-testid="stCheckbox"] [data-baseweb="checkbox"] svg path {
+    stroke: #ffffff !important; fill: none !important;
+}
+/* base-web'in oluşturduğu yeşil arka plan kutuyu ezmek için */
+[data-baseweb="checkbox"] [data-checked] {
+    background-color: #1f6feb !important;
+    border-color: #1f6feb !important;
+}
 
-/* Number stepper buttons */
+/* Number stepper */
 [data-testid="stNumberInput"] button {
     background:#161b22 !important; border-color:#30363d !important; color:#8b949e !important;
 }
@@ -208,14 +195,10 @@ input:-webkit-autofill:focus {
 
 /* ── Buttons ── */
 .stButton button {
-    border-radius:7px !important;
-    font-family:'DM Sans',sans-serif !important;
-    font-weight:500 !important;
-    font-size:15px !important;
-    transition:all 0.15s ease !important;
-    border:1px solid #30363d !important;
-    background:#21262d !important;
-    color:#c9d1d9 !important;
+    border-radius:7px !important; font-family:'DM Sans',sans-serif !important;
+    font-weight:500 !important; font-size:15px !important;
+    transition:all 0.15s ease !important; border:1px solid #30363d !important;
+    background:#21262d !important; color:#c9d1d9 !important;
     padding:0.45rem 0.9rem !important;
 }
 .stButton button:hover {
@@ -231,23 +214,21 @@ input:-webkit-autofill:focus {
     border-color:#388bfd !important; color:#fff !important;
 }
 
+/* ── "Yeni Pozisyon Ekle" main button ── */
+.add-btn-row { margin-bottom:1rem; }
+
 /* ── Expanders ── */
 [data-testid="stExpander"] {
     background:#161b22 !important; border:1px solid #21262d !important;
     border-radius:10px !important; margin-bottom:0.6rem !important;
 }
 [data-testid="stExpander"] summary {
-    padding:0.9rem 1.05rem !important;
-    font-family:'DM Sans',sans-serif !important;
-    font-size:15px !important;
-    font-weight:500 !important;
-    color:#c9d1d9 !important;
-    background:transparent !important;
+    padding:0.9rem 1.05rem !important; font-family:'DM Sans',sans-serif !important;
+    font-size:15px !important; font-weight:500 !important;
+    color:#c9d1d9 !important; background:transparent !important;
 }
 [data-testid="stExpander"] summary:hover { color:#f0f6fc !important; }
-[data-testid="stExpander"] [data-testid="stExpanderDetails"] {
-    padding:0 1.05rem 1rem !important;
-}
+[data-testid="stExpander"] [data-testid="stExpanderDetails"] { padding:0 1.05rem 1rem !important; }
 
 /* ── Tabs ── */
 [data-testid="stTabs"] [data-baseweb="tab-list"] {
@@ -257,12 +238,9 @@ input:-webkit-autofill:focus {
 [data-testid="stTabs"] [data-baseweb="tab"] {
     background:transparent !important; color:#6e7681 !important;
     border-radius:7px !important; font-family:'DM Sans',sans-serif !important;
-    font-weight:500 !important; font-size:14px !important;
-    padding:0.5rem 1rem !important;
+    font-weight:500 !important; font-size:14px !important; padding:0.5rem 1rem !important;
 }
-[data-testid="stTabs"] [aria-selected="true"] {
-    background:#21262d !important; color:#f0f6fc !important;
-}
+[data-testid="stTabs"] [aria-selected="true"] { background:#21262d !important; color:#f0f6fc !important; }
 
 /* ── Alerts ── */
 [data-testid="stInfo"]    { background:#0d2238 !important; border-color:#1f6feb !important; color:#79c0ff !important; border-radius:8px !important; font-size:14px !important; }
@@ -286,13 +264,12 @@ hr { border-color:#21262d !important; margin:1rem 0 !important; }
 ::-webkit-scrollbar-thumb { background:#21262d; border-radius:3px; }
 ::-webkit-scrollbar-thumb:hover { background:#30363d; }
 
-/* ── Mobile ── */
 @media (max-width:768px) {
     html, body, .stApp { font-size:15px !important; }
     .block-container { padding:0.75rem 0.75rem 3rem !important; }
     .detail-grid  { grid-template-columns:repeat(2,1fr) !important; }
     .stats-container { grid-template-columns:repeat(2,1fr) !important; }
-    [data-testid="stTabs"] [data-baseweb="tab"] { font-size:13px !important; padding:0.4rem 0.6rem !important; }
+    [data-testid="stTabs"] [data-baseweb="tab"] { font-size:13px !important; padding:0.4rem 0.55rem !important; }
     .tv-logo { font-size:1.2rem; }
     .stButton button { font-size:14px !important; }
 }
@@ -312,17 +289,32 @@ st.markdown("""
 # ── State ─────────────────────────────────────────────────────────────────────
 if "data" not in st.session_state:
     st.session_state.data = load_data()
+if "show_new_pos" not in st.session_state:
+    st.session_state.show_new_pos = False
 
 # ── Stats bar ─────────────────────────────────────────────────────────────────
 render_stats_bar(st.session_state.data)
 
-# ── Tabs ──────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "📈 Aktif",
-    "📁 Kapalı",
+# ── "Yeni Pozisyon Ekle" butonu — tab dışında, sayfanın üstünde ──────────────
+btn_col, _ = st.columns([1, 5])
+with btn_col:
+    btn_label = "✕ Formu Kapat" if st.session_state.show_new_pos else "＋ Yeni Pozisyon Ekle"
+    if st.button(btn_label, type="primary", use_container_width=True, key="main_add_btn"):
+        st.session_state.show_new_pos = not st.session_state.show_new_pos
+        st.rerun()
+
+# ── Yeni pozisyon formu (tab dışı, inline panel) ─────────────────────────────
+if st.session_state.show_new_pos:
+    st.markdown('<div class="new-pos-panel">', unsafe_allow_html=True)
+    render_position_form()
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# ── Sekmeler ─────────────────────────────────────────────────────────────────
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "📈 Aktif Pozisyonlar",
+    "📁 Kapalı İşlemler",
     "📉 PnL Grafik",
     "📊 Analitik",
-    "➕ Yeni Pozisyon",
     "💾 Yedek / Arşiv",
 ])
 
@@ -335,6 +327,4 @@ with tab3:
 with tab4:
     render_analytics(st.session_state.data)
 with tab5:
-    render_position_form()
-with tab6:
     render_backup(st.session_state.data)
