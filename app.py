@@ -63,12 +63,14 @@ strong, b { color:#e6edf3; }
 .tv-tagline { font-size:0.75rem; color:#484f58; letter-spacing:0.12em;
   text-transform:uppercase; margin-top:0.15rem; }
 
-/* ── "Yeni Pozisyon" inline panel ── */
+/* ── "Yeni Pozisyon" inline panel — mavi kenarlık, şerit yok ── */
 .new-pos-panel {
-    background:#161b22; border:1px solid #21262d;
-    border-top:3px solid #1f6feb;
-    border-radius:10px; padding:1.4rem 1.4rem 0.2rem;
+    background:#161b22;
+    border:2px solid #1f6feb;
+    border-radius:16px;
+    padding:1.4rem 1.4rem 0.6rem;
     margin-bottom:1.5rem;
+    box-shadow:0 0 24px rgba(31,111,235,0.12);
 }
 
 /* ── Section titles ── */
