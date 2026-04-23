@@ -125,14 +125,12 @@ def render_backup(data: dict):
     if closed:
         arch_col1, arch_col2 = st.columns([2, 3])
         with arch_col1:
-            archive_all = st.checkbox("Tüm kapalı işlemleri arşivle", value=False, key="arch_all")
+            archive_all = st.checkbox("Tüm kapalı işlemleri arşivle", key="arch_all")
         with arch_col2:
+            arch_symbols = []
             if not archive_all:
-                # Symbol filter
                 symbols = sorted(set(t.get("symbol", "") for t in closed))
-                arch_symbols = st.multiselect("Sembol seç (boş = hepsi)", symbols, key="arch_symbols")
-            else:
-                arch_symbols = []
+                arch_symbols = st.multiselect("Sembol seç", symbols, key="arch_symbols")
 
         if st.button("🗄️ Arşivle ve Listeden Kaldır", key="do_archive", type="primary"):
             if archive_all or not arch_symbols:

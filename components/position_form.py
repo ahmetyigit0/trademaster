@@ -41,7 +41,7 @@ def _render_form(edit_id=None):
     sz_key  = f"{_SZ}_{px}"
     ver_key = f"{_SZ_VER}_{px}"
 
-    # ── Satır 1: Temel bilgiler ───────────────────────────────────────────────
+    # ── Temel bilgiler ────────────────────────────────────────────────────────
     c1, c2, c3, c4, c5 = st.columns([2, 1, 1, 2, 2])
     with c1:
         symbol = st.text_input("Symbol", value=pos["symbol"] if editing else "",
@@ -50,32 +50,27 @@ def _render_form(edit_id=None):
         dir_idx   = 0 if not editing or pos["direction"] == "LONG" else 1
         direction = st.selectbox("Yön", ["LONG", "SHORT"], index=dir_idx, key=f"{px}dir")
     with c3:
-        # Kaldıraç
-        lev_def = pos.get("leverage", 1) if editing else 1
-        lev_options = LEVERAGES
-        if lev_def not in lev_options:
-            lev_options = sorted(set(lev_options + [lev_def]))
-        lev_idx  = lev_options.index(lev_def)
-        leverage = st.selectbox("Kaldıraç", lev_options, index=lev_idx, key=f"{px}lev",
-                                format_func=lambda x: f"{x}x")
+        lev_def     = pos.get("leverage", 1) if editing else 1
+        lev_options = sorted(set(LEVERAGES + ([lev_def] if lev_def not in LEVERAGES else [])))
+        lev_idx     = lev_options.index(lev_def)
+        leverage    = st.selectbox("Kaldıraç", lev_options, index=lev_idx,
+                                   key=f"{px}lev", format_func=lambda x: f"{x}×")
     with c4:
-        capital  = st.number_input("Sermaye ($)", min_value=0.0,
-                                   value=float(pos["capital"]) if editing else 10000.0,
-                                   step=100.0, key=f"{px}cap")
+        capital = st.number_input("Sermaye ($)", min_value=1.0,
+                                  value=float(pos["capital"]) if editing else 10000.0,
+                                  step=100.0, key=f"{px}cap")
     with c5:
         risk_pct = st.number_input("Risk (%)", min_value=0.1, max_value=100.0,
                                    value=float(pos["risk_pct"]) if editing else 2.0,
                                    step=0.1, key=f"{px}rp")
 
-    # Kaldıraçlı notional göster
-    notional = capital * leverage
     if leverage > 1:
+        notional = capital * leverage
         st.markdown(
-            f"<div style='font-size:13px;color:#8b949e;margin-top:-8px;margin-bottom:8px'>"
-            f"💹 Kaldıraçlı pozisyon büyüklüğü: "
+            f"<div style='font-size:13px;color:#8b949e;margin:-6px 0 8px'>"
+            f"💹 Kaldıraçlı notional: "
             f"<b style='color:#58a6ff'>${notional:,.2f}</b> "
-            f"({leverage}× × ${capital:,.2f} sermaye)"
-            f"</div>",
+            f"({leverage}× × ${capital:,.0f})</div>",
             unsafe_allow_html=True,
         )
 
@@ -86,7 +81,7 @@ def _render_form(edit_id=None):
                                       value=ne_def, step=1, key=f"{px}ne"))
     default_ew  = round(100.0 / num_entries, 1)
     ecols       = st.columns(min(num_entries, 4))
-    entries     = []
+    entries            = []
     total_entry_weight = 0.0
 
     for i in range(num_entries):
@@ -95,22 +90,31 @@ def _render_form(edit_id=None):
             ew = float(pos["entries"][i]["weight"]) if editing and i < len(pos.get("entries", [])) else default_ew
             p  = st.number_input(f"Entry {i+1} Fiyat", min_value=0.0, value=ep,
                                  format="%.6f", key=f"{px}ep{i}")
-            w  = st.number_input(f"Ağırlık {i+1} (%)", min_value=0.0, max_value=100.0,
-                                 value=ew, key=f"{px}ew{i}")
-            # Kaç USDT = bu ağırlık × sermaye
+            # ağırlık için max_value yok → 100'ü aşabilir (uyarı verir ama bloklamaz)
+            w  = st.number_input(f"Ağırlık {i+1} (%)", min_value=0.0, value=ew,
+                                 step=1.0, key=f"{px}ew{i}")
+            # USDT karşılığı — weight girildiğinde HEMEN göster (p>0 koşuluna bağlı değil)
             usdt_val = capital * (w / 100.0)
             st.markdown(
-                f"<div style='font-size:12px;color:#6e7681;margin-top:-6px;margin-bottom:6px'>"
-                f"≈ <b style='color:#8b949e'>${usdt_val:,.2f}</b> USDT</div>",
+                f"<div style='font-size:12px;color:#6e7681;margin-top:-4px;margin-bottom:6px'>"
+                f"≈ <b style='color:#8b949e'>${usdt_val:,.2f}</b> "
+                f"<span style='color:#484f58'>({w:.1f}% sermaye)</span></div>",
                 unsafe_allow_html=True,
             )
+            total_entry_weight += w
             if p > 0:
                 entries.append({"price": p, "weight": w})
-                total_entry_weight += w
 
-    # Ağırlık toplamı uyarısı (çok entry varsa)
-    if num_entries > 1 and abs(total_entry_weight - 100.0) > 1.0:
-        st.warning(f"⚠️ Entry ağırlıkları toplamı: **{total_entry_weight:.1f}%** (100% olmalı)")
+    # ağırlık uyarısı — sadece bilgi, kaydetmeyi bloklamaz
+    if num_entries > 1:
+        tw_color = "#3fb950" if abs(total_entry_weight - 100.0) <= 1.0 else "#e3b341"
+        st.markdown(
+            f"<div style='font-size:12px;color:{tw_color};margin-bottom:4px'>"
+            f"Entry ağırlıkları toplamı: <b>{total_entry_weight:.1f}%</b>"
+            f"{' ✓' if abs(total_entry_weight-100)<1 else ' — 100% önerilir ama zorunlu değil'}"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
 
     # ── Stop / TP ─────────────────────────────────────────────────────────────
     sl_col, tp_col = st.columns(2)
@@ -132,8 +136,8 @@ def _render_form(edit_id=None):
             tp_wdef = float(pos["take_profits"][i]["weight"]) if editing and i < len(pos.get("take_profits", [])) else default_tpw
             tp_p = st.number_input(f"TP {i+1} Fiyat", min_value=0.0, value=tp_pdef,
                                    format="%.6f", key=f"{px}tpp{i}")
-            tp_w = st.number_input(f"TP {i+1} Ağırlık (%)", min_value=0.0, max_value=100.0,
-                                   value=tp_wdef, key=f"{px}tpw{i}")
+            tp_w = st.number_input(f"TP {i+1} Ağırlık (%)", min_value=0.0, value=tp_wdef,
+                                   step=1.0, key=f"{px}tpw{i}")
             if tp_p > 0:
                 take_profits.append({"price": tp_p, "weight": tp_w})
 
@@ -144,22 +148,19 @@ def _render_form(edit_id=None):
 
     if entries and stop_loss > 0:
         avg_entry = calculate_avg_entry(entries)
-        # Risk hesabı: kaldıraçla notional üzerinden değil, sermaye üzerinden
-        # (kaldıraç zaten pozisyon büyüklüğünü artırır; risk % sermayeden)
-        calc = calculate_position_size(capital, risk_pct, avg_entry, stop_loss)
-        rr   = calculate_rr(avg_entry, stop_loss, take_profits, direction)
-        rr_str = f"1:{rr}" if rr else "1:?"
-        rrc    = rr_color(rr)
+        calc      = calculate_position_size(capital, risk_pct, avg_entry, stop_loss)
+        rr        = calculate_rr(avg_entry, stop_loss, take_profits, direction)
+        rr_str    = f"1:{rr}" if rr else "1:?"
+        rrc       = rr_color(rr)
 
         if calc:
             st.markdown("---")
             st.markdown("**📐 Risk Analizi**")
             m1, m2, m3, m4, m5 = st.columns(5)
-            m1.metric("Avg Entry",       f"${avg_entry:,.4f}")
-            m2.metric("Risk Tutarı",      f"${calc['risk_amount']:,.2f}")
-            m3.metric("Sermaye Riski",    f"{calc['full_capital_risk_pct']:.2f}%")
-            m4.metric("Kaldıraç",         f"{leverage}×")
-            m4.markdown("")   # spacer
+            m1.metric("Avg Entry",      f"${avg_entry:,.4f}")
+            m2.metric("Risk Tutarı",     f"${calc['risk_amount']:,.2f}")
+            m3.metric("Sermaye Riski",   f"{calc['full_capital_risk_pct']:.2f}%")
+            m4.metric("Kaldıraç",        f"{leverage}×")
             m5.markdown(
                 f"<div style='padding-top:0.3rem'>"
                 f"<div style='font-size:0.72rem;color:#484f58;margin-bottom:3px'>R:R</div>"
@@ -168,10 +169,7 @@ def _render_form(edit_id=None):
             )
 
             if calc["can_use_full"]:
-                st.success(
-                    f"✅ Tüm sermaye kullanılabilir — "
-                    f"Risk: {calc['full_capital_risk_pct']:.2f}% ≤ {risk_pct:.1f}%"
-                )
+                st.success(f"✅ Tüm sermaye kullanılabilir — Risk {calc['full_capital_risk_pct']:.2f}% ≤ {risk_pct:.1f}%")
                 if sz_key not in st.session_state:
                     st.session_state[sz_key]  = float(capital)
                     st.session_state[ver_key] = 0
@@ -188,12 +186,10 @@ def _render_form(edit_id=None):
                         st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
                         st.rerun()
 
-    # Init defaults
     if sz_key not in st.session_state:
         st.session_state[sz_key]  = float(pos.get("position_size", capital)) if editing else float(capital)
         st.session_state[ver_key] = 0
 
-    # ── Yatırılacak Tutar ─────────────────────────────────────────────────────
     ver        = st.session_state.get(ver_key, 0)
     widget_key = f"{px}psw_v{ver}"
 
@@ -202,20 +198,15 @@ def _render_form(edit_id=None):
 
     position_size = st.number_input(
         "💰 Yatırılacak Tutar ($)",
-        min_value=0.0,
-        max_value=float(capital) * 200,
+        min_value=0.0, max_value=float(capital) * 200,
         value=float(st.session_state[sz_key]),
-        step=10.0,
-        key=widget_key,
-        on_change=_sync,
+        step=10.0, key=widget_key, on_change=_sync,
     )
 
-    # Kaldıraçlı notional ve heat
-    effective_size = position_size * leverage
     if leverage > 1:
         st.markdown(
             f"<div style='font-size:13px;color:#8b949e;margin-top:-6px'>"
-            f"Efektif pozisyon: <b style='color:#58a6ff'>${effective_size:,.2f}</b> "
+            f"Efektif pozisyon: <b style='color:#58a6ff'>${position_size*leverage:,.2f}</b> "
             f"({leverage}× kaldıraç)</div>",
             unsafe_allow_html=True,
         )
@@ -242,9 +233,6 @@ def _render_form(edit_id=None):
     with j2:
         ei      = EMOTIONS.index(pos["emotion"]) if editing and pos.get("emotion") in EMOTIONS else 0
         emotion = st.selectbox("Psikoloji", EMOTIONS, index=ei, key=f"{px}emo")
-        # ── Plana uyuldu checkbox — yeşil tik ikonunu CSS ile gizliyoruz
-        # Streamlit checkbox'ın yanındaki renk kutusu aslında base-web'in
-        # kendi checked state icon'u, bunu gizlemek için wrapper div kullanıyoruz.
         pf_def        = pos.get("plan_followed", True) if editing else True
         plan_followed = st.checkbox("Plana uyuldu mu?", value=pf_def, key=f"{px}plan")
     with j3:
@@ -257,7 +245,6 @@ def _render_form(edit_id=None):
     notes     = st.text_area("Notlar", value=notes_def, placeholder="Setup analizi, gerekçe...",
                               key=f"{px}notes", height=75)
 
-    # ── Kaydet / İptal ────────────────────────────────────────────────────────
     st.markdown("")
     ac1, ac2, *_ = st.columns([1, 1, 3])
     with ac1:
