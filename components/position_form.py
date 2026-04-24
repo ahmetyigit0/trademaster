@@ -37,6 +37,13 @@ def _render_form(edit_id=None):
         st.markdown(f"#### ✏️ Pozisyonu Düzenle — #{edit_id} {pos['symbol']}")
     else:
         st.markdown("#### ➕ Yeni Pozisyon")
+        st.markdown(
+            "<div style='font-style:italic;color:#484f58;font-size:13px;"
+            "border-left:2px solid #1f6feb;padding:4px 10px;margin:-4px 0 12px;line-height:1.6'>"
+            "\"Herkes teknik analiz bilebilir, ancak çok az kişi belirli bir plana sadık kalabilir.\""
+            "</div>",
+            unsafe_allow_html=True,
+        )
 
     sz_key  = f"{_SZ}_{px}"
     ver_key = f"{_SZ_VER}_{px}"
@@ -123,24 +130,29 @@ def _render_form(edit_id=None):
         stop_loss = st.number_input("Stop Loss ✱", min_value=0.0, value=sl_def,
                                     format="%.6f", key=f"{px}sl")
 
-        # ── Stop altı risk özeti (anlık, entry girmeden bile gösterir) ─────────
+        # ── Stop altı anlık risk mini kartı ──────────────────────────────────
         if stop_loss > 0 and entries:
-            _ae_quick = calculate_avg_entry(entries)
-            if _ae_quick > 0:
-                _price_diff  = abs(_ae_quick - stop_loss)
-                _trade_risk  = (_price_diff / _ae_quick) * 100          # % fiyat hareketi
-                _cap_risk_q  = (_price_diff / _ae_quick) * capital      # tam sermaye riski $
-                _cap_risk_pct= (_cap_risk_q / capital) * 100
-                _r_color     = "#da3633" if _cap_risk_pct > risk_pct * 1.2 else \
-                               "#e3b341" if _cap_risk_pct > risk_pct else "#3fb950"
+            _ae_q  = calculate_avg_entry(entries)
+            if _ae_q > 0:
+                _pdiff       = abs(_ae_q - stop_loss)
+                _trade_risk  = _pdiff / _ae_q * 100
+                _cap_risk_q  = _pdiff / _ae_q * capital
+                _cap_risk_pct= _cap_risk_q / capital * 100
+                _rc = "#da3633" if _cap_risk_pct > risk_pct * 1.2 else \
+                      "#e3b341" if _cap_risk_pct > risk_pct else "#3fb950"
+                # e.g.  -$200.00   %2.00   (Sermaye Riski: %1.50)
+                _cur_sz_hint = float(st.session_state.get(sz_key, capital))
+                _actual_loss = _cur_sz_hint * (_pdiff / _ae_q)
+                _actual_pct  = _actual_loss / capital * 100
                 st.markdown(
-                    f"<div style='background:#0d1117;border:1px solid #21262d;border-radius:8px;"
-                    f"padding:0.5rem 0.7rem;margin-top:4px;font-size:12px;line-height:1.8'>"
-                    f"<span style='color:#6e7681'>İşlem Riski: </span>"
-                    f"<b style='color:#c9d1d9'>{_trade_risk:.2f}%</b>"
-                    f"<span style='color:#484f58'> &nbsp;|&nbsp; </span>"
-                    f"<span style='color:#6e7681'>Sermaye Riski: </span>"
-                    f"<b style='color:{_r_color}'>${_cap_risk_q:,.2f} ({_cap_risk_pct:.2f}%)</b>"
+                    f"<div style='background:#120a0a;border:1px solid #3a1a1a;"
+                    f"border-radius:7px;padding:5px 9px;margin-top:3px;"
+                    f"font-size:12px;display:flex;gap:10px;align-items:center'>"
+                    f"<span style='color:{_rc};font-family:\"Space Mono\",monospace;font-weight:700'>"
+                    f"-${_actual_loss:,.2f}</span>"
+                    f"<span style='color:{_rc};font-family:\"Space Mono\",monospace'>%{_trade_risk:.2f}</span>"
+                    f"<span style='color:#484f58;font-size:11px'>"
+                    f"Sermaye Riski: <b style='color:{_rc}'>%{_actual_pct:.2f}</b></span>"
                     f"</div>",
                     unsafe_allow_html=True,
                 )
@@ -161,6 +173,24 @@ def _render_form(edit_id=None):
                                    format="%.6f", key=f"{px}tpp{i}")
             tp_w = st.number_input(f"TP {i+1} Ağırlık (%)", min_value=0.0, value=tp_wdef,
                                    step=1.0, key=f"{px}tpw{i}")
+            # ── TP altı potansiyel kâr hint ───────────────────────────────────
+            if tp_p > 0 and entries:
+                _ae_tp  = calculate_avg_entry(entries)
+                _cur_tp = float(st.session_state.get(sz_key, capital))
+                if _ae_tp > 0 and _cur_tp > 0:
+                    _tp_profit  = _cur_tp * (abs(tp_p - _ae_tp) / _ae_tp)
+                    _tp_w_share = _cur_tp * (tp_w / 100.0)
+                    _tp_net     = _tp_profit * (tp_w / 100.0)
+                    st.markdown(
+                        f"<div style='background:#071a0e;border:1px solid #1a3a20;"
+                        f"border-radius:7px;padding:5px 9px;margin-top:3px;"
+                        f"font-size:12px;display:flex;gap:10px;align-items:center'>"
+                        f"<span style='color:#3fb950;font-family:\"Space Mono\",monospace;font-weight:700'>"
+                        f"+${_tp_net:,.2f}</span>"
+                        f"<span style='color:#6e7681;font-size:11px'>{tp_w:.0f}% pozisyon = ${_tp_w_share:,.2f}</span>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
             if tp_p > 0:
                 take_profits.append({"price": tp_p, "weight": tp_w})
 
@@ -243,83 +273,119 @@ def _render_form(edit_id=None):
             unsafe_allow_html=True,
         )
 
-    # ── İşlem Özeti ─────────────────────────────────────────────────────
-    # position_size'ı session_state'ten oku — öneri uygulanınca da güncel olsun
+    # ── İşlem Özeti (session_state'ten okur → öneri uygulanınca güncellenir) ──
     _cur_size = float(st.session_state.get(sz_key, position_size))
 
-    if entries and stop_loss > 0:
-        _avg_e = calculate_avg_entry(entries)
-        _summary_rows = ""
+    if entries and (stop_loss > 0 or take_profits):
+        _avg_e  = calculate_avg_entry(entries)
+        _rows   = ""
+        _total_potential_pnl = 0.0
 
-        # Her entry: ağırlık → o ağırlıkta USDT
+        # ─ Header divider ─
+        _rows += (
+            f"<tr style='background:#0a1220'>"
+            f"<td colspan='3' style='padding:5px 8px;font-size:10px;color:#484f58;"
+            f"text-transform:uppercase;letter-spacing:0.12em'>📥 Girişler</td></tr>"
+        )
+
+        # Entry satırları
         for i, e in enumerate(entries):
             _e_usdt = _cur_size * (e["weight"] / 100.0)
             _e_lbl  = f"Entry {i+1}" if len(entries) > 1 else "Entry"
-            _e_pct  = f" ({e['weight']:.0f}%)" if len(entries) > 1 else ""
-            _summary_rows += (
-                f"<tr>"
-                f"<td style='padding:4px 8px;color:#6e7681'>{_e_lbl}{_e_pct}</td>"
-                f"<td style='padding:4px 8px;color:#c9d1d9;font-family:\"Space Mono\",monospace'>"
-                f"${e['price']:,.4f}</td>"
-                f"<td style='padding:4px 8px;color:#58a6ff;font-family:\"Space Mono\",monospace;text-align:right'>"
-                f"${_e_usdt:,.2f} USDT</td>"
+            _e_pct  = f"&nbsp;<span style='color:#484f58;font-size:11px'>({e['weight']:.0f}%)</span>" if len(entries) > 1 else ""
+            _rows += (
+                f"<tr style='border-bottom:1px solid #161b22'>"
+                f"<td style='padding:5px 8px;color:#8b949e'>{_e_lbl}{_e_pct}</td>"
+                f"<td style='padding:5px 8px;color:#c9d1d9;"
+                f"font-family:\"Space Mono\",monospace'>${e['price']:,.4f}</td>"
+                f"<td style='padding:5px 8px;text-align:right;"
+                f"font-family:\"Space Mono\",monospace;color:#58a6ff'>${_e_usdt:,.2f}</td>"
                 f"</tr>"
             )
 
-        # Ortalama entry satırı (parçalı varsa)
         if len(entries) > 1:
-            _summary_rows += (
-                f"<tr style='border-top:1px solid #21262d'>"
-                f"<td style='padding:4px 8px;color:#6e7681'>Ort. Entry</td>"
-                f"<td style='padding:4px 8px;color:#e6edf3;font-family:\"Space Mono\",monospace;font-weight:700'>"
-                f"${_avg_e:,.4f}</td>"
-                f"<td style='padding:4px 8px;color:#58a6ff;font-family:\"Space Mono\",monospace;text-align:right;font-weight:700'>"
-                f"${_cur_size:,.2f} USDT</td>"
+            _rows += (
+                f"<tr style='border-bottom:2px solid #21262d;background:#0a1220'>"
+                f"<td style='padding:5px 8px;color:#6e7681;font-style:italic'>Ort. Entry</td>"
+                f"<td style='padding:5px 8px;color:#e6edf3;"
+                f"font-family:\"Space Mono\",monospace;font-weight:700'>${_avg_e:,.4f}</td>"
+                f"<td style='padding:5px 8px;text-align:right;"
+                f"font-family:\"Space Mono\",monospace;color:#58a6ff;font-weight:700'>${_cur_size:,.2f}</td>"
                 f"</tr>"
             )
 
-        # Stop
-        _sl_usdt = _cur_size * (abs(_avg_e - stop_loss) / _avg_e) if _avg_e > 0 else 0
-        _summary_rows += (
-            f"<tr style='border-top:1px solid #21262d'>"
-            f"<td style='padding:4px 8px;color:#6e7681'>Stop Loss</td>"
-            f"<td style='padding:4px 8px;color:#ff7b72;font-family:\"Space Mono\",monospace'>"
-            f"${stop_loss:,.4f}</td>"
-            f"<td style='padding:4px 8px;color:#ff7b72;font-family:\"Space Mono\",monospace;text-align:right'>"
-            f"-${_sl_usdt:,.2f} USDT</td>"
-            f"</tr>"
-        )
+        # Stop loss
+        if stop_loss > 0 and _avg_e > 0:
+            _sl_loss = _cur_size * (abs(_avg_e - stop_loss) / _avg_e)
+            _sl_pct  = _sl_loss / capital * 100
+            _rows += (
+                f"<tr style='background:#0a0a0a'>"
+                f"<td colspan='3' style='padding:5px 8px;font-size:10px;color:#484f58;"
+                f"text-transform:uppercase;letter-spacing:0.12em'>🛑 Stop</td></tr>"
+                f"<tr style='border-bottom:2px solid #21262d'>"
+                f"<td style='padding:5px 8px;color:#8b949e'>Stop Loss</td>"
+                f"<td style='padding:5px 8px;color:#ff7b72;"
+                f"font-family:\"Space Mono\",monospace'>${stop_loss:,.4f}</td>"
+                f"<td style='padding:5px 8px;text-align:right;"
+                f"font-family:\"Space Mono\",monospace;color:#ff7b72'>"
+                f"-${_sl_loss:,.2f} "
+                f"<span style='font-size:11px;color:#da3633'>(%{_sl_pct:.2f})</span></td>"
+                f"</tr>"
+            )
 
-        # TP'ler
-        for i, t in enumerate(take_profits):
-            _tp_profit  = _cur_size * (abs(t["price"] - _avg_e) / _avg_e) if _avg_e > 0 else 0
-            _tp_portion = _cur_size * (t["weight"] / 100.0)
-            _tp_lbl     = f"TP {i+1}" if len(take_profits) > 1 else "Take Profit"
-            _tp_pct     = f" ({t['weight']:.0f}%)" if len(take_profits) > 1 else ""
-            _summary_rows += (
-                f"<tr>"
-                f"<td style='padding:4px 8px;color:#6e7681'>{_tp_lbl}{_tp_pct}</td>"
-                f"<td style='padding:4px 8px;color:#3fb950;font-family:\"Space Mono\",monospace'>"
-                f"${t['price']:,.4f}</td>"
-                f"<td style='padding:4px 8px;color:#3fb950;font-family:\"Space Mono\",monospace;text-align:right'>"
-                f"+${_tp_profit * (t['weight']/100.0):,.2f} USDT</td>"
+        # Take profits
+        if take_profits and _avg_e > 0:
+            _rows += (
+                f"<tr style='background:#0a0a0a'>"
+                f"<td colspan='3' style='padding:5px 8px;font-size:10px;color:#484f58;"
+                f"text-transform:uppercase;letter-spacing:0.12em'>🎯 Take Profit</td></tr>"
+            )
+            for i, t in enumerate(take_profits):
+                _tp_move    = abs(t["price"] - _avg_e) / _avg_e
+                _tp_pos_cut = _cur_size * (t["weight"] / 100.0)
+                _tp_profit  = _tp_pos_cut * _tp_move
+                _total_potential_pnl += _tp_profit
+                _tp_lbl = f"TP {i+1}" if len(take_profits) > 1 else "Take Profit"
+                _tp_pct = f"&nbsp;<span style='color:#484f58;font-size:11px'>({t['weight']:.0f}%)</span>" if len(take_profits) > 1 else ""
+                _rows += (
+                    f"<tr style='border-bottom:1px solid #161b22'>"
+                    f"<td style='padding:5px 8px;color:#8b949e'>{_tp_lbl}{_tp_pct}</td>"
+                    f"<td style='padding:5px 8px;color:#3fb950;"
+                    f"font-family:\"Space Mono\",monospace'>${t['price']:,.4f}</td>"
+                    f"<td style='padding:5px 8px;text-align:right;"
+                    f"font-family:\"Space Mono\",monospace;color:#3fb950'>"
+                    f"+${_tp_profit:,.2f}</td>"
+                    f"</tr>"
+                )
+
+        # Beklenen PnL footer
+        if _total_potential_pnl > 0:
+            _rows += (
+                f"<tr style='background:#071a0e;border-top:1px solid #1a3a20'>"
+                f"<td colspan='2' style='padding:6px 8px;color:#56d364;"
+                f"font-size:12px;font-weight:600'>Hedef PnL (tüm TP)</td>"
+                f"<td style='padding:6px 8px;text-align:right;"
+                f"font-family:\"Space Mono\",monospace;color:#3fb950;font-weight:700'>"
+                f"+${_total_potential_pnl:,.2f}</td>"
                 f"</tr>"
             )
 
         st.markdown(
-            f"<div style='background:#0d1117;border:1px solid #21262d;border-radius:10px;"
-            f"padding:0.1rem 0;margin-top:0.6rem'>"
-            f"<div style='padding:0.5rem 0.8rem;font-size:11px;color:#484f58;"
-            f"text-transform:uppercase;letter-spacing:0.12em;border-bottom:1px solid #21262d'>"
-            f"📋 İşlem Özeti</div>"
+            f"<div style='background:#0d1117;border:1px solid #21262d;"
+            f"border-radius:10px;overflow:hidden;margin-top:0.8rem'>"
+            f"<div style='padding:6px 8px;background:#0a1220;border-bottom:1px solid #21262d;"
+            f"font-size:11px;color:#484f58;text-transform:uppercase;letter-spacing:0.12em;'>"
+            f"📋 İşlem Özeti — <span style='color:#58a6ff'>güncellenir</span></div>"
             f"<table style='width:100%;border-collapse:collapse;font-size:13px'>"
-            f"<thead><tr style='border-bottom:1px solid #21262d'>"
-            f"<th style='padding:4px 8px;text-align:left;color:#484f58;font-size:11px;font-weight:500'>Seviye</th>"
-            f"<th style='padding:4px 8px;text-align:left;color:#484f58;font-size:11px;font-weight:500'>Fiyat</th>"
-            f"<th style='padding:4px 8px;text-align:right;color:#484f58;font-size:11px;font-weight:500'>Tutar</th>"
+            f"<thead><tr style='border-bottom:1px solid #21262d;background:#0a1220'>"
+            f"<th style='padding:4px 8px;text-align:left;color:#6e7681;"
+            f"font-size:10px;font-weight:500;text-transform:uppercase'>Seviye</th>"
+            f"<th style='padding:4px 8px;text-align:left;color:#6e7681;"
+            f"font-size:10px;font-weight:500;text-transform:uppercase'>Fiyat</th>"
+            f"<th style='padding:4px 8px;text-align:right;color:#6e7681;"
+            f"font-size:10px;font-weight:500;text-transform:uppercase'>Tutar (USDT)</th>"
             f"</tr></thead>"
-            f"<tbody>{_summary_rows}</tbody>"
-            f"</table></div>",
+            f"<tbody>{_rows}</tbody></table></div>",
             unsafe_allow_html=True,
         )
 

@@ -1,0 +1,336 @@
+"""Trade Yasaları — kalıcı JSON tabanlı kural listesi."""
+import streamlit as st
+import json
+import os
+
+RULES_FILE = "trade_rules.json"
+
+DEFAULT_RULES = [
+    {
+        "id": 1,
+        "category": "Risk Yönetimi",
+        "rule": "Her işlemde sermayenin maksimum %2'sini riske at. Bu sınırı asla aşma.",
+        "active": True,
+    },
+    {
+        "id": 2,
+        "category": "Risk Yönetimi",
+        "rule": "Stop loss olmadan pozisyon açma. Stop loss, işlemi açmadan önce belirlenir — açtıktan sonra değil.",
+        "active": True,
+    },
+    {
+        "id": 3,
+        "category": "Risk Yönetimi",
+        "rule": "Aynı anda açık olan pozisyonların toplam riski sermayenin %6'sını geçemez.",
+        "active": True,
+    },
+    {
+        "id": 4,
+        "category": "Giriş Kuralları",
+        "rule": "Minimum 1:2 R:R oranı olmadan işleme girme. Piyasa seni zorlamıyorsa beklemeye devam et.",
+        "active": True,
+    },
+    {
+        "id": 5,
+        "category": "Giriş Kuralları",
+        "rule": "FOMO ile giriş yapma. Kaçırdığın her setup yerine daha iyisi gelecek.",
+        "active": True,
+    },
+    {
+        "id": 6,
+        "category": "Giriş Kuralları",
+        "rule": "Büyük haber/event öncesi pozisyon açma ya da mevcut pozisyon büyüklüğünü azalt.",
+        "active": True,
+    },
+    {
+        "id": 7,
+        "category": "Çıkış Kuralları",
+        "rule": "Kârdayken stop'u maliyete çek (break-even). Kârlı bir işlemi zarara döndürme.",
+        "active": True,
+    },
+    {
+        "id": 8,
+        "category": "Çıkış Kuralları",
+        "rule": "TP seviyelerine ulaşıldığında planı uygula. 'Biraz daha bekleyeyim' tuzağına düşme.",
+        "active": True,
+    },
+    {
+        "id": 9,
+        "category": "Çıkış Kuralları",
+        "rule": "Stop loss'a ulaşıldığında pozisyonu kapat. Stop'u asla uzatma veya kaldırma.",
+        "active": True,
+    },
+    {
+        "id": 10,
+        "category": "Psikoloji",
+        "rule": "3 üst üste zararlı işlemden sonra o gün işlemi bırak. Kayıp serisinde iken boyut artırma.",
+        "active": True,
+    },
+    {
+        "id": 11,
+        "category": "Psikoloji",
+        "rule": "İntikam işlemi (revenge trade) yapma. Zarar sonrası verilen kararlar çoğunlukla hatalıdır.",
+        "active": True,
+    },
+    {
+        "id": 12,
+        "category": "Psikoloji",
+        "rule": "Büyük kâr sonrası aşırı özgüvenle pozisyon büyütme. Sistem her koşulda aynı kalır.",
+        "active": True,
+    },
+    {
+        "id": 13,
+        "category": "Plan & Analiz",
+        "rule": "Her işlemi bu journale kaydet. Kaydetmediğin işlemden öğrenemezsin.",
+        "active": True,
+    },
+    {
+        "id": 14,
+        "category": "Plan & Analiz",
+        "rule": "Haftalık olarak kapalı işlemleri gözden geçir. Tekrarlayan hatalar var mı?",
+        "active": True,
+    },
+    {
+        "id": 15,
+        "category": "Plan & Analiz",
+        "rule": "Setup'ı net göremiyorsan işlem açma. Belirsizlik = pozisyon yok.",
+        "active": True,
+    },
+]
+
+CATEGORIES = ["Risk Yönetimi", "Giriş Kuralları", "Çıkış Kuralları", "Psikoloji", "Plan & Analiz", "Diğer"]
+
+CAT_COLORS = {
+    "Risk Yönetimi":  ("#da3633", "#2d0f0f"),
+    "Giriş Kuralları":("#1f6feb", "#0d2238"),
+    "Çıkış Kuralları":("#e3b341", "#2b1d0a"),
+    "Psikoloji":      ("#a371f7", "#1e1030"),
+    "Plan & Analiz":  ("#3fb950", "#071a0e"),
+    "Diğer":          ("#8b949e", "#161b22"),
+}
+
+CAT_ICONS = {
+    "Risk Yönetimi":  "🛡️",
+    "Giriş Kuralları":"📥",
+    "Çıkış Kuralları":"📤",
+    "Psikoloji":      "🧠",
+    "Plan & Analiz":  "📋",
+    "Diğer":          "📌",
+}
+
+
+def _load_rules() -> list[dict]:
+    if os.path.exists(RULES_FILE):
+        try:
+            with open(RULES_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    # İlk çalıştırmada default kuralları kaydet
+    _save_rules(DEFAULT_RULES)
+    return DEFAULT_RULES[:]
+
+
+def _save_rules(rules: list[dict]):
+    with open(RULES_FILE, "w", encoding="utf-8") as f:
+        json.dump(rules, f, ensure_ascii=False, indent=2)
+
+
+def _next_id(rules: list[dict]) -> int:
+    return max((r["id"] for r in rules), default=0) + 1
+
+
+def render_trade_rules():
+    if "tr_rules" not in st.session_state:
+        st.session_state.tr_rules = _load_rules()
+
+    rules = st.session_state.tr_rules
+
+    # ── Header ────────────────────────────────────────────────────────────────
+    active_count = sum(1 for r in rules if r.get("active", True))
+    st.markdown(
+        f"<div style='display:flex;align-items:center;justify-content:space-between;"
+        f"margin-bottom:1rem'>"
+        f"<div>"
+        f"<div style='font-family:\"Space Mono\",monospace;font-size:1rem;"
+        f"font-weight:700;color:#f0f6fc'>⚖️ Trade Yasaları</div>"
+        f"<div style='font-size:13px;color:#6e7681;margin-top:2px'>"
+        f"{active_count} aktif kural · {len(rules)} toplam</div>"
+        f"</div></div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Motivasyon banner ─────────────────────────────────────────────────────
+    st.markdown(
+        "<div style='background:linear-gradient(135deg,#0d2238,#071a0e);"
+        "border:1px solid #1f6feb;border-radius:12px;padding:0.9rem 1.1rem;"
+        "margin-bottom:1.2rem;font-style:italic;color:#79c0ff;font-size:14px;"
+        "line-height:1.7'>"
+        "\"Disiplin, motivasyonun bittiği yerde devreye girer. "
+        "Kurallar seni kötü günlerde korur — iyi günlerde değil.\""
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Yeni kural ekleme formu ───────────────────────────────────────────────
+    with st.expander("➕ Yeni Kural Ekle", expanded=False):
+        na1, na2 = st.columns([3, 1])
+        with na1:
+            new_rule_text = st.text_area(
+                "Kural metni",
+                placeholder="Kural açıklamasını buraya yaz...",
+                key="tr_new_text", height=80,
+            )
+        with na2:
+            new_cat = st.selectbox("Kategori", CATEGORIES, key="tr_new_cat")
+        if st.button("✅ Ekle", type="primary", key="tr_add_btn", use_container_width=True):
+            if new_rule_text.strip():
+                rules.append({
+                    "id":       _next_id(rules),
+                    "category": new_cat,
+                    "rule":     new_rule_text.strip(),
+                    "active":   True,
+                })
+                _save_rules(rules)
+                st.session_state.tr_rules = rules
+                # clear text
+                if "tr_new_text" in st.session_state:
+                    del st.session_state["tr_new_text"]
+                st.rerun()
+            else:
+                st.error("Kural metni boş olamaz.")
+
+    st.markdown("")
+
+    # ── Kategori filtresi ─────────────────────────────────────────────────────
+    all_cats = sorted(set(r.get("category", "Diğer") for r in rules))
+    cf1, cf2 = st.columns([2, 2])
+    with cf1:
+        cat_filter = st.selectbox("Kategori filtresi", ["Tümü"] + all_cats, key="tr_cat_filter")
+    with cf2:
+        show_inactive = st.checkbox("Devre dışıları da göster", value=False, key="tr_show_inactive")
+
+    filtered = [
+        r for r in rules
+        if (cat_filter == "Tümü" or r.get("category") == cat_filter)
+        and (show_inactive or r.get("active", True))
+    ]
+
+    # ── Kuralları kategoriye göre grupla ──────────────────────────────────────
+    from collections import defaultdict
+    grouped: dict[str, list] = defaultdict(list)
+    for r in filtered:
+        grouped[r.get("category", "Diğer")].append(r)
+
+    for cat, cat_rules in grouped.items():
+        fg, bg = CAT_COLORS.get(cat, ("#8b949e", "#161b22"))
+        icon   = CAT_ICONS.get(cat, "📌")
+
+        st.markdown(
+            f"<div style='display:flex;align-items:center;gap:0.6rem;"
+            f"margin:1.2rem 0 0.5rem'>"
+            f"<span style='background:{bg};color:{fg};padding:3px 10px;"
+            f"border-radius:6px;font-size:12px;font-weight:600;"
+            f"letter-spacing:0.04em'>{icon} {cat}</span>"
+            f"<span style='flex:1;height:1px;background:#21262d'></span>"
+            f"<span style='font-size:12px;color:#484f58'>{len(cat_rules)} kural</span>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+        for r in cat_rules:
+            rid     = r["id"]
+            active  = r.get("active", True)
+            opacity = "1" if active else "0.4"
+
+            # Düzenleme modu
+            edit_key = f"tr_edit_{rid}"
+            st.session_state.setdefault(edit_key, False)
+
+            rule_card_style = (
+                f"background:#161b22;border:1px solid "
+                f"{'#21262d' if active else '#161b22'};"
+                f"border-left:3px solid {fg if active else '#30363d'};"
+                f"border-radius:10px;padding:0.7rem 0.9rem;"
+                f"margin-bottom:0.4rem;opacity:{opacity}"
+            )
+
+            st.markdown(f"<div style='{rule_card_style}'>", unsafe_allow_html=True)
+
+            if st.session_state.get(edit_key):
+                # Edit mode
+                edited_text = st.text_area(
+                    "Kuralı düzenle",
+                    value=r["rule"],
+                    key=f"tr_edit_text_{rid}",
+                    height=80,
+                )
+                edited_cat = st.selectbox(
+                    "Kategori",
+                    CATEGORIES,
+                    index=CATEGORIES.index(r.get("category", "Diğer")) if r.get("category") in CATEGORIES else 0,
+                    key=f"tr_edit_cat_{rid}",
+                )
+                ec1, ec2 = st.columns(2)
+                with ec1:
+                    if st.button("💾 Kaydet", key=f"tr_save_{rid}", use_container_width=True, type="primary"):
+                        idx = next((i for i, x in enumerate(rules) if x["id"] == rid), None)
+                        if idx is not None:
+                            rules[idx]["rule"]     = edited_text.strip()
+                            rules[idx]["category"] = edited_cat
+                        _save_rules(rules)
+                        st.session_state.tr_rules = rules
+                        st.session_state[edit_key] = False
+                        st.rerun()
+                with ec2:
+                    if st.button("İptal", key=f"tr_cancel_{rid}", use_container_width=True):
+                        st.session_state[edit_key] = False
+                        st.rerun()
+            else:
+                # View mode
+                num_in_cat = cat_rules.index(r) + 1
+                st.markdown(
+                    f"<div style='display:flex;align-items:flex-start;gap:0.7rem'>"
+                    f"<span style='color:{fg};font-family:\"Space Mono\",monospace;"
+                    f"font-size:12px;min-width:22px;margin-top:1px'>{num_in_cat:02d}</span>"
+                    f"<span style='color:#c9d1d9;font-size:14px;line-height:1.65'>{r['rule']}</span>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+                # Action buttons
+                b1, b2, b3, _ = st.columns([1, 1, 1, 4])
+                with b1:
+                    toggle_lbl = "⏸️" if active else "▶️"
+                    if st.button(toggle_lbl, key=f"tr_toggle_{rid}", help="Aktif/Devre dışı",
+                                 use_container_width=True):
+                        idx = next((i for i, x in enumerate(rules) if x["id"] == rid), None)
+                        if idx is not None:
+                            rules[idx]["active"] = not active
+                        _save_rules(rules)
+                        st.session_state.tr_rules = rules
+                        st.rerun()
+                with b2:
+                    if st.button("✏️", key=f"tr_edit_btn_{rid}", help="Düzenle",
+                                 use_container_width=True):
+                        st.session_state[edit_key] = True
+                        st.rerun()
+                with b3:
+                    if st.button("🗑️", key=f"tr_del_{rid}", help="Sil",
+                                 use_container_width=True):
+                        rules = [x for x in rules if x["id"] != rid]
+                        _save_rules(rules)
+                        st.session_state.tr_rules = rules
+                        st.rerun()
+
+            st.markdown("</div>", unsafe_allow_html=True)
+
+    if not filtered:
+        st.markdown(
+            f"<div style='text-align:center;padding:2.5rem;color:#30363d;"
+            f"border:1px dashed #21262d;border-radius:10px'>"
+            f"<div style='font-size:2rem;margin-bottom:0.5rem'>📜</div>"
+            f"<div style='font-size:14px;color:#484f58'>Bu kategoride kural yok</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
