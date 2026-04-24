@@ -7,6 +7,7 @@ from components.stats_bar import render_stats_bar
 from components.analytics_dashboard import render_analytics
 from components.backup import render_backup
 from components.pnl_chart import render_pnl_chart
+from components.trade_rules import render_trade_rules
 
 st.set_page_config(
     page_title="TradeVault",
@@ -321,11 +322,12 @@ if st.session_state.show_new_pos:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ── Sekmeler ─────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📈 Aktif Pozisyonlar",
     "📁 Kapalı İşlemler",
     "📉 PnL Grafik",
     "📊 Analitik",
+    "⚖️ Trade Yasaları",
     "💾 Yedek / Arşiv",
 ])
 
@@ -338,4 +340,6 @@ with tab3:
 with tab4:
     render_analytics(st.session_state.data)
 with tab5:
+    render_trade_rules()
+with tab6:
     render_backup(st.session_state.data)
