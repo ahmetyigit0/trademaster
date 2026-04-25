@@ -226,14 +226,17 @@ def render_trade_rules():
         fg, bg = CAT_COLORS.get(cat, ("#8b949e", "#161b22"))
         icon   = CAT_ICONS.get(cat, "📌")
 
+        # Kategori başlığı — şerit yok, sadece başlık + sayı badge
         st.markdown(
-            f"<div style='display:flex;align-items:center;gap:0.6rem;"
-            f"margin:1.2rem 0 0.5rem'>"
-            f"<span style='background:{bg};color:{fg};padding:3px 10px;"
-            f"border-radius:6px;font-size:12px;font-weight:600;"
-            f"letter-spacing:0.04em'>{icon} {cat}</span>"
-            f"<span style='flex:1;height:1px;background:#21262d'></span>"
-            f"<span style='font-size:12px;color:#484f58'>{len(cat_rules)} kural</span>"
+            f"<div style='display:flex;align-items:center;gap:0.7rem;"
+            f"margin:1.4rem 0 0.6rem'>"
+            f"<div style='background:{bg};border:1px solid {fg}33;"
+            f"color:{fg};padding:5px 14px;border-radius:8px;"
+            f"font-size:14px;font-weight:700;letter-spacing:0.03em'>"
+            f"{icon} {cat}</div>"
+            f"<div style='background:#21262d;color:#8b949e;padding:3px 10px;"
+            f"border-radius:20px;font-size:13px;font-weight:600'>"
+            f"{len(cat_rules)} kural</div>"
             f"</div>",
             unsafe_allow_html=True,
         )
@@ -290,10 +293,12 @@ def render_trade_rules():
                 # View mode
                 num_in_cat = cat_rules.index(r) + 1
                 st.markdown(
-                    f"<div style='display:flex;align-items:flex-start;gap:0.7rem'>"
+                    f"<div style='display:flex;align-items:flex-start;gap:0.8rem;padding:0.2rem 0'>"
                     f"<span style='color:{fg};font-family:\"Space Mono\",monospace;"
-                    f"font-size:12px;min-width:22px;margin-top:1px'>{num_in_cat:02d}</span>"
-                    f"<span style='color:#c9d1d9;font-size:14px;line-height:1.65'>{r['rule']}</span>"
+                    f"font-size:14px;min-width:26px;margin-top:2px;font-weight:700'>"
+                    f"{num_in_cat:02d}</span>"
+                    f"<span style='color:#e6edf3;font-size:15px;line-height:1.7;font-weight:500'>"
+                    f"{r['rule']}</span>"
                     f"</div>",
                     unsafe_allow_html=True,
                 )

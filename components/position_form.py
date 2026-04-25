@@ -34,12 +34,21 @@ def _render_form(edit_id=None):
         if pos is None:
             st.error("Pozisyon bulunamadı.")
             return
-        st.markdown(f"#### ✏️ Pozisyonu Düzenle — #{edit_id} {pos['symbol']}")
-    else:
-        st.markdown("#### ➕ Yeni Pozisyon")
         st.markdown(
-            "<div style='font-style:italic;color:#484f58;font-size:13px;"
-            "border-left:2px solid #1f6feb;padding:4px 10px;margin:-4px 0 12px;line-height:1.6'>"
+            f"<div style='font-size:1.15rem;font-weight:700;color:#f0f6fc;"
+            f"margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #21262d'>"
+            f"✏️ Pozisyonu Düzenle — #{edit_id} {pos['symbol']}</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            "<div style='font-size:1.15rem;font-weight:700;color:#f0f6fc;"
+            "margin-bottom:6px'>➕ Yeni Pozisyon</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            "<div style='font-style:italic;color:#6e7681;font-size:14px;"
+            "border-left:2px solid #1f6feb;padding:5px 12px;margin-bottom:14px;line-height:1.65'>"
             "\"Herkes teknik analiz bilebilir, ancak çok az kişi belirli bir plana sadık kalabilir.\""
             "</div>",
             unsafe_allow_html=True,
@@ -57,11 +66,16 @@ def _render_form(edit_id=None):
         dir_idx   = 0 if not editing or pos["direction"] == "LONG" else 1
         direction = st.selectbox("Yön", ["LONG", "SHORT"], index=dir_idx, key=f"{px}dir")
     with c3:
-        lev_def     = pos.get("leverage", 1) if editing else 1
-        lev_options = sorted(set(LEVERAGES + ([lev_def] if lev_def not in LEVERAGES else [])))
-        lev_idx     = lev_options.index(lev_def)
-        leverage    = st.selectbox("Kaldıraç", lev_options, index=lev_idx,
-                                   key=f"{px}lev", format_func=lambda x: f"{x}×")
+        # Serbest sayı girişi — kullanıcı istediği kaldıracı yazabilir
+        lev_def  = float(pos.get("leverage", 1)) if editing else 1.0
+        leverage = st.number_input(
+            "Kaldıraç (×)",
+            min_value=1.0, max_value=500.0,
+            value=lev_def, step=1.0,
+            key=f"{px}lev",
+            help="1× = kaldıraçsız. İstediğin değeri yazabilirsin.",
+        )
+        leverage = max(1.0, leverage)
     with c4:
         capital = st.number_input("Sermaye ($)", min_value=1.0,
                                   value=float(pos["capital"]) if editing else 10000.0,
