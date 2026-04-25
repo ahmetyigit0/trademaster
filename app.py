@@ -22,14 +22,18 @@ st.markdown("""
 
 *, *::before, *::after { box-sizing: border-box; }
 
-html, body,
+/* ══ BASE — her şey büyük ve net ══ */
+html { font-size: 16px !important; }
+
+body,
 [data-testid="stAppViewContainer"],
 [data-testid="stMain"],
 .main, .stApp {
     background: #0d1117 !important;
-    color: #c9d1d9 !important;
+    color: #e6edf3 !important;              /* daha parlak beyaz */
     font-family: 'DM Sans', sans-serif !important;
-    font-size: 15px !important;
+    font-size: 16px !important;
+    line-height: 1.6 !important;
 }
 
 #MainMenu, footer, header,
@@ -39,43 +43,59 @@ html, body,
 
 .block-container { padding:1.25rem 1.5rem 4rem !important; max-width:1400px !important; }
 
-/* ── Typography ── */
-p, li, span, div { font-size:15px; }
-label, [data-testid="stWidgetLabel"] > div,
-[data-testid="stWidgetLabel"] p {
-    font-size:14px !important; font-weight:500 !important;
-    color:#8b949e !important; margin-bottom:4px !important;
+/* ══ TÜM METİNLER — büyük ve okunabilir ══ */
+p, li, td, th { font-size:16px !important; color:#e6edf3 !important; }
+span          { font-size:inherit; color:inherit; }
+
+/* Widget label'ları — belirgin gri yerine açık gri */
+label,
+[data-testid="stWidgetLabel"] > div,
+[data-testid="stWidgetLabel"] p,
+[data-testid="stWidgetLabel"] label {
+    font-size: 15px !important;
+    font-weight: 600 !important;
+    color: #b1bac4 !important;       /* eskiden #8b949e, şimdi daha açık */
+    margin-bottom: 5px !important;
+    letter-spacing: 0.01em !important;
 }
-[data-testid="stMetricLabel"] > div { font-size:13px !important; color:#8b949e !important; }
-[data-testid="stMetricValue"] > div { font-size:22px !important; font-weight:700 !important; color:#f0f6fc !important; }
-[data-testid="stCaptionContainer"] p { font-size:13px !important; color:#6e7681 !important; }
-h1 { font-size:1.9rem !important; }
-h2 { font-size:1.5rem !important; }
-h3 { font-size:1.25rem !important; }
-h4 { font-size:1.1rem !important; }
-strong, b { color:#e6edf3; }
+
+/* Metric */
+[data-testid="stMetricLabel"] > div  { font-size:14px !important; color:#b1bac4 !important; font-weight:600 !important; }
+[data-testid="stMetricValue"] > div  { font-size:24px !important; font-weight:700 !important; color:#f0f6fc !important; }
+[data-testid="stCaptionContainer"] p { font-size:14px !important; color:#8b949e !important; }
+
+/* Headings */
+h1 { font-size:2rem   !important; color:#f0f6fc !important; }
+h2 { font-size:1.6rem !important; color:#f0f6fc !important; }
+h3 { font-size:1.3rem !important; color:#f0f6fc !important; }
+h4 { font-size:1.15rem !important; color:#f0f6fc !important; }
+h5 { font-size:1.05rem !important; color:#e6edf3 !important; }
+strong, b { color:#f0f6fc !important; }
 
 /* ── Header ── */
 .tv-header { display:flex; align-items:center; justify-content:space-between;
   padding:1rem 0 1.25rem; border-bottom:1px solid #21262d; margin-bottom:1.25rem; }
-.tv-logo { font-family:'Space Mono',monospace; font-size:1.5rem; font-weight:700;
+.tv-logo { font-family:'Space Mono',monospace; font-size:1.55rem; font-weight:700;
   color:#f0f6fc; letter-spacing:-0.02em; }
 .tv-logo span { color:#58a6ff; }
-.tv-tagline { font-size:0.75rem; color:#484f58; letter-spacing:0.12em;
+.tv-tagline { font-size:0.78rem; color:#6e7681; letter-spacing:0.12em;
   text-transform:uppercase; margin-top:0.15rem; }
 
-/* ── "Yeni Pozisyon" inline panel — mavi kenarlık, şerit yok ── */
+/* ── Yeni Pozisyon paneli — mavi çerçeve, sıfır şerit ── */
 .new-pos-panel {
-    background:#161b22;
-    border:2px solid #1f6feb;
-    border-radius:16px;
-    padding:1.4rem 1.4rem 0.6rem;
-    margin-bottom:1.5rem;
-    box-shadow:0 0 24px rgba(31,111,235,0.12);
+    background: #161b22;
+    border: 2px solid #1f6feb;
+    border-radius: 16px;
+    padding: 1.4rem 1.4rem 0.8rem;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 0 28px rgba(31,111,235,0.14);
 }
+/* Streamlit markdown h4 öncesindeki otomatik divider'ı gizle */
+.new-pos-panel hr,
+.new-pos-panel [data-testid="stMarkdownContainer"] hr { display:none !important; }
 
 /* ── Section titles ── */
-.section-title { font-family:'Space Mono',monospace; font-size:0.72rem; letter-spacing:0.18em;
+.section-title { font-family:'Space Mono',monospace; font-size:0.74rem; letter-spacing:0.18em;
   text-transform:uppercase; color:#6e7681; margin:1.6rem 0 0.8rem;
   display:flex; align-items:center; gap:0.6rem; }
 .section-title::after { content:''; flex:1; height:1px; background:#21262d; }
@@ -86,184 +106,220 @@ strong, b { color:#e6edf3; }
 .card:hover { border-color:#58a6ff; }
 
 /* ── Detail grid ── */
-.detail-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr));
+.detail-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(145px,1fr));
   gap:0.55rem; margin-top:0.8rem; }
 .detail-item { background:#0d1117; border:1px solid #21262d;
-  border-radius:7px; padding:0.6rem 0.75rem; }
-.detail-label { font-size:0.68rem; color:#6e7681; text-transform:uppercase;
+  border-radius:8px; padding:0.65rem 0.8rem; }
+.detail-label { font-size:0.68rem; color:#8b949e; text-transform:uppercase;
   letter-spacing:0.1em; margin-bottom:0.25rem; }
-.detail-value { font-family:'Space Mono',monospace; font-size:0.9rem;
-  color:#c9d1d9; font-weight:700; }
+.detail-value { font-family:'Space Mono',monospace; font-size:0.95rem;
+  color:#e6edf3; font-weight:700; }
 
 /* ── Stats bar ── */
 .stats-container { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
   gap:0.65rem; margin-bottom:1.3rem; }
 .stat-card { background:#161b22; border:1px solid #21262d;
-  border-radius:16px; padding:0.9rem 1rem;
-  transition:border-color 0.2s; }
+  border-radius:16px; padding:0.9rem 1rem; transition:border-color 0.2s; }
 .stat-card:hover { border-color:#58a6ff; }
-.stat-label { font-size:0.68rem; color:#6e7681; text-transform:uppercase;
-  letter-spacing:0.1em; margin-bottom:0.35rem; }
-.stat-value { font-family:'Space Mono',monospace; font-size:1.15rem;
+.stat-label { font-size:0.72rem; color:#8b949e; text-transform:uppercase;
+  letter-spacing:0.1em; margin-bottom:0.35rem; font-weight:600; }
+.stat-value { font-family:'Space Mono',monospace; font-size:1.2rem;
   font-weight:700; color:#f0f6fc; }
 
-/* ── Form controls ── */
+/* ══ FORM CONTROLS ══ */
 input[type="text"], input[type="number"], input[type="email"],
 input[type="password"], input[type="search"], textarea,
 [data-testid="stTextInput"] input,
 [data-testid="stNumberInput"] input,
 [data-testid="stTextArea"] textarea {
-    background:#0d1117 !important; border:1px solid #30363d !important;
-    border-radius:7px !important; color:#c9d1d9 !important;
-    font-family:'DM Sans',sans-serif !important; font-size:15px !important;
-    -webkit-text-fill-color:#c9d1d9 !important;
+    background: #161b22 !important;
+    border: 1.5px solid #30363d !important;
+    border-radius: 8px !important;
+    color: #e6edf3 !important;
+    font-family: 'DM Sans', sans-serif !important;
+    font-size: 16px !important;
+    font-weight: 500 !important;
+    -webkit-text-fill-color: #e6edf3 !important;
+    padding: 0.45rem 0.7rem !important;
 }
 input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:focus {
-    -webkit-box-shadow:0 0 0 100px #0d1117 inset !important;
-    -webkit-text-fill-color:#c9d1d9 !important; border-color:#30363d !important;
+    -webkit-box-shadow: 0 0 0 100px #161b22 inset !important;
+    -webkit-text-fill-color: #e6edf3 !important;
+    border-color: #30363d !important;
 }
 [data-testid="stTextInput"] input:focus,
 [data-testid="stNumberInput"] input:focus,
 [data-testid="stTextArea"] textarea:focus {
-    border-color:#58a6ff !important;
-    box-shadow:0 0 0 2px rgba(88,166,255,0.15) !important; outline:none !important;
+    border-color: #58a6ff !important;
+    box-shadow: 0 0 0 3px rgba(88,166,255,0.18) !important;
+    outline: none !important;
 }
 
 /* Selectbox */
 [data-testid="stSelectbox"] > div > div,
 [data-testid="stSelectbox"] [data-baseweb="select"] > div {
-    background:#0d1117 !important; border:1px solid #30363d !important;
-    border-radius:7px !important; color:#c9d1d9 !important; font-size:15px !important;
+    background: #161b22 !important;
+    border: 1.5px solid #30363d !important;
+    border-radius: 8px !important;
+    color: #e6edf3 !important;
+    font-size: 16px !important;
+    font-weight: 500 !important;
 }
 [data-testid="stSelectbox"] svg { color:#58a6ff !important; fill:#58a6ff !important; }
-[data-baseweb="popover"] [role="listbox"],[data-baseweb="menu"],[data-baseweb="popover"] ul {
-    background:#161b22 !important; border:1px solid #30363d !important; border-radius:8px !important;
+
+[data-baseweb="popover"] [role="listbox"],
+[data-baseweb="menu"],
+[data-baseweb="popover"] ul {
+    background:#1c2128 !important; border:1.5px solid #30363d !important; border-radius:10px !important;
 }
-[data-baseweb="popover"] li,[data-baseweb="menu"] li {
-    background:#161b22 !important; color:#c9d1d9 !important; font-size:15px !important;
+[data-baseweb="popover"] li,
+[data-baseweb="menu"] li {
+    background:#1c2128 !important; color:#e6edf3 !important; font-size:16px !important;
 }
-[data-baseweb="popover"] li:hover,[data-baseweb="menu"] li:hover {
-    background:#21262d !important; color:#f0f6fc !important;
-}
+[data-baseweb="popover"] li:hover,
+[data-baseweb="menu"] li:hover { background:#21262d !important; color:#f0f6fc !important; }
 
 /* Multiselect */
 [data-testid="stMultiSelect"] > div > div {
-    background:#0d1117 !important; border:1px solid #30363d !important;
-    border-radius:7px !important; color:#c9d1d9 !important; font-size:15px !important;
+    background:#161b22 !important; border:1.5px solid #30363d !important;
+    border-radius:8px !important; color:#e6edf3 !important; font-size:16px !important;
 }
 [data-testid="stMultiSelect"] [data-baseweb="tag"] {
-    background:#21262d !important; color:#c9d1d9 !important; border-radius:5px !important;
+    background:#21262d !important; color:#e6edf3 !important; border-radius:6px !important;
+    font-size:14px !important; padding:2px 8px !important;
 }
 
 /* Slider */
 [data-testid="stSlider"] [data-baseweb="slider"] div[role="slider"] {
-    background:#58a6ff !important; border-color:#58a6ff !important;
+    background:#58a6ff !important; border-color:#58a6ff !important; width:20px !important; height:20px !important;
 }
-[data-testid="stSlider"] [data-baseweb="slider"] [class*="Track"] { background:#21262d !important; }
+[data-testid="stSlider"] [data-baseweb="slider"] [class*="Track"] { background:#21262d !important; height:6px !important; }
 [data-testid="stSlider"] [data-testid="stTickBarMin"],
-[data-testid="stSlider"] [data-testid="stTickBarMax"] { font-size:13px !important; color:#6e7681 !important; }
+[data-testid="stSlider"] [data-testid="stTickBarMax"] { font-size:14px !important; color:#8b949e !important; }
 
-/* Checkbox — tek düzgün stil */
+/* Checkbox */
 [data-testid="stCheckbox"] { margin-bottom:4px !important; }
 [data-testid="stCheckbox"] label {
-    color:#c9d1d9 !important; font-size:15px !important;
-    gap:8px !important; align-items:center !important;
+    color:#e6edf3 !important; font-size:16px !important; font-weight:500 !important;
+    gap:10px !important; align-items:center !important;
 }
-/* unchecked box */
 [data-testid="stCheckbox"] [data-baseweb="checkbox"] > div:first-child {
-    background:#0d1117 !important;
-    border:1.5px solid #30363d !important;
-    border-radius:4px !important;
-    width:18px !important; height:18px !important;
+    background:#161b22 !important; border:1.5px solid #30363d !important;
+    border-radius:5px !important; width:20px !important; height:20px !important;
     box-shadow:none !important;
 }
-/* checked box — mavi, yeşil değil */
-[data-testid="stCheckbox"] input[type="checkbox"]:checked
-  + [data-baseweb="checkbox"] > div:first-child,
 [data-testid="stCheckbox"] [data-baseweb="checkbox"][data-checked="true"] > div:first-child {
-    background:#1f6feb !important;
-    border-color:#1f6feb !important;
+    background:#1f6feb !important; border-color:#1f6feb !important;
 }
-/* checkmark rengi beyaz */
 [data-testid="stCheckbox"] [data-baseweb="checkbox"] svg {
     color:#ffffff !important; fill:#ffffff !important;
 }
 
 /* Number stepper */
 [data-testid="stNumberInput"] button {
-    background:#161b22 !important; border-color:#30363d !important; color:#8b949e !important;
+    background:#1c2128 !important; border-color:#30363d !important;
+    color:#b1bac4 !important; font-size:18px !important;
 }
-[data-testid="stNumberInput"] button:hover { background:#21262d !important; color:#c9d1d9 !important; }
+[data-testid="stNumberInput"] button:hover { background:#21262d !important; color:#e6edf3 !important; }
 
 /* File uploader */
 [data-testid="stFileUploader"] > div {
-    background:#161b22 !important; border:1px dashed #30363d !important;
-    border-radius:8px !important; color:#8b949e !important;
+    background:#161b22 !important; border:1.5px dashed #30363d !important;
+    border-radius:10px !important; color:#8b949e !important;
 }
 [data-testid="stFileUploader"] button {
-    background:#21262d !important; color:#c9d1d9 !important;
-    border:1px solid #30363d !important; border-radius:6px !important;
+    background:#21262d !important; color:#e6edf3 !important;
+    border:1.5px solid #30363d !important; border-radius:7px !important; font-size:15px !important;
 }
 
 /* ── Buttons ── */
 .stButton button {
-    border-radius:7px !important; font-family:'DM Sans',sans-serif !important;
-    font-weight:500 !important; font-size:15px !important;
-    transition:all 0.15s ease !important; border:1px solid #30363d !important;
-    background:#21262d !important; color:#c9d1d9 !important;
-    padding:0.45rem 0.9rem !important;
+    border-radius: 8px !important;
+    font-family: 'DM Sans', sans-serif !important;
+    font-weight: 600 !important;
+    font-size: 15px !important;
+    transition: all 0.15s ease !important;
+    border: 1.5px solid #30363d !important;
+    background: #21262d !important;
+    color: #e6edf3 !important;
+    padding: 0.5rem 1rem !important;
+    letter-spacing: 0.01em !important;
 }
 .stButton button:hover {
-    background:#30363d !important; border-color:#58a6ff !important;
-    color:#f0f6fc !important; transform:translateY(-1px) !important;
+    background: #30363d !important;
+    border-color: #58a6ff !important;
+    color: #f0f6fc !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 2px 8px rgba(88,166,255,0.15) !important;
 }
 [data-testid="baseButton-primary"] {
-    background:linear-gradient(135deg,#1f6feb,#1158c7) !important;
-    border-color:#1f6feb !important; color:#ffffff !important;
+    background: linear-gradient(135deg,#1f6feb,#1158c7) !important;
+    border-color: #1f6feb !important;
+    color: #ffffff !important;
+    font-weight: 700 !important;
 }
 [data-testid="baseButton-primary"]:hover {
-    background:linear-gradient(135deg,#388bfd,#1f6feb) !important;
-    border-color:#388bfd !important; color:#fff !important;
+    background: linear-gradient(135deg,#388bfd,#1f6feb) !important;
+    border-color: #388bfd !important;
 }
-
-/* ── "Yeni Pozisyon Ekle" main button ── */
-.add-btn-row { margin-bottom:1rem; }
 
 /* ── Expanders ── */
 [data-testid="stExpander"] {
-    background:#161b22 !important; border:1px solid #21262d !important;
-    border-radius:10px !important; margin-bottom:0.6rem !important;
+    background: #161b22 !important;
+    border: 1.5px solid #21262d !important;
+    border-radius: 12px !important;
+    margin-bottom: 0.65rem !important;
 }
 [data-testid="stExpander"] summary {
-    padding:0.9rem 1.05rem !important; font-family:'DM Sans',sans-serif !important;
-    font-size:15px !important; font-weight:500 !important;
-    color:#c9d1d9 !important; background:transparent !important;
+    padding: 0.95rem 1.1rem !important;
+    font-family: 'DM Sans', sans-serif !important;
+    font-size: 16px !important;
+    font-weight: 600 !important;
+    color: #e6edf3 !important;
+    background: transparent !important;
 }
-[data-testid="stExpander"] summary:hover { color:#f0f6fc !important; }
-[data-testid="stExpander"] [data-testid="stExpanderDetails"] { padding:0 1.05rem 1rem !important; }
+[data-testid="stExpander"] summary:hover { color: #f0f6fc !important; }
+[data-testid="stExpander"] [data-testid="stExpanderDetails"] { padding: 0 1.1rem 1rem !important; }
 
 /* ── Tabs ── */
 [data-testid="stTabs"] [data-baseweb="tab-list"] {
-    background:#161b22 !important; border-radius:9px !important;
-    gap:0.2rem !important; padding:0.25rem !important; border:1px solid #21262d !important;
+    background: #161b22 !important;
+    border-radius: 10px !important;
+    gap: 0.2rem !important;
+    padding: 0.25rem !important;
+    border: 1.5px solid #21262d !important;
 }
 [data-testid="stTabs"] [data-baseweb="tab"] {
-    background:transparent !important; color:#6e7681 !important;
-    border-radius:7px !important; font-family:'DM Sans',sans-serif !important;
-    font-weight:500 !important; font-size:14px !important; padding:0.5rem 1rem !important;
+    background: transparent !important;
+    color: #8b949e !important;
+    border-radius: 8px !important;
+    font-family: 'DM Sans', sans-serif !important;
+    font-weight: 600 !important;
+    font-size: 15px !important;
+    padding: 0.55rem 1.1rem !important;
 }
-[data-testid="stTabs"] [aria-selected="true"] { background:#21262d !important; color:#f0f6fc !important; }
+[data-testid="stTabs"] [aria-selected="true"] {
+    background: #21262d !important;
+    color: #f0f6fc !important;
+    box-shadow: inset 0 0 0 1px #30363d !important;
+}
 
 /* ── Alerts ── */
-[data-testid="stInfo"]    { background:#0d2238 !important; border-color:#1f6feb !important; color:#79c0ff !important; border-radius:8px !important; font-size:14px !important; }
-[data-testid="stSuccess"] { background:#0a2e1a !important; border-color:#238636 !important; color:#56d364 !important; border-radius:8px !important; font-size:14px !important; }
-[data-testid="stWarning"] { background:#2b1d0a !important; border-color:#9e6a03 !important; color:#e3b341 !important; border-radius:8px !important; font-size:14px !important; }
-[data-testid="stError"]   { background:#2d0f0f !important; border-color:#da3633 !important; color:#ff7b72 !important; border-radius:8px !important; font-size:14px !important; }
+[data-testid="stInfo"]    { background:#0d2238 !important; border-color:#1f6feb !important; color:#79c0ff !important; border-radius:10px !important; font-size:15px !important; }
+[data-testid="stSuccess"] { background:#0a2e1a !important; border-color:#238636 !important; color:#56d364 !important; border-radius:10px !important; font-size:15px !important; }
+[data-testid="stWarning"] { background:#2b1d0a !important; border-color:#9e6a03 !important; color:#e3b341 !important; border-radius:10px !important; font-size:15px !important; }
+[data-testid="stError"]   { background:#2d0f0f !important; border-color:#da3633 !important; color:#ff7b72 !important; border-radius:10px !important; font-size:15px !important; }
 
-/* ── Download button ── */
+/* Alert metni */
+[data-testid="stInfo"] p,
+[data-testid="stSuccess"] p,
+[data-testid="stWarning"] p,
+[data-testid="stError"] p { font-size:15px !important; font-weight:500 !important; }
+
+/* Download */
 [data-testid="stDownloadButton"] button {
-    background:#21262d !important; border:1px solid #30363d !important;
-    color:#c9d1d9 !important; border-radius:7px !important; font-size:15px !important;
+    background:#21262d !important; border:1.5px solid #30363d !important;
+    color:#e6edf3 !important; border-radius:8px !important; font-size:15px !important; font-weight:600 !important;
 }
 [data-testid="stDownloadButton"] button:hover {
     background:#30363d !important; border-color:#58a6ff !important; color:#f0f6fc !important;
@@ -273,17 +329,15 @@ hr { border-color:#21262d !important; margin:1rem 0 !important; }
 
 ::-webkit-scrollbar { width:5px; height:5px; }
 ::-webkit-scrollbar-track { background:#0d1117; }
-::-webkit-scrollbar-thumb { background:#21262d; border-radius:3px; }
-::-webkit-scrollbar-thumb:hover { background:#30363d; }
+::-webkit-scrollbar-thumb { background:#30363d; border-radius:3px; }
+::-webkit-scrollbar-thumb:hover { background:#484f58; }
 
 @media (max-width:768px) {
-    html, body, .stApp { font-size:15px !important; }
+    html { font-size:15px !important; }
     .block-container { padding:0.75rem 0.75rem 3rem !important; }
     .detail-grid  { grid-template-columns:repeat(2,1fr) !important; }
     .stats-container { grid-template-columns:repeat(2,1fr) !important; }
-    [data-testid="stTabs"] [data-baseweb="tab"] { font-size:13px !important; padding:0.4rem 0.55rem !important; }
-    .tv-logo { font-size:1.2rem; }
-    .stButton button { font-size:14px !important; }
+    [data-testid="stTabs"] [data-baseweb="tab"] { font-size:13px !important; padding:0.45rem 0.6rem !important; }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -298,16 +352,13 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# ── State ─────────────────────────────────────────────────────────────────────
 if "data" not in st.session_state:
     st.session_state.data = load_data()
 if "show_new_pos" not in st.session_state:
     st.session_state.show_new_pos = False
 
-# ── Stats bar ─────────────────────────────────────────────────────────────────
 render_stats_bar(st.session_state.data)
 
-# ── "Yeni Pozisyon Ekle" butonu — tab dışında, sayfanın üstünde ──────────────
 btn_col, _ = st.columns([1, 5])
 with btn_col:
     btn_label = "✕ Formu Kapat" if st.session_state.show_new_pos else "＋ Yeni Pozisyon Ekle"
@@ -315,13 +366,11 @@ with btn_col:
         st.session_state.show_new_pos = not st.session_state.show_new_pos
         st.rerun()
 
-# ── Yeni pozisyon formu (tab dışı, inline panel) ─────────────────────────────
 if st.session_state.show_new_pos:
     st.markdown('<div class="new-pos-panel">', unsafe_allow_html=True)
     render_position_form()
     st.markdown('</div>', unsafe_allow_html=True)
 
-# ── Sekmeler ─────────────────────────────────────────────────────────────────
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📈 Aktif Pozisyonlar",
     "📁 Kapalı İşlemler",
