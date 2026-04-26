@@ -13,8 +13,8 @@ from utils.calculations import (
 SETUP_TYPES  = ["Liquidity Sweep", "Breakout", "Trend Devamı", "Range", "Haber", "Diğer"]
 EMOTIONS     = ["Sakin 😌", "FOMO 😰", "İntikam 😤", "Endişeli 😟", "Güvenli 💪"]
 MARKET_CONDS = ["Trend", "Range", "Volatil", "Düşük Hacim", "Haber"]
-SL_PRESETS   = [0.5, 1.0, 1.5, 2.0, 3.0, 5.0]
-TP_PRESETS   = [0.5, 1.0, 1.5, 2.0, 3.0, 5.0, 8.0, 10.0]
+SL_PRESETS   = [0.3, 0.5, 0.7, 1.0, 1.2, 1.5, 1.8, 2.0, 2.5, 3.0, 4.0, 5.0]
+TP_PRESETS   = [0.5, 0.8, 1.0, 1.2, 1.5, 1.8, 2.0, 2.5, 3.0, 4.0, 5.0, 7.0, 10.0]
 
 _SZ = "pf__sz"; _VER = "pf__ver"
 _G="#3fb950"; _R="#ff7b72"; _B="#58a6ff"; _Y="#e3b341"
@@ -487,24 +487,26 @@ def _render_form(edit_id=None):
                       f"${calc['risk_amount']:,.0f}",
                       _Y)
         with mc2:
-            cap_risk = calc['full_capital_risk_pct']
-            _info_box("Sermaye Risk",
-                      f"%{cap_risk:.2f}",
-                      _R if cap_risk > risk_pct else _G)
-        with mc3:
-            rr_str = f"1:{rr}" if rr else "—"
-            rrc    = rr_color(rr) if rr else _DT
-            _info_box("R:R", rr_str, rrc)
-        with mc4:
-            _info_box("Kaldıraçlı",
-                      f"${position_size*lev:,.0f}" if lev > 1 else "—",
-                      _B)
-        with mc5:
+            # Poz. Riski = bu pozisyon büyüklüğüyle stop'a gidersek sermayenin kaçını kaybederiz
             pos_risk_usd = position_size * calc.get("risk_per_unit", 0)
             pos_risk_pct = pos_risk_usd / capital * 100 if capital > 0 else 0
             _info_box("Poz. Riski",
                       f"%{pos_risk_pct:.2f}",
-                      _R if pos_risk_pct > risk_pct*1.5 else _Y if pos_risk_pct > risk_pct else _G)
+                      _R if pos_risk_pct > risk_pct else _Y if pos_risk_pct > risk_pct * 0.8 else _G)
+        with mc3:
+            # Sermaye Riski = tüm sermayeyi yatırırsan kaybedersin (giriş noktasına göre)
+            cap_risk = calc["full_capital_risk_pct"]
+            _info_box("Sermaye Risk",
+                      f"%{cap_risk:.2f}",
+                      _R if cap_risk > risk_pct else _G)
+        with mc4:
+            rr_str = f"1:{rr}" if rr else "—"
+            rrc    = rr_color(rr) if rr else _DT
+            _info_box("R:R", rr_str, rrc)
+        with mc5:
+            _info_box("Kaldıraçlı",
+                      f"${position_size*lev:,.0f}" if lev > 1 else "—",
+                      _B)
 
         st.markdown("</div>", unsafe_allow_html=True)
     else:
@@ -537,7 +539,7 @@ def _render_form(edit_id=None):
     with jc3:
         ei    = EMOTIONS.index(pos["emotion"]) if editing and pos.get("emotion") in EMOTIONS else 0
         emo   = st.selectbox("Psikoloji", EMOTIONS, index=ei, key=f"{px}emo")
-        pf    = st.checkbox("✅ Plana uyuldu", value=pos.get("plan_followed",True) if editing else True,
+        pf    = st.checkbox("☑️ Plana uyuldu", value=pos.get("plan_followed",True) if editing else True,
                             key=f"{px}plan")
     with jc4:
         es    = st.slider("Execution", 0, 10,
@@ -550,19 +552,56 @@ def _render_form(edit_id=None):
     # ══════════════════════════════════════════════════════════════════════════
     # KAYDET
     # ══════════════════════════════════════════════════════════════════════════
-    sv1, sv2, sv3 = st.columns([1, 1, 3])
+    sv1, sv2, sv3, sv4 = st.columns([1.2, 1.2, 1, 2])
     with sv1:
         save_btn = st.button(
-            "✅ Kaydet" if not editing else "💾 Güncelle",
+            "✅ İşlemi Aç" if not editing else "💾 Güncelle",
             type="primary", use_container_width=True, key=f"{px}save",
         )
     with sv2:
+        draft_btn = st.button(
+            "📋 Taslak Kaydet",
+            use_container_width=True, key=f"{px}draft",
+        ) if not editing else False
+    with sv3:
         cancel_btn = st.button("✕ İptal", use_container_width=True,
                                key=f"{px}cancel")
 
     if cancel_btn:
         if editing:
             st.session_state[f"edit_mode_{edit_id}"] = False
+        _clear(px, sz_key, ver_key); st.rerun()
+
+    if not editing and draft_btn:
+        if not symbol:
+            st.error("Sembol giriniz."); return
+        if not entries:
+            st.error("En az bir entry fiyatı giriniz."); return
+        avg_e2 = calculate_avg_entry(entries)
+        calc_s = calculate_position_size(capital, risk_pct, avg_e2, stop_loss) if stop_loss > 0 else {}
+        rr_s   = calculate_rr(avg_e2, stop_loss, take_profits, direction) if stop_loss > 0 else None
+        data   = st.session_state.data
+        draft  = dict(
+            symbol=symbol, direction=direction, leverage=lev,
+            capital=capital, risk_pct=risk_pct,
+            entries=entries, avg_entry=avg_e2, stop_loss=stop_loss,
+            take_profits=take_profits, position_size=position_size,
+            effective_size=position_size * lev,
+            risk_calc=calc_s, rr=rr_s, heat=0,
+            setup_type=setup, market_condition=mkt,
+            emotion=emo, plan_followed=pf,
+            execution_score=es, mistakes=[], notes=notes,
+            is_draft=True,
+            id=data["next_id"],
+            created_at=datetime.now().isoformat(),
+        )
+        if "drafts" not in data:
+            data["drafts"] = []
+        data["drafts"].append(draft)
+        data["next_id"] += 1
+        save_data(data)
+        st.session_state.data = data
+        st.success(f"📋 {symbol} {direction} taslak olarak kaydedildi!")
         _clear(px, sz_key, ver_key); st.rerun()
 
     if save_btn:

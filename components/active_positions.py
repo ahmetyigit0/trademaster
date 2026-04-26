@@ -8,6 +8,67 @@ MISTAKES = ["early exit", "late entry", "no stop", "oversize", "revenge trade", 
 
 
 def render_active_positions(data: dict):
+    # ── Taslaklar ─────────────────────────────────────────────────────────────
+    drafts = data.get("drafts", [])
+    if drafts:
+        st.markdown(
+            "<div style='background:#0d1a2a;border:1px solid #1f6feb40;"
+            "border-left:3px solid #58a6ff;border-radius:10px;"
+            "padding:0.7rem 1rem;margin-bottom:0.8rem'>"
+            "<div style='font-size:13px;font-weight:700;color:#58a6ff;"
+            "margin-bottom:6px'>📋 Taslak İşlemler</div>",
+            unsafe_allow_html=True,
+        )
+        for draft in drafts:
+            did  = draft.get("id")
+            sym  = draft.get("symbol","?")
+            dire = draft.get("direction","LONG")
+            dc   = "#3fb950" if dire=="LONG" else "#ff7b72"
+            rr   = draft.get("rr")
+            rr_s = f"1:{rr}" if rr else "—"
+            avg  = draft.get("avg_entry", 0)
+            sl   = draft.get("stop_loss", 0)
+
+            d1, d2, d3, d4 = st.columns([2, 1, 1, 2])
+            with d1:
+                st.markdown(
+                    f"<div style='padding-top:6px;font-size:14px;font-weight:700;"
+                    f"color:#e6edf3'>{sym} "
+                    f"<span style='color:{dc};font-size:12px'>{dire}</span></div>",
+                    unsafe_allow_html=True,
+                )
+            with d2:
+                st.markdown(
+                    f"<div style='padding-top:6px;font-size:12px;color:#8b949e'>"
+                    f"RR: <b style='color:#e3b341'>{rr_s}</b></div>",
+                    unsafe_allow_html=True,
+                )
+            with d3:
+                if st.button("▶️ İşlem Aç", key=f"draft_open_{did}",
+                             use_container_width=True, type="primary"):
+                    # Taslaktan aktif pozisyona taşı
+                    pos_rec = {k: v for k, v in draft.items()
+                               if k not in ("is_draft",)}
+                    pos_rec["created_at"] = datetime.now().isoformat()
+                    pos_rec.pop("is_draft", None)
+                    data["active_positions"].append(pos_rec)
+                    data["drafts"] = [d for d in data["drafts"] if d.get("id") != did]
+                    save_data(data)
+                    st.session_state.data = data
+                    st.success(f"✅ {sym} pozisyonu açıldı!")
+                    st.rerun()
+            with d4:
+                if st.button("🗑️ Sil", key=f"draft_del_{did}",
+                             use_container_width=True):
+                    data["drafts"] = [d for d in data["drafts"] if d.get("id") != did]
+                    save_data(data)
+                    st.session_state.data = data
+                    st.rerun()
+
+        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("")
+
+    # ── Aktif pozisyonlar ─────────────────────────────────────────────────────
     positions = data.get("active_positions", [])
     if not positions:
         st.markdown("""
