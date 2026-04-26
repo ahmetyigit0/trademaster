@@ -58,7 +58,7 @@ def render_tradebot():
         f"<div style='font-size:1.15rem;font-weight:700;color:#f0f6fc;"
         f"margin-bottom:4px'>🤖 TradeBot</div>"
         f"<div style='font-size:13px;color:{_DT};margin-bottom:1rem'>"
-        f"Binance Demo Trading botu — <b style='color:#3fb950'>ccxt</b> tabanlı. "
+        f"OKX Demo Trading botu — <b style='color:#3fb950'>ccxt</b> tabanlı. "
         f"Streamlit Cloud üzerinde TR kısıtı olmadan çalışır. "
         f"Gerçek para riski yok.</div>",
         unsafe_allow_html=True,
@@ -77,36 +77,36 @@ def render_tradebot():
     # ════════════════════════════════════════
     # TESTNET SETUP KILAVUZU
     # ════════════════════════════════════════
-    with st.expander("📖 Demo API Key Nasıl Alınır? (İlk kurulum — 2 dakika)", expanded=False):
+    with st.expander("📖 OKX Demo API Key Nasıl Alınır? (İlk kurulum — 3 dakika)", expanded=False):
         st.markdown(
             f"""
 <div style='background:#0d2238;border:1px solid #1f6feb40;border-radius:10px;
             padding:1rem 1.2rem;font-size:14px;line-height:1.9;color:{_TX}'>
 
-<b style='color:#58a6ff'>ℹ️ Binance Demo Trading:</b>
-Gerçek fiyatlar, sanal para — gerçek para riski sıfır.
-TR'den de erişilebilir. Normal Binance hesabından farklı API key alınır.
+<b style='color:#58a6ff'>ℹ️ OKX Demo Trading:</b>
+Gerçek fiyatlar, sanal para — TR'den erişilebilir, ücretsiz.
 
 <b style='color:#f0f6fc'>Adım 1:</b>
-<a href='https://www.binance.com/en/my/settings/api-management' target='_blank'
-   style='color:#58a6ff'>binance.com → API Management</a> sayfasına git
-<span style='color:#8b949e'>(demo.binance.com → Profil → API Management da çalışır)</span>
+<a href='https://www.okx.com' target='_blank' style='color:#58a6ff'>okx.com</a>
+adresine git → Kayıt ol (veya giriş yap)
 
 <b style='color:#f0f6fc'>Adım 2:</b>
-<b>"Create API"</b> → <b>"System Generated"</b> seç → isim ver
+Sağ üst → Profil → <b>API</b> → <b>API oluştur</b>
 
 <b style='color:#f0f6fc'>Adım 3:</b>
-Oluşan API Key sayfasında → <b>"Enable Demo Trading"</b> kutucuğunu işaretle ✅
+API tipi: <b>"Demo trading"</b> seç ✅ → İsim ver → IP kısıtı bırak boş
 
 <b style='color:#f0f6fc'>Adım 4:</b>
-API Key ve Secret'ı kopyala → aşağıdaki kutulara yapıştır → <b>Kaydet</b>
+Bir <b>Passphrase</b> belirle (istediğin şifre) → Kaydet
 
 <b style='color:#f0f6fc'>Adım 5:</b>
-Botu başlat. Bakiye yoksa:
-<a href='https://demo.binance.com' target='_blank' style='color:#58a6ff'>demo.binance.com</a>
-→ Assets → <b>Futures</b> → <b>Transfer</b> ile USDT aktar.
+API Key, Secret ve Passphrase'i kopyala → aşağıya yapıştır → Kaydet
 
-<span style='color:#3fb950'>✅ Demo Trading: Gerçek piyasa fiyatları · Sanal para · Tam Futures desteği</span>
+<b style='color:#f0f6fc'>Bakiye yükle:</b>
+<a href='https://www.okx.com/demo-trading' target='_blank' style='color:#58a6ff'>
+okx.com/demo-trading</a> → Varlıklar → Futures hesabına USDT aktar
+
+<span style='color:#3fb950'>✅ OKX Demo: Gerçek fiyatlar · Sanal para · TR'de açık · Ücretsiz</span>
 </div>
 """,
             unsafe_allow_html=True,
@@ -122,7 +122,7 @@ Botu başlat. Bakiye yoksa:
         _section("⚙️", "Bot Ayarları")
 
         # API Keys
-        with st.expander("🔑 Demo Trading API Anahtarları", expanded=not snap["running"]):
+        with st.expander("🔑 OKX Demo API Anahtarları", expanded=not snap["running"]):
 
             # Demo Trading mode — her zaman açık
             use_testnet = st.checkbox(
@@ -152,11 +152,19 @@ Botu başlat. Bakiye yoksa:
                 placeholder="demo.binance.com'dan alınan API Key",
             )
             api_secret = st.text_input(
-                "Demo API Secret",
+                "OKX API Secret",
                 value=st.session_state.get("bot_api_secret", ""),
                 type="password",
                 key="bot_api_secret_input",
-                placeholder="demo.binance.com'dan alınan Secret",
+                placeholder="OKX API Secret",
+            )
+            api_pass = st.text_input(
+                "OKX Passphrase ✱",
+                value=st.session_state.get("bot_passphrase", ""),
+                type="password",
+                key="bot_passphrase_input",
+                placeholder="API oluştururken girdiğin Passphrase",
+                help="OKX'te her API key için passphrase zorunludur.",
             )
 
             if st.button("💾 Kaydet", key="bot_save_keys", use_container_width=True,
@@ -250,12 +258,14 @@ Botu başlat. Bakiye yoksa:
                          use_container_width=True, key="bot_start"):
                 saved_key    = st.session_state.get("bot_api_key", "").strip()
                 saved_secret = st.session_state.get("bot_api_secret", "").strip()
-                if not saved_key or not saved_secret:
-                    st.error("API Key ve Secret giriniz.")
+                saved_pass = st.session_state.get("bot_passphrase", "").strip()
+                if not saved_key or not saved_secret or not saved_pass:
+                    st.error("API Key, Secret ve Passphrase giriniz.")
                 else:
                     cfg = _build_cfg(strategy, symbol, timeframe,
                                      risk_pct, tp_pct, sl_pct, leverage, cooldown,
                                      dry_run, use_testnet)
+                    cfg["passphrase"] = saved_pass
                     ok  = start_bot(saved_key, saved_secret, cfg)
                     if ok:
                         st.success("Bot başlatıldı!")
