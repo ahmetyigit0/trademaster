@@ -58,7 +58,7 @@ def render_tradebot():
         f"<div style='font-size:1.15rem;font-weight:700;color:#f0f6fc;"
         f"margin-bottom:4px'>🤖 TradeBot</div>"
         f"<div style='font-size:13px;color:{_DT};margin-bottom:1rem'>"
-        f"Binance Futures Testnet botu — <b style='color:#3fb950'>ccxt</b> tabanlı. "
+        f"Binance Demo Trading botu — <b style='color:#3fb950'>ccxt</b> tabanlı. "
         f"Streamlit Cloud üzerinde TR kısıtı olmadan çalışır. "
         f"Gerçek para riski yok.</div>",
         unsafe_allow_html=True,
@@ -77,38 +77,36 @@ def render_tradebot():
     # ════════════════════════════════════════
     # TESTNET SETUP KILAVUZU
     # ════════════════════════════════════════
-    with st.expander("📖 Testnet API Key Nasıl Alınır? (İlk kurulum — 2 dakika)", expanded=False):
+    with st.expander("📖 Demo API Key Nasıl Alınır? (İlk kurulum — 2 dakika)", expanded=False):
         st.markdown(
             f"""
 <div style='background:#0d2238;border:1px solid #1f6feb40;border-radius:10px;
             padding:1rem 1.2rem;font-size:14px;line-height:1.9;color:{_TX}'>
 
-<b style='color:#58a6ff'>⚠️ Önemli:</b> Türkiye'den Binance.com API'ye erişim kısıtlıdır.
-Bunun yerine <b>Binance Futures Testnet</b> kullanıyoruz — tamamen ücretsiz ve gerçek
-para riski yok.
+<b style='color:#58a6ff'>ℹ️ Binance Demo Trading:</b>
+Gerçek fiyatlar, sanal para — gerçek para riski sıfır.
+TR'den de erişilebilir. Normal Binance hesabından farklı API key alınır.
 
 <b style='color:#f0f6fc'>Adım 1:</b>
-<a href='https://testnet.binancefuture.com' target='_blank'
-   style='color:#58a6ff'>testnet.binancefuture.com</a> adresine git
+<a href='https://www.binance.com/en/my/settings/api-management' target='_blank'
+   style='color:#58a6ff'>binance.com → API Management</a> sayfasına git
+<span style='color:#8b949e'>(demo.binance.com → Profil → API Management da çalışır)</span>
 
-<b style='color:#f0f6fc'>Adım 2:</b> GitHub hesabınla giriş yap (Google/GitHub OAuth)
+<b style='color:#f0f6fc'>Adım 2:</b>
+<b>"Create API"</b> → <b>"System Generated"</b> seç → isim ver
 
 <b style='color:#f0f6fc'>Adım 3:</b>
-Sağ üstte profil → <b>"API Key"</b> sekmesine tıkla
+Oluşan API Key sayfasında → <b>"Enable Demo Trading"</b> kutucuğunu işaretle ✅
 
 <b style='color:#f0f6fc'>Adım 4:</b>
-<b>"Generate HMAC_SHA256 Key"</b> butonuna bas → Key ve Secret'ı kopyala
+API Key ve Secret'ı kopyala → aşağıdaki kutulara yapıştır → <b>Kaydet</b>
 
 <b style='color:#f0f6fc'>Adım 5:</b>
-Aşağıdaki kutulara yapıştır → <b>Kaydet</b> → Botu başlat
+Botu başlat. Bakiye yoksa:
+<a href='https://demo.binance.com' target='_blank' style='color:#58a6ff'>demo.binance.com</a>
+→ Assets → <b>Futures</b> → <b>Transfer</b> ile USDT aktar.
 
-<span style='color:#3fb950'>✅ Testnet'te 10,000 USDT sanal bakiye otomatik verilir.</span>
-
-<b style='color:#e3b341'>💰 Bakiye bitti mi?</b>
-<a href='https://testnet.binancefuture.com' target='_blank' style='color:#58a6ff'>
-testnet.binancefuture.com</a> → sağ üst profil →
-<b>Assets</b> → <b>USDT Transfer</b> ile bakiye yenile
-veya yeni hesap oluştur.
+<span style='color:#3fb950'>✅ Demo Trading: Gerçek piyasa fiyatları · Sanal para · Tam Futures desteği</span>
 </div>
 """,
             unsafe_allow_html=True,
@@ -124,41 +122,41 @@ veya yeni hesap oluştur.
         _section("⚙️", "Bot Ayarları")
 
         # API Keys
-        with st.expander("🔑 Testnet API Anahtarları", expanded=not snap["running"]):
+        with st.expander("🔑 Demo Trading API Anahtarları", expanded=not snap["running"]):
 
-            # Testnet mode — her zaman açık, kullanıcı görsün
+            # Demo Trading mode — her zaman açık
             use_testnet = st.checkbox(
-                "✅ Binance Futures Testnet kullan",
-                value=True,   # SABIT — her zaman testnet
+                "✅ Binance Futures Demo Trading modu",
+                value=True,   # SABIT — her zaman demo
                 key="bot_testnet_chk",
                 disabled=True,   # kapatılamaz
                 help="Türkiye'den Binance.com'a doğrudan erişim kısıtlı. "
-                     "Testnet ücretsiz ve güvenlidir.",
+                     "Demo Trading ücretsiz ve güvenlidir.",
             )
 
             st.markdown(
                 f"<div style='background:#071a0e;border:1px solid #238636;"
                 f"border-radius:8px;padding:8px 12px;font-size:13px;margin:4px 0 10px'>"
-                f"🔗 Testnet URL: "
-                f"<a href='https://testnet.binancefuture.com' target='_blank' "
-                f"style='color:#58a6ff'>testnet.binancefuture.com</a>"
+                f"🔗 Demo URL: "
+                f"<a href='https://demo.binance.com' target='_blank' "
+                f"style='color:#58a6ff'>demo.binance.com</a>"
                 f"</div>",
                 unsafe_allow_html=True,
             )
 
             api_key = st.text_input(
-                "Testnet API Key",
+                "Demo API Key",
                 value=st.session_state.get("bot_api_key", ""),
                 type="password",
                 key="bot_api_key_input",
-                placeholder="testnet.binancefuture.com'dan alınan API Key",
+                placeholder="demo.binance.com'dan alınan API Key",
             )
             api_secret = st.text_input(
-                "Testnet API Secret",
+                "Demo API Secret",
                 value=st.session_state.get("bot_api_secret", ""),
                 type="password",
                 key="bot_api_secret_input",
-                placeholder="testnet.binancefuture.com'dan alınan Secret",
+                placeholder="demo.binance.com'dan alınan Secret",
             )
 
             if st.button("💾 Kaydet", key="bot_save_keys", use_container_width=True,
@@ -167,7 +165,7 @@ veya yeni hesap oluştur.
                     st.session_state["bot_api_key"]    = api_key.strip()
                     st.session_state["bot_api_secret"] = api_secret.strip()
                     st.session_state["bot_testnet"]    = True
-                    st.success("✅ Testnet API bilgileri kaydedildi.")
+                    st.success("✅ Demo API bilgileri kaydedildi.")
                 else:
                     st.error("API Key ve Secret boş bırakılamaz.")
 
@@ -242,7 +240,7 @@ veya yeni hesap oluştur.
         if not dry_run:
             st.warning(
                 "⚠️ **Dry Run kapalı** — gerçek Binance siparişleri gönderilecek! "
-                "Testnet kullanıyorsanız gerçek para riski yoktur."
+                "Demo Trading moduıyorsanız gerçek para riski yoktur."
             )
 
         # ── Başlat / Durdur ──────────────────────────────────────────────────
