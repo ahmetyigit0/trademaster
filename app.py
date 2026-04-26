@@ -358,6 +358,14 @@ if "data" not in st.session_state:
 if "show_new_pos" not in st.session_state:
     st.session_state.show_new_pos = False
 
+# ── Streamlit Cloud secrets → bot API keys otomatik yükle ────────────────────
+if "bot_api_key" not in st.session_state:
+    try:
+        st.session_state["bot_api_key"]    = st.secrets["binance"]["api_key"]
+        st.session_state["bot_api_secret"] = st.secrets["binance"]["api_secret"]
+    except Exception:
+        pass   # Secrets yok (lokal çalışma) — kullanıcı manuel girer
+
 render_stats_bar(st.session_state.data)
 
 btn_col, _ = st.columns([1, 5])

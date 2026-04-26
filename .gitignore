@@ -1,0 +1,20 @@
+# Gizli dosyalar - asla commit etme
+.streamlit/secrets.toml
+*.json
+trades_data.json
+trade_rules.json
+bot_log.json
+bot_state.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
