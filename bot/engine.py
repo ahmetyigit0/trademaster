@@ -1,49 +1,32 @@
 """
-TradeBot Engine — Binance Futures Testnet
-==========================================
-python-binance kütüphanesi KULLANILMIYOR.
-Tüm API çağrıları doğrudan requests ile testnet endpoint'lerine gider.
+TradeBot Engine — ccxt + Binance USDM Futures Testnet
+======================================================
+Streamlit Cloud üzerinde çalışır:
+  - ccxt.binanceusdm + set_sandbox_mode(True)
+  - Tüm REST çağrıları testnet.binancefuture.com/fapi/ → TR kısıtı yok
+  - Streamlit Cloud ABD/EU IP kullandığı için Binance.com'a da erişir
+  - Thread tabanlı: WebSocket veya polling ile canlı veri
 
-Testnet REST  : https://testnet.binancefuture.com/fapi/v1/...
-Testnet WS    : wss://stream.binancefuture.com/ws/  (public, auth gereksiz)
-
-Rate Limit Koruması:
-- Kline/fiyat verisi: WebSocket (polling yok)
-- Order: sadece sinyal gelince + 60s cooldown
-- Geçmiş veri: sadece başlangıçta 1 REST çağrısı
+Rate limit koruması:
+  - Kline: 5s polling (WebSocket ekstra bağımlılık gerektiriyor)
+  - Order: sinyal başına 1 adet + 60s cooldown
+  - fetchOHLCV: limit=50, 5s arayla → ~10 req/dk (limit: 1200/dk)
 """
 
 import threading
 import time
-import hmac
-import hashlib
-import json
-import ssl
-import urllib.request
-import urllib.parse
 from datetime import datetime, timezone
 from collections import deque
 from typing import Optional
 
 try:
-    import websocket          # pip install websocket-client
-    HAS_WS = True
+    import ccxt
+    HAS_CCXT = True
 except ImportError:
-    HAS_WS = False
+    HAS_CCXT = False
 
-try:
-    import requests as _req
-    HAS_REQUESTS = True
-except ImportError:
-    HAS_REQUESTS = False
-
-HAS_BINANCE = HAS_REQUESTS   # artık python-binance gerekmez
-
+HAS_BINANCE = HAS_CCXT
 MAX_LOG_ROWS = 200
-
-# ── Testnet endpoint'leri ─────────────────────────────────────────────────────
-_BASE_REST = "https://testnet.binancefuture.com"
-_BASE_WS   = "wss://stream.binancefuture.com/ws"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -66,8 +49,10 @@ class BotState:
         self.win_count   = 0
         self.loss_count  = 0
         self.last_price  = 0.0
-        self.candles     = deque(maxlen=300)
+        self.candles     = deque(maxlen=500)
         self.error       = ""
+        self.thought     = "Bot henüz başlatılmadı."   # canlı düşünce
+        self.indicators  = {}                           # son indikatör değerleri
 
     def set(self, **kwargs):
         with self._lock:
@@ -85,7 +70,7 @@ class BotState:
     def add_trade(self, trade: dict):
         with self._lock:
             self.trades.insert(0, trade)
-            if len(self.trades) > 100:
+            if len(self.trades) > 200:
                 self.trades.pop()
 
     def snapshot(self) -> dict:
@@ -105,6 +90,8 @@ class BotState:
                 "loss_count":  self.loss_count,
                 "last_price":  self.last_price,
                 "error":       self.error,
+                "thought":     self.thought,
+                "indicators":  dict(self.indicators),
             }
 
 
@@ -115,98 +102,27 @@ def get_state() -> BotState:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TESTNET HTTP CLIENT  (python-binance kullanmaz)
+# CCXT EXCHANGE FACTORY
 # ══════════════════════════════════════════════════════════════════════════════
 
-class TestnetClient:
+def _make_exchange(api_key: str, api_secret: str) -> "ccxt.binanceusdm":
     """
-    Doğrudan requests ile testnet.binancefuture.com'a bağlanır.
-    Hiçbir koşulda Binance.com ana URL'ine gitme riski yok.
+    ccxt.binanceusdm + set_sandbox_mode(True)
+    → Tüm istek testnet.binancefuture.com/fapi/ adresine gider.
+    TR IP kısıtı bu URL'de yoktur. Streamlit Cloud'dan da çalışır.
     """
-
-    def __init__(self, api_key: str, api_secret: str):
-        self.key    = api_key
-        self.secret = api_secret.encode()
-
-    # ── İmza ─────────────────────────────────────────────────────────────────
-    def _sign(self, params: dict) -> str:
-        qs  = urllib.parse.urlencode(params)
-        sig = hmac.new(self.secret, qs.encode(), hashlib.sha256).hexdigest()
-        return sig
-
-    def _ts(self) -> int:
-        return int(time.time() * 1000)
-
-    # ── HTTP yardımcıları ─────────────────────────────────────────────────────
-    def _get(self, path: str, params: dict = None, signed: bool = False) -> dict:
-        params = dict(params or {})
-        if signed:
-            params["timestamp"] = self._ts()
-            params["signature"] = self._sign(params)
-        url = f"{_BASE_REST}{path}"
-        headers = {"X-MBX-APIKEY": self.key}
-        r = _req.get(url, params=params, headers=headers, timeout=10)
-        r.raise_for_status()
-        return r.json()
-
-    def _post(self, path: str, params: dict = None) -> dict:
-        params = dict(params or {})
-        params["timestamp"] = self._ts()
-        params["signature"] = self._sign(params)
-        url = f"{_BASE_REST}{path}"
-        headers = {"X-MBX-APIKEY": self.key}
-        r = _req.post(url, params=params, headers=headers, timeout=10)
-        r.raise_for_status()
-        return r.json()
-
-    # ── Testnet API metotları ─────────────────────────────────────────────────
-    def ping(self) -> bool:
-        try:
-            self._get("/fapi/v1/ping")
-            return True
-        except Exception:
-            return False
-
-    def server_time(self) -> int:
-        data = self._get("/fapi/v1/time")
-        return data["serverTime"]
-
-    def account_balance(self) -> list:
-        return self._get("/fapi/v2/balance", signed=True)
-
-    def exchange_info(self, symbol: str) -> dict:
-        data = self._get("/fapi/v1/exchangeInfo", {"symbol": symbol})
-        return data
-
-    def klines(self, symbol: str, interval: str, limit: int = 300) -> list:
-        return self._get("/fapi/v1/klines", {
-            "symbol": symbol, "interval": interval, "limit": limit
-        })
-
-    def change_leverage(self, symbol: str, leverage: int) -> dict:
-        return self._post("/fapi/v1/leverage", {
-            "symbol": symbol, "leverage": leverage
-        })
-
-    def new_order(self, symbol: str, side: str, quantity: float,
-                  position_side: str = "BOTH") -> dict:
-        return self._post("/fapi/v1/order", {
-            "symbol":       symbol,
-            "side":         side,
-            "type":         "MARKET",
-            "quantity":     str(quantity),
-            "positionSide": position_side,
-        })
-
-    def close_order(self, symbol: str, side: str, quantity: float) -> dict:
-        return self._post("/fapi/v1/order", {
-            "symbol":       symbol,
-            "side":         side,
-            "type":         "MARKET",
-            "quantity":     str(quantity),
-            "positionSide": "BOTH",
-            "reduceOnly":   "true",
-        })
+    ex = ccxt.binanceusdm({
+        "apiKey":  api_key,
+        "secret":  api_secret,
+        "options": {
+            "defaultType":       "future",
+            "adjustForTimeDifference": True,   # timestamp auto-sync
+        },
+        "timeout": 15000,
+        "enableRateLimit": True,               # ccxt built-in rate limiter
+    })
+    ex.set_sandbox_mode(True)   # ← tüm URL'leri testnet'e yönlendirir
+    return ex
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -216,8 +132,7 @@ class TestnetClient:
 def _ema(prices: list, period: int) -> Optional[float]:
     if len(prices) < period:
         return None
-    k   = 2 / (period + 1)
-    ema = prices[0]
+    k, ema = 2 / (period + 1), prices[0]
     for p in prices[1:]:
         ema = p * k + ema * (1 - k)
     return ema
@@ -227,7 +142,7 @@ def _rsi(prices: list, period: int = 14) -> Optional[float]:
     if len(prices) < period + 1:
         return None
     deltas = [prices[i] - prices[i-1] for i in range(1, len(prices))]
-    gains  = [max(d, 0) for d in deltas[-period:]]
+    gains  = [max(d, 0)   for d in deltas[-period:]]
     losses = [abs(min(d, 0)) for d in deltas[-period:]]
     avg_g  = sum(gains)  / period
     avg_l  = sum(losses) / period
@@ -241,56 +156,219 @@ def _rsi(prices: list, period: int = 14) -> Optional[float]:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def evaluate_signal(candles_list: list, cfg: dict) -> str:
-    """Returns: LONG | SHORT | CLOSE_LONG | CLOSE_SHORT | HOLD"""
+    """Backward compat wrapper."""
+    result = evaluate_signal_with_thoughts(candles_list, cfg)
+    return result["signal"]
+
+
+def evaluate_signal_with_thoughts(candles_list: list, cfg: dict) -> dict:
+    """
+    Returns:
+        signal     : LONG | SHORT | CLOSE_LONG | CLOSE_SHORT | HOLD
+        thought    : Türkçe açıklama (neden bu karar?)
+        indicators : dict of current indicator values
+    """
+    NOT_ENOUGH = {
+        "signal": "HOLD",
+        "thought": f"⏳ Yeterli mum yok ({len(candles_list)}/30). "
+                   f"Geçmiş veri bekleniyor...",
+        "indicators": {},
+    }
+    if len(candles_list) < 30:
+        return NOT_ENOUGH
+
     strategy = cfg.get("strategy", "EMA_CROSS")
     closes   = [c["c"] for c in candles_list]
+    price    = closes[-1]
 
+    # ── EMA_CROSS ─────────────────────────────────────────────────────────────
     if strategy == "EMA_CROSS":
-        fast   = cfg.get("ema_fast", 9)
-        slow   = cfg.get("ema_slow", 21)
+        fast, slow = cfg.get("ema_fast", 9), cfg.get("ema_slow", 21)
         rsi_hi = cfg.get("rsi_overbought", 70)
         rsi_lo = cfg.get("rsi_oversold",   30)
-        ema_f  = _ema(closes, fast)
-        ema_s  = _ema(closes, slow)
-        rsi    = _rsi(closes, 14)
-        if ema_f is None or ema_s is None or rsi is None:
-            return "HOLD"
-        prev    = [c["c"] for c in candles_list[:-1]]
+
+        ema_f = _ema(closes, fast)
+        ema_s = _ema(closes, slow)
+        rsi   = _rsi(closes, 14)
+
+        if None in (ema_f, ema_s, rsi):
+            return NOT_ENOUGH
+
+        prev    = closes[:-1]
         p_ema_f = _ema(prev, fast)
         p_ema_s = _ema(prev, slow)
-        if p_ema_f is None or p_ema_s is None:
-            return "HOLD"
-        if p_ema_f <= p_ema_s and ema_f > ema_s and rsi < rsi_hi: return "LONG"
-        if p_ema_f >= p_ema_s and ema_f < ema_s and rsi > rsi_lo: return "SHORT"
-        if ema_f < ema_s and rsi > 70: return "CLOSE_LONG"
-        if ema_f > ema_s and rsi < 30: return "CLOSE_SHORT"
-        return "HOLD"
+        if None in (p_ema_f, p_ema_s):
+            return NOT_ENOUGH
 
+        cross_up   = p_ema_f <= p_ema_s and ema_f > ema_s
+        cross_down = p_ema_f >= p_ema_s and ema_f < ema_s
+        ema_spread = round(((ema_f - ema_s) / price) * 100, 3)
+        ema_trend  = "📈 EMA hızlı üstte" if ema_f > ema_s else "📉 EMA hızlı altta"
+
+        inds = {
+            f"EMA{fast}": round(ema_f, 4),
+            f"EMA{slow}": round(ema_s, 4),
+            "RSI":        round(rsi, 1),
+            "EMA Spread": f"{ema_spread:+.3f}%",
+            "Trend":      ema_trend,
+        }
+
+        # Sinyal kararı + düşünce
+        if cross_up and rsi < rsi_hi:
+            return {
+                "signal": "LONG",
+                "thought": (
+                    f"🟢 LONG SİNYAL!\n"
+                    f"EMA{fast} ({ema_f:.2f}) az önce EMA{slow} ({ema_s:.2f}) "
+                    f"üzerine çıktı (Golden Cross). "
+                    f"RSI {rsi:.1f} — aşırı alım bölgesinde değil ({rsi_hi} altı). "
+                    f"Yukarı momentum güçlü → LONG açılıyor."
+                ),
+                "indicators": inds,
+            }
+        if cross_down and rsi > rsi_lo:
+            return {
+                "signal": "SHORT",
+                "thought": (
+                    f"🔴 SHORT SİNYAL!\n"
+                    f"EMA{fast} ({ema_f:.2f}) EMA{slow} ({ema_s:.2f}) "
+                    f"altına geçti (Death Cross). "
+                    f"RSI {rsi:.1f} — aşırı satım bölgesinde değil ({rsi_lo} üstü). "
+                    f"Aşağı momentum güçlü → SHORT açılıyor."
+                ),
+                "indicators": inds,
+            }
+        if ema_f < ema_s and rsi > 75:
+            return {
+                "signal": "CLOSE_LONG",
+                "thought": (
+                    f"⚠️ LONG KAPAT\n"
+                    f"EMA{fast} EMA{slow} altında ve RSI {rsi:.1f} > 75 "
+                    f"(aşırı alım). Trend zayıflıyor → LONG kapatılıyor."
+                ),
+                "indicators": inds,
+            }
+        if ema_f > ema_s and rsi < 25:
+            return {
+                "signal": "CLOSE_SHORT",
+                "thought": (
+                    f"⚠️ SHORT KAPAT\n"
+                    f"EMA{fast} EMA{slow} üstünde ve RSI {rsi:.1f} < 25 "
+                    f"(aşırı satım). Dip yakın → SHORT kapatılıyor."
+                ),
+                "indicators": inds,
+            }
+
+        # HOLD — neden?
+        parts = []
+        if not cross_up and not cross_down:
+            parts.append(f"{ema_trend} (spread {ema_spread:+.3f}%)")
+        if rsi > rsi_hi:
+            parts.append(f"RSI {rsi:.1f} aşırı alım bölgesinde → LONG bekleniyor")
+        elif rsi < rsi_lo:
+            parts.append(f"RSI {rsi:.1f} aşırı satım bölgesinde → SHORT bekleniyor")
+        else:
+            parts.append(f"RSI {rsi:.1f} nötr bölgede")
+        if ema_f > ema_s:
+            dist = abs(ema_f - p_ema_f) / price * 100
+            parts.append(
+                f"Cross yok: EMA{fast} üstte ama kesişme henüz olmadı "
+                f"(yaklaşma hızı: {dist:.4f}%/mum)"
+            )
+        return {
+            "signal": "HOLD",
+            "thought": "⏸ BEKLE\n" + " · ".join(parts),
+            "indicators": inds,
+        }
+
+    # ── RSI_MEAN_REVERT ───────────────────────────────────────────────────────
     elif strategy == "RSI_MEAN_REVERT":
-        rsi    = _rsi(closes, cfg.get("rsi_period", 14))
+        period = cfg.get("rsi_period", 14)
+        rsi    = _rsi(closes, period)
         rsi_hi = cfg.get("rsi_overbought", 70)
         rsi_lo = cfg.get("rsi_oversold",   30)
-        if rsi is None: return "HOLD"
-        if rsi < rsi_lo: return "LONG"
-        if rsi > rsi_hi: return "SHORT"
-        if rsi > 55:     return "CLOSE_LONG"
-        if rsi < 45:     return "CLOSE_SHORT"
-        return "HOLD"
 
+        if rsi is None:
+            return NOT_ENOUGH
+
+        inds = {"RSI": round(rsi, 1), "RSI Aşırı Al": rsi_hi, "RSI Aşırı Sat": rsi_lo}
+
+        if rsi < rsi_lo:
+            return {"signal": "LONG",
+                    "thought": f"🟢 LONG — RSI {rsi:.1f} < {rsi_lo} (aşırı satım). Dip fırsatı.",
+                    "indicators": inds}
+        if rsi > rsi_hi:
+            return {"signal": "SHORT",
+                    "thought": f"🔴 SHORT — RSI {rsi:.1f} > {rsi_hi} (aşırı alım). Zirve fırsatı.",
+                    "indicators": inds}
+        if rsi > 55:
+            return {"signal": "CLOSE_LONG",
+                    "thought": f"⚠️ LONG KAPAT — RSI {rsi:.1f} > 55, güç kaybediyor.",
+                    "indicators": inds}
+        if rsi < 45:
+            return {"signal": "CLOSE_SHORT",
+                    "thought": f"⚠️ SHORT KAPAT — RSI {rsi:.1f} < 45, güç kaybediyor.",
+                    "indicators": inds}
+
+        bar = "▓" * int(rsi / 10) + "░" * (10 - int(rsi / 10))
+        return {
+            "signal": "HOLD",
+            "thought": (f"⏸ BEKLE — RSI {rsi:.1f} [{bar}] nötr bölgede "
+                        f"({rsi_lo}–{rsi_hi}). Kenar bölge bekleniyor."),
+            "indicators": inds,
+        }
+
+    # ── BREAKOUT ──────────────────────────────────────────────────────────────
     elif strategy == "BREAKOUT":
-        period = cfg.get("breakout_period", 20)
-        if len(closes) < period: return "HOLD"
-        recent = closes[-period:]
-        if closes[-1] > max(recent[:-1]): return "LONG"
-        if closes[-1] < min(recent[:-1]): return "SHORT"
-        return "HOLD"
+        period  = cfg.get("breakout_period", 20)
+        if len(closes) < period:
+            return NOT_ENOUGH
+        recent  = closes[-period:]
+        highest = max(recent[:-1])
+        lowest  = min(recent[:-1])
+        cur     = closes[-1]
+        dist_hi = round((cur / highest - 1) * 100, 3)
+        dist_lo = round((cur / lowest  - 1) * 100, 3)
 
-    return "HOLD"
+        inds = {
+            f"{period}p High": round(highest, 4),
+            f"{period}p Low":  round(lowest,  4),
+            "Fiyat/High":      f"{dist_hi:+.3f}%",
+            "Fiyat/Low":       f"{dist_lo:+.3f}%",
+        }
+
+        if cur > highest:
+            return {"signal": "LONG",
+                    "thought": (f"🟢 LONG — Fiyat ({cur:.2f}) {period} mumun "
+                                f"zirvesini ({highest:.2f}) kırdı! Kırılım onaylandı."),
+                    "indicators": inds}
+        if cur < lowest:
+            return {"signal": "SHORT",
+                    "thought": (f"🔴 SHORT — Fiyat ({cur:.2f}) {period} mumun "
+                                f"tabanını ({lowest:.2f}) kırdı! Kırılım onaylandı."),
+                    "indicators": inds}
+        return {
+            "signal": "HOLD",
+            "thought": (f"⏸ BEKLE — Fiyat range içinde. "
+                        f"Zirveye {dist_hi:+.3f}% · Tabana {dist_lo:+.3f}%. "
+                        f"Kırılım bekleniyor."),
+            "indicators": inds,
+        }
+
+    return {"signal": "HOLD", "thought": "⏸ Bilinmeyen strateji.",
+            "indicators": {}}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # BOT WORKER
 # ══════════════════════════════════════════════════════════════════════════════
+
+# ccxt timeframe → saniye
+_TF_SECONDS = {
+    "1m": 60, "3m": 180, "5m": 300, "15m": 900,
+    "30m": 1800, "1h": 3600, "2h": 7200, "4h": 14400,
+}
+
 
 class BotWorker:
     def __init__(self, api_key: str, api_secret: str, cfg: dict):
@@ -299,268 +377,293 @@ class BotWorker:
         self.cfg        = cfg
         self.state      = _bot_state
         self._stop_evt  = threading.Event()
-        self._ws        = None
-        self._client: Optional[TestnetClient] = None
-        self._last_trade_time = 0.0
-        self._step_size = "0.001"
+        self._ex: Optional["ccxt.binanceusdm"] = None
+        self._last_trade_ts  = 0.0
+        self._last_candle_ts = 0      # son okunan kapanmış mum zaman damgası (ms)
 
     def stop(self):
         self._stop_evt.set()
-        if self._ws:
-            try:
-                self._ws.close()
-            except Exception:
-                pass
         self.state.set(running=False, status="Durduruldu")
-        self.state.add_log("INFO", "Bot durduruldu.")
+        self.state.add_log("INFO", "⏹ Bot durduruldu.")
 
+    # ── Ana döngü ─────────────────────────────────────────────────────────────
     def run(self):
         state = self.state
         cfg   = self.cfg
         sym   = cfg["symbol"].upper().replace("/", "")
-        tf    = cfg.get("timeframe", "5m")
-        dry   = cfg.get("dry_run", True)
+        # ccxt sembol formatı: BTC/USDT
+        ccxt_sym = sym[:-4] + "/USDT" if sym.endswith("USDT") else sym
+        tf      = cfg.get("timeframe", "5m")
+        dry     = cfg.get("dry_run", True)
+        tf_sec  = _TF_SECONDS.get(tf, 300)
+        # Polling: mum kapanma periyodunun 1/6'sı kadar bekle ama min 5s
+        poll_s  = max(tf_sec // 6, 5)
 
         state.set(running=True, status="Başlatılıyor...",
                   symbol=sym, strategy=cfg.get("strategy", "EMA_CROSS"), error="")
         state.add_log("INFO",
-            f"Bot başlatıldı [TESTNET] {'[DRY]' if dry else '[CANLI]'}: {sym} · {tf}")
+            f"[TESTNET·ccxt] {'[DRY]' if dry else '[CANLI]'} "
+            f"{ccxt_sym} · {tf} · poll:{poll_s}s")
 
-        # ── 1. Testnet REST bağlantısı ────────────────────────────────────────
-        self._client = TestnetClient(self.api_key, self.api_secret)
-
-        # Ping
-        if not self._client.ping():
-            err = "testnet.binancefuture.com'a ulaşılamıyor. İnternet bağlantınızı kontrol edin."
-            state.set(running=False, status="Hata", error=err)
-            state.add_log("ERROR", err)
-            return
-        state.add_log("INFO", "✅ Testnet ping OK")
-
-        # Sunucu saati farkını kontrol et (±1000ms)
-        try:
-            srv_ts = self._client.server_time()
-            diff   = abs(srv_ts - int(time.time() * 1000))
-            if diff > 5000:
-                state.add_log("WARN",
-                    f"Sistem saati farkı: {diff}ms — timestamp hatası alabilirsin. "
-                    f"Bilgisayar saatini senkronize et.")
-        except Exception:
-            pass
-
-        # Bakiye
-        try:
-            balances = self._client.account_balance()
-            equity   = next(
-                (float(b["availableBalance"]) for b in balances if b["asset"] == "USDT"),
-                0.0,
-            )
-            state.set(equity=equity)
-            state.add_log("INFO", f"✅ Bakiye: ${equity:,.2f} USDT (Testnet)")
-        except Exception as e:
-            err = str(e)
-            if "signature" in err.lower() or "-1022" in err:
-                hint = "Timestamp/imza hatası — sistem saatini kontrol et."
-            elif "-2014" in err or "api-key" in err.lower():
-                hint = "API Key geçersiz. testnet.binancefuture.com'dan yeni key oluştur."
-            elif "-2015" in err:
-                hint = "API Key/Secret hatalı eşleşiyor."
-            else:
-                hint = "testnet.binancefuture.com → Profil → API Key → Generate HMAC_SHA256 Key"
+        # ── 1. Exchange bağlantısı ────────────────────────────────────────────
+        if not HAS_CCXT:
             state.set(running=False, status="Hata",
-                      error=f"Bakiye alınamadı: {err} | {hint}")
-            state.add_log("ERROR", f"Bakiye hatası: {err}")
-            state.add_log("WARN",  f"İpucu: {hint}")
+                      error="ccxt yüklü değil: pip install ccxt")
+            state.add_log("ERROR", "ccxt yüklü değil.")
             return
 
-        # Lot size
         try:
-            info = self._client.exchange_info(sym)
-            for s in info.get("symbols", []):
-                if s["symbol"] == sym:
-                    for f in s.get("filters", []):
-                        if f["filterType"] == "LOT_SIZE":
-                            self._step_size = f["stepSize"]
-            state.add_log("INFO", f"Lot step size: {self._step_size}")
+            self._ex = _make_exchange(self.api_key, self.api_secret)
         except Exception as e:
-            state.add_log("WARN", f"Step size alınamadı, default kullanılıyor: {e}")
+            state.set(running=False, status="Hata", error=str(e))
+            state.add_log("ERROR", f"Exchange oluşturulamadı: {e}")
+            return
+
+        # ── 2. Bağlantı testi + bakiye ────────────────────────────────────────
+        try:
+            balance = self._ex.fetch_balance()
+            equity  = float(balance.get("USDT", {}).get("free", 0))
+            state.set(equity=equity)
+            state.add_log("INFO",
+                f"✅ ccxt testnet bağlandı. Bakiye: ${equity:,.2f} USDT")
+            state.add_log("INFO",
+                f"Sandbox URL: {self._ex.urls.get('api',{}).get('fapiPublic','?')}")
+            # Bakiye uyarısı
+            if equity < 10:
+                state.add_log("WARN",
+                    f"⚠️ Bakiye çok düşük (${equity:.2f}). "
+                    f"testnet.binancefuture.com → Assets → "
+                    f"'Transfer' ile USDT ekle veya yeni hesap oluştur.")
+        except ccxt.AuthenticationError as e:
+            hint = ("API Key veya Secret hatalı. "
+                    "testnet.binancefuture.com → Profil → API Key → "
+                    "Generate HMAC_SHA256 Key ile yeni key oluştur.")
+            state.set(running=False, status="Hata",
+                      error=f"AuthError: {e} → {hint}")
+            state.add_log("ERROR", f"Kimlik doğrulama hatası: {e}")
+            state.add_log("WARN",  hint)
+            return
+        except ccxt.NetworkError as e:
+            hint = ("Ağ hatası. İnternet bağlantısını veya "
+                    "testnet.binancefuture.com erişimini kontrol et.")
+            state.set(running=False, status="Hata", error=f"NetworkError: {e}")
+            state.add_log("ERROR", f"Ağ hatası: {e}")
+            state.add_log("WARN",  hint)
+            return
+        except Exception as e:
+            state.set(running=False, status="Hata", error=str(e))
+            state.add_log("ERROR", f"Bakiye hatası: {e}")
+            return
+
+        # ── Market bilgisi: min qty, step size ───────────────────────────────
+        self._min_qty  = 0.001
+        self._step_dec = 3
+        try:
+            markets = self._ex.load_markets()
+            mkt = markets.get(ccxt_sym, {})
+            limits = mkt.get("limits", {}).get("amount", {})
+            prec   = mkt.get("precision", {})
+            self._min_qty  = float(limits.get("min", 0.001))
+            # ccxt precision: integer = decimal places
+            p = prec.get("amount", 3)
+            self._step_dec = int(p) if isinstance(p, (int, float)) else 3
+            state.add_log("INFO",
+                f"Market bilgisi: min_qty={self._min_qty}, "
+                f"decimal={self._step_dec}")
+        except Exception as e:
+            state.add_log("WARN", f"Market bilgisi alınamadı, default: {e}")
+
+        # ── 3. Position mode + Kaldıraç ─────────────────────────────────────
+        lev = int(cfg.get("leverage", 1))
+
+        # Önce One-Way mode'a al (hedge mode kapalı → positionSide=BOTH çalışır)
+        try:
+            self._ex.fapiPrivatePostPositionSideDual(params={"dualSidePosition": "false"})
+            state.add_log("INFO", "Pozisyon modu: One-Way ✅")
+        except Exception as e:
+            # Zaten one-way moddaysa hata verir — yoksay
+            if "No need to change position side" in str(e) or "-4059" in str(e):
+                state.add_log("INFO", "Pozisyon modu: One-Way (zaten ayarlı) ✅")
+            else:
+                state.add_log("WARN", f"Position mode ayarlanamadı: {e}")
 
         # Kaldıraç
         try:
-            lev = int(cfg.get("leverage", 1))
-            self._client.change_leverage(sym, lev)
-            state.add_log("INFO", f"Kaldıraç: {lev}×")
+            self._ex.set_leverage(lev, ccxt_sym, params={"marginType": "CROSSED"})
+            state.add_log("INFO", f"Kaldıraç: {lev}× ✅")
         except Exception as e:
-            state.add_log("WARN", f"Kaldıraç ayarlanamadı: {e}")
+            err_str = str(e)
+            if "No need to change" in err_str or "-4046" in err_str or "-4047" in err_str:
+                state.add_log("INFO", f"Kaldıraç: {lev}× (zaten ayarlı) ✅")
+            else:
+                state.add_log("WARN", f"Kaldıraç ayarlanamadı: {e} — devam ediliyor")
 
-        # Geçmiş kline (1 kez REST)
+        # ── 4. Geçmiş kline (1 kez) ───────────────────────────────────────────
         try:
-            klines = self._client.klines(sym, tf, 300)
-            for k in klines:
+            ohlcv = self._ex.fetch_ohlcv(ccxt_sym, tf, limit=300)
+            for row in ohlcv:
                 state.candles.append({
-                    "t": k[0], "o": float(k[1]), "h": float(k[2]),
-                    "l": float(k[3]), "c": float(k[4]), "v": float(k[5]),
+                    "t": row[0], "o": row[1], "h": row[2],
+                    "l": row[3], "c": row[4], "v": row[5],
                 })
-            state.add_log("INFO", f"{len(klines)} geçmiş mum yüklendi.")
+            if ohlcv:
+                self._last_candle_ts = ohlcv[-1][0]
+                state.last_price     = float(ohlcv[-1][4])
+            state.add_log("INFO", f"{len(ohlcv)} geçmiş mum yüklendi.")
         except Exception as e:
-            state.add_log("WARN", f"Geçmiş veri alınamadı: {e}")
+            state.add_log("WARN", f"Geçmiş kline alınamadı: {e}")
 
-        # ── 2. WebSocket stream — Testnet public stream ───────────────────────
-        # Public stream: auth gerektirmez, sadece fiyat/kline verisi alır
-        ws_url = f"{_BASE_WS}/{sym.lower()}@kline_{tf}"
-        state.set(status=f"✅ Çalışıyor [TESTNET] — {sym} izleniyor")
-        state.add_log("INFO", f"WebSocket bağlandı: {ws_url}")
+        state.set(status=f"✅ Çalışıyor [TESTNET·ccxt] — {ccxt_sym} · {tf}")
+        state.add_log("INFO",
+            f"Polling modu: {poll_s}s arayla veri çekiliyor. "
+            f"Mum kapandığında strateji çalıştırılır.")
 
-        self._run_websocket(ws_url, sym, cfg)
-
-    def _run_websocket(self, ws_url: str, sym: str, cfg: dict):
-        """WebSocket thread — bağlantı kopunca otomatik yeniden bağlanır."""
-        state = self.state
-
-        def _on_message(ws, raw):
-            if self._stop_evt.is_set():
-                ws.close()
-                return
-            try:
-                msg    = json.loads(raw)
-                k      = msg.get("k", {})
-                if not k:
-                    return
-                closed = k.get("x", False)
-                candle = {
-                    "t": k["t"], "o": float(k["o"]), "h": float(k["h"]),
-                    "l": float(k["l"]), "c": float(k["c"]), "v": float(k["v"]),
-                }
-                state.last_price = candle["c"]
-
-                # Unrealized PnL
-                ot = state.open_trade
-                if ot:
-                    if ot["side"] == "LONG":
-                        upnl = (candle["c"] - ot["entry"]) / ot["entry"] * ot["notional"]
-                    else:
-                        upnl = (ot["entry"] - candle["c"]) / ot["entry"] * ot["notional"]
-                    state.set(current_pnl=round(upnl, 4))
-
-                if not closed:
-                    return
-
-                state.candles.append(candle)
-                candles_list = list(state.candles)
-
-                # Cooldown kontrolü
-                now_ts   = time.time()
-                cooldown = cfg.get("trade_cooldown_s", 60)
-                if now_ts - self._last_trade_time < cooldown:
-                    return
-
-                signal = evaluate_signal(candles_list, cfg)
-
-                if state.open_trade is None:
-                    if signal in ("LONG", "SHORT"):
-                        self._open_pos(sym, signal, candle["c"], cfg)
-                        self._last_trade_time = now_ts
-                else:
-                    ot     = state.open_trade
-                    close  = False
-                    reason = ""
-                    if (ot["side"] == "LONG"  and signal == "CLOSE_LONG") or \
-                       (ot["side"] == "SHORT" and signal == "CLOSE_SHORT"):
-                        close = True; reason = "Sinyal"
-                    if ot["side"] == "LONG":
-                        if   candle["c"] >= ot["tp"]: close = True; reason = "TP"
-                        elif candle["c"] <= ot["sl"]: close = True; reason = "SL"
-                    else:
-                        if   candle["c"] <= ot["tp"]: close = True; reason = "TP"
-                        elif candle["c"] >= ot["sl"]: close = True; reason = "SL"
-                    if close:
-                        self._close_pos(sym, candle["c"], reason, cfg)
-                        self._last_trade_time = now_ts
-
-            except Exception as ex:
-                state.add_log("ERROR", f"WS mesaj hatası: {ex}")
-
-        def _on_error(ws, err):
-            if not self._stop_evt.is_set():
-                state.add_log("WARN", f"WS hata: {err}")
-
-        def _on_close(ws, code, msg):
-            if not self._stop_evt.is_set():
-                state.add_log("WARN", "WS bağlantısı kesildi, yeniden bağlanılıyor...")
-                time.sleep(3)
-                if not self._stop_evt.is_set():
-                    self._run_websocket(ws_url, sym, cfg)   # reconnect
-
-        def _on_open(ws):
-            state.add_log("INFO", "WS bağlandı ✅")
-
-        if not HAS_WS:
-            # websocket-client yoksa polling fallback (15s'de bir REST)
-            state.add_log("WARN",
-                "websocket-client yüklü değil. REST polling moduna geçildi. "
-                "pip install websocket-client ile WebSocket aktif edilebilir.")
-            self._polling_loop(sym, cfg)
-            return
-
-        self._ws = websocket.WebSocketApp(
-            ws_url,
-            on_message=_on_message,
-            on_error=_on_error,
-            on_close=_on_close,
-            on_open=_on_open,
-        )
-        self._ws.run_forever(
-            sslopt={"cert_reqs": ssl.CERT_NONE},
-            ping_interval=20,
-            ping_timeout=10,
-        )
-
-    def _polling_loop(self, sym: str, cfg: dict):
-        """Fallback: WebSocket yoksa 15s'de bir REST kline çeker."""
-        state = self.state
+        # ── 5. Ana polling döngüsü ────────────────────────────────────────────
         while not self._stop_evt.is_set():
             try:
-                klines = self._client.klines(sym, cfg.get("timeframe","5m"), 50)
-                if klines:
-                    last = klines[-1]
-                    candle = {
-                        "t": last[0], "o": float(last[1]), "h": float(last[2]),
-                        "l": float(last[3]), "c": float(last[4]), "v": float(last[5]),
-                    }
-                    state.last_price = candle["c"]
-                    state.candles.append(candle)
+                self._tick(ccxt_sym, tf, cfg, dry)
+            except ccxt.RateLimitExceeded:
+                state.add_log("WARN", "Rate limit — 30s bekleniyor")
+                time.sleep(30)
+            except ccxt.NetworkError as e:
+                state.add_log("WARN", f"Ağ hatası, 10s sonra tekrar: {e}")
+                time.sleep(10)
             except Exception as e:
-                state.add_log("WARN", f"Polling hata: {e}")
-            time.sleep(15)
+                state.add_log("ERROR", f"Tick hatası: {e}")
 
-    # ── Pozisyon aç ────────────────────────────────────────────────────────────
-    def _open_pos(self, sym: str, side: str, price: float, cfg: dict):
-        state   = self.state
-        eq      = state.equity or 1000.0
-        rp      = cfg.get("risk_pct", 1.0)
-        lev     = cfg.get("leverage", 1)
-        tp_pct  = cfg.get("tp_pct",   1.5)
-        sl_pct  = cfg.get("sl_pct",   1.0)
-        dry_run = cfg.get("dry_run",  True)
+            # Stop event'i kontrol ederek bekle
+            self._stop_evt.wait(timeout=poll_s)
 
+    # ── Tek tick ──────────────────────────────────────────────────────────────
+    def _tick(self, ccxt_sym: str, tf: str, cfg: dict, dry: bool):
+        state = self.state
+
+        # En son 2 mumu çek (yeni kapanmış mumu yakala)
+        ohlcv = self._ex.fetch_ohlcv(ccxt_sym, tf, limit=3)
+        if not ohlcv:
+            return
+
+        last_closed = ohlcv[-2]   # son kapanmış mum (index -1 hâlâ açık)
+        live_candle = ohlcv[-1]   # canlı mum (fiyat bilgisi için)
+
+        state.last_price = float(live_candle[4])
+
+        # Unrealized PnL güncelle
+        ot = state.open_trade
+        if ot:
+            cur = state.last_price
+            if ot["side"] == "LONG":
+                upnl = (cur - ot["entry"]) / ot["entry"] * ot["notional"]
+            else:
+                upnl = (ot["entry"] - cur) / ot["entry"] * ot["notional"]
+            state.set(current_pnl=round(upnl, 4))
+
+        # Yeni kapanmış mum var mı?
+        new_ts = last_closed[0]
+        if new_ts <= self._last_candle_ts:
+            return   # henüz yeni mum yok
+
+        self._last_candle_ts = new_ts
+        state.candles.append({
+            "t": last_closed[0], "o": last_closed[1], "h": last_closed[2],
+            "l": last_closed[3], "c": last_closed[4], "v": last_closed[5],
+        })
+        candles_list = list(state.candles)
+
+        # Cooldown
+        now_ts   = time.time()
+        cooldown = cfg.get("trade_cooldown_s", 60)
+        cooldown_remaining = cooldown - (now_ts - self._last_trade_ts)
+
+        # ── Strateji değerlendirmesi + düşünce ───────────────────────────────
+        result     = evaluate_signal_with_thoughts(candles_list, cfg)
+        signal     = result["signal"]
+        thought    = result["thought"]
+        indicators = result["indicators"]
+
+        # Cooldown aktifse düşünceye not ekle
+        if cooldown_remaining > 0 and state.open_trade is None:
+            thought += (f"\n⏱ Cooldown: {cooldown_remaining:.0f}s daha beklenecek "
+                        f"(tekrar işlem için)")
+
+        state.set(thought=thought, indicators=indicators)
+
+        # Cooldown aktifse işlem yapma ama düşünceyi yazmaya devam et
+        if cooldown_remaining > 0:
+            return
+
+        if state.open_trade is None:
+            if signal in ("LONG", "SHORT"):
+                self._open_pos(ccxt_sym, signal, state.last_price, cfg, dry)
+                self._last_trade_ts = now_ts
+        else:
+            ot     = state.open_trade
+            close  = False
+            reason = ""
+            if (ot["side"] == "LONG"  and signal == "CLOSE_LONG") or \
+               (ot["side"] == "SHORT" and signal == "CLOSE_SHORT"):
+                close = True; reason = "Sinyal"
+            if ot["side"] == "LONG":
+                if   state.last_price >= ot["tp"]: close = True; reason = "TP"
+                elif state.last_price <= ot["sl"]: close = True; reason = "SL"
+            else:
+                if   state.last_price <= ot["tp"]: close = True; reason = "TP"
+                elif state.last_price >= ot["sl"]: close = True; reason = "SL"
+            if close:
+                self._close_pos(ccxt_sym, state.last_price, reason, cfg, dry)
+                self._last_trade_ts = now_ts
+
+    # ── Pozisyon aç ───────────────────────────────────────────────────────────
+    def _open_pos(self, ccxt_sym: str, side: str, price: float,
+                  cfg: dict, dry: bool):
+        state    = self.state
+        eq       = state.equity or 0.0
+        rp       = cfg.get("risk_pct",  1.0)
+        lev      = float(cfg.get("leverage", 1))
+        tp_pct   = cfg.get("tp_pct",    1.5)
+        sl_pct   = cfg.get("sl_pct",    1.0)
+        min_qty  = getattr(self, "_min_qty",  0.001)
+        step_dec = getattr(self, "_step_dec", 3)
+
+        # Notional ve qty hesapla
         notional = eq * (rp / 100) * lev
-        raw_qty  = notional / price
-        step     = self._step_size
-        dec      = len(step.rstrip("0").split(".")[-1]) if "." in step else 0
-        qty      = max(round(raw_qty, dec), float(step))
+        raw_qty  = notional / price if price > 0 else 0
+        qty      = max(round(raw_qty, step_dec), min_qty)
 
-        tp = price * (1 + tp_pct/100) if side == "LONG" else price * (1 - tp_pct/100)
-        sl = price * (1 - sl_pct/100) if side == "LONG" else price * (1 + sl_pct/100)
-        tp = round(tp, 6)
-        sl = round(sl, 6)
+        # Bakiye + minimum miktar kontrolü
+        if eq < 10:
+            state.add_log("ERROR",
+                f"Bakiye çok düşük: ${eq:.2f} USDT. "
+                f"testnet.binancefuture.com adresinden bakiye ekle.")
+            return
 
-        if not dry_run:
+        min_notional = 5.0   # Binance Futures min 5 USDT notional
+        if qty * price < min_notional:
+            qty = max(round(min_notional / price, step_dec), min_qty)
+            notional = qty * price
+            state.add_log("WARN",
+                f"Qty minimum notional için artırıldı: {qty} "
+                f"(${notional:.2f})")
+
+        tp = round(price * (1 + tp_pct/100) if side == "LONG"
+                   else price * (1 - tp_pct/100), 6)
+        sl = round(price * (1 - sl_pct/100) if side == "LONG"
+                   else price * (1 + sl_pct/100), 6)
+
+        if not dry:
             try:
-                b_side = "BUY" if side == "LONG" else "SELL"
-                self._client.new_order(sym, b_side, qty)
+                b_side = "buy" if side == "LONG" else "sell"
+                # One-Way mode: positionSide=BOTH, reduceOnly=False
+                self._ex.create_market_order(
+                    ccxt_sym, b_side, qty,
+                    params={"positionSide": "BOTH"},
+                )
+            except ccxt.InsufficientFunds as e:
+                state.add_log("ERROR", f"Yetersiz bakiye: {e}"); return
+            except ccxt.InvalidOrder as e:
+                state.add_log("ERROR", f"Geçersiz order: {e}"); return
             except Exception as e:
-                state.add_log("ERROR", f"Order hatası: {e}")
-                return
+                state.add_log("ERROR", f"Order hatası: {e}"); return
 
         trade = {
             "id":        int(time.time() * 1000),
@@ -571,51 +674,71 @@ class BotWorker:
             "tp":        tp,
             "sl":        sl,
             "opened_at": datetime.now(timezone.utc).isoformat(),
-            "dry_run":   dry_run,
+            "dry_run":   dry,
         }
         state.set(open_trade=trade)
-        emoji  = "🟢" if side == "LONG" else "🔴"
-        dr     = "[DRY] " if dry_run else ""
+        emoji = "🟢" if side == "LONG" else "🔴"
         state.add_log(side,
-            f"{dr}{emoji} {side} @ ${price:,.4f} | qty={qty} | "
-            f"TP:{tp:,.4f} | SL:{sl:,.4f}")
+            f"{'[DRY] ' if dry else ''}{emoji} {side} @ ${price:,.4f} | "
+            f"qty={qty} | TP:{tp:,.4f} | SL:{sl:,.4f} | "
+            f"Notional:${notional:,.2f}")
 
-    # ── Pozisyon kapat ──────────────────────────────────────────────────────────
-    def _close_pos(self, sym: str, price: float, reason: str, cfg: dict):
-        state   = self.state
-        ot      = state.open_trade
+    # ── Pozisyon kapat ────────────────────────────────────────────────────────
+    def _close_pos(self, ccxt_sym: str, price: float, reason: str,
+                   cfg: dict, dry: bool):
+        state = self.state
+        ot    = state.open_trade
         if not ot:
             return
-        dry_run = cfg.get("dry_run", True)
 
-        if ot["side"] == "LONG":
-            pnl    = (price - ot["entry"]) / ot["entry"] * ot["notional"]
-            b_side = "SELL"
-        else:
-            pnl    = (ot["entry"] - price) / ot["entry"] * ot["notional"]
-            b_side = "BUY"
-        pnl = round(pnl, 4)
+        pnl    = ((price - ot["entry"]) / ot["entry"] * ot["notional"]
+                  if ot["side"] == "LONG"
+                  else (ot["entry"] - price) / ot["entry"] * ot["notional"])
+        pnl    = round(pnl, 4)
+        # Kapatmak için ters taraf
+        b_side = "sell" if ot["side"] == "LONG" else "buy"
 
-        if not dry_run:
+        if not dry:
             try:
-                self._client.close_order(sym, b_side, ot["qty"])
+                # One-Way mode kapatma:
+                # positionSide=BOTH + reduceOnly=True
+                self._ex.create_market_order(
+                    ccxt_sym, b_side, ot["qty"],
+                    params={
+                        "positionSide": "BOTH",
+                        "reduceOnly":   True,
+                    }
+                )
+            except ccxt.InvalidOrder as e:
+                # reduceOnly reddedilirse parametresiz dene
+                state.add_log("WARN", f"reduceOnly reddedildi, tekrar: {e}")
+                try:
+                    self._ex.create_market_order(
+                        ccxt_sym, b_side, ot["qty"],
+                        params={"positionSide": "BOTH"},
+                    )
+                except Exception as e2:
+                    state.add_log("ERROR", f"Kapat hatası: {e2}")
             except Exception as e:
                 state.add_log("ERROR", f"Kapat hatası: {e}")
 
-        state.add_trade({**ot, "exit": price, "pnl": pnl,
-                         "reason": reason,
-                         "closed_at": datetime.now(timezone.utc).isoformat()})
+        state.add_trade({**ot,
+            "exit":      price,
+            "pnl":       pnl,
+            "reason":    reason,
+            "closed_at": datetime.now(timezone.utc).isoformat(),
+        })
         state.set(
-            open_trade=None, current_pnl=0.0,
-            total_pnl=round(state.total_pnl + pnl, 4),
-            win_count =state.win_count  + (1 if pnl > 0 else 0),
-            loss_count=state.loss_count + (1 if pnl <= 0 else 0),
+            open_trade=None,
+            current_pnl=0.0,
+            total_pnl  =round(state.total_pnl + pnl, 4),
+            win_count  =state.win_count  + (1 if pnl > 0 else 0),
+            loss_count =state.loss_count + (1 if pnl <= 0 else 0),
         )
         emoji = "✅" if pnl > 0 else "❌"
-        dr    = "[DRY] " if dry_run else ""
         state.add_log("SELL",
-            f"{dr}{emoji} KAPANDI ({reason}) @ ${price:,.4f} | "
-            f"PnL:{'+'if pnl>=0 else ''}{pnl:.4f} USDT")
+            f"{'[DRY] ' if dry else ''}{emoji} KAPANDI ({reason}) "
+            f"@ ${price:,.4f} | PnL:{'+'if pnl>=0 else ''}{pnl:.4f}$")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -628,11 +751,21 @@ _worker_instance: Optional[BotWorker]        = None
 
 def start_bot(api_key: str, api_secret: str, cfg: dict) -> bool:
     global _worker_thread, _worker_instance
-    if not HAS_REQUESTS:
-        _bot_state.add_log("ERROR", "requests yüklü değil: pip install requests")
+    if not HAS_CCXT:
+        _bot_state.add_log("ERROR", "ccxt yüklü değil: pip install ccxt")
         return False
     if _bot_state.running:
         return False
+    # State sıfırla
+    _bot_state.set(
+        trades=[], open_trade=None, equity=0.0,
+        total_pnl=0.0, current_pnl=0.0,
+        win_count=0, loss_count=0,
+        last_price=0.0, error="",
+        thought="Bot başlatılıyor...",
+        indicators={},
+    )
+    _bot_state.log.clear()
     _worker_instance = BotWorker(api_key, api_secret, cfg)
     _worker_thread   = threading.Thread(
         target=_worker_instance.run, daemon=True, name="TradeBot"
