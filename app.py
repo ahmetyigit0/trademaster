@@ -358,13 +358,25 @@ if "data" not in st.session_state:
 if "show_new_pos" not in st.session_state:
     st.session_state.show_new_pos = False
 
-# ── Streamlit Cloud secrets → bot API keys otomatik yükle ────────────────────
+# ── API keys: Streamlit secrets → Render env vars → manuel giriş ────────────
 if "bot_api_key" not in st.session_state:
+    import os
+    # 1) Streamlit Cloud secrets
     try:
-        st.session_state["bot_api_key"]    = st.secrets["binance"]["api_key"]
-        st.session_state["bot_api_secret"] = st.secrets["binance"]["api_secret"]
+        # Streamlit Cloud secrets (okx bölümü)
+        st.session_state["bot_api_key"]    = st.secrets["okx"]["api_key"]
+        st.session_state["bot_api_secret"] = st.secrets["okx"]["api_secret"]
+        st.session_state["bot_passphrase"] = st.secrets["okx"]["passphrase"]
     except Exception:
-        pass   # Secrets yok (lokal çalışma) — kullanıcı manuel girer
+        # Env vars (Render / Railway)
+        key    = os.environ.get("OKX_API_KEY",    "")
+        secret = os.environ.get("OKX_API_SECRET", "")
+        ppass  = os.environ.get("OKX_PASSPHRASE", "")
+        if key and secret:
+            st.session_state["bot_api_key"]    = key
+            st.session_state["bot_api_secret"] = secret
+            st.session_state["bot_passphrase"] = ppass
+        # 3) Hiçbiri yoksa kullanıcı TradeBot sekmesinde manuel girer
 
 render_stats_bar(st.session_state.data)
 
