@@ -554,6 +554,9 @@ def _manual_close(state, snap: dict, sym: str):
     state.add_log("INFO", f"🖱 Manuel pozisyon kapatılıyor @ ~${price:,.4f}")
     _worker_instance._close_pos(ccxt_sym, price, "Manuel", cfg,
                                 cfg.get("dry_run", True))
+
+
+def _render_log(snap: dict):
     logs = snap.get("log", [])
     if not logs:
         st.markdown(
