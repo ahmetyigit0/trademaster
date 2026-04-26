@@ -215,32 +215,49 @@ class BotWorker:
         cfg     = self.cfg
         sym     = cfg["symbol"].upper().replace("/", "")
         tf      = cfg.get("timeframe", "5m")
-        testnet = cfg.get("testnet", True)
-        dry_run = cfg.get("dry_run", True)
 
         state.set(running=True, status="Başlatılıyor...",
                   symbol=sym, strategy=cfg.get("strategy","EMA_CROSS"), error="")
-        mode_lbl = "[TESTNET]" if testnet else "[GERÇEK]"
-        dry_lbl  = "[DRY RUN]" if dry_run else "[CANLI ORDER]"
-        state.add_log("INFO", f"Bot başlatıldı {mode_lbl} {dry_lbl}: {sym} · {tf}")
+        # Testnet her zaman açık (TR'de Binance.com API kısıtlı)
+        testnet = True
+        dry_run = cfg.get("dry_run", True)
+        dry_lbl = "[DRY RUN]" if dry_run else "[CANLI ORDER]"
+        state.add_log("INFO", f"Bot başlatıldı [TESTNET] {dry_lbl}: {sym} · {tf}")
 
-        # ── Binance bağlantısı ─────────────────────────────────────────────
+        # ── Binance Futures Testnet bağlantısı ────────────────────────────
+        # testnet.binancefuture.com — TR'de erişilebilir, gerçek para yok
         try:
             self._client = Client(
                 self.api_key, self.api_secret,
-                testnet=testnet,
-                requests_params={"timeout": 10},
+                testnet=True,
+                requests_params={"timeout": 15},
             )
+            # Futures Testnet URL'ini kesin olarak override et
+            self._client.FUTURES_URL = "https://testnet.binancefuture.com/fapi"
+            self._client.FUTURES_DATA_URL = "https://testnet.binancefuture.com/futures/data"
+
+            # Bağlantı testi: bakiye sorgula
             eq_raw = self._client.futures_account_balance()
             equity = next(
                 (float(b["availableBalance"]) for b in eq_raw if b["asset"] == "USDT"),
                 0.0,
             )
             state.set(equity=equity)
-            state.add_log("INFO", f"Bağlantı OK. Bakiye: ${equity:,.2f} USDT")
+            state.add_log("INFO", f"✅ Testnet bağlantı OK. Bakiye: ${equity:,.2f} USDT")
         except Exception as e:
-            state.set(running=False, status="Hata", error=str(e))
-            state.add_log("ERROR", f"Bağlantı hatası: {e}")
+            err_msg = str(e)
+            # Yaygın hata açıklamaları
+            if "restricted location" in err_msg.lower() or "eligibility" in err_msg.lower():
+                hint = "Gerçek Binance URL'ine bağlanmaya çalışıldı. testnet.binancefuture.com'dan API key alın."
+            elif "invalid api" in err_msg.lower() or "signature" in err_msg.lower():
+                hint = "API Key/Secret hatalı. testnet.binancefuture.com'daki anahtarları kullandığınızdan emin olun."
+            elif "timestamp" in err_msg.lower():
+                hint = "Sistem saatiniz senkronize değil. Bilgisayar saatini kontrol edin."
+            else:
+                hint = "testnet.binancefuture.com adresinden yeni API key oluşturmayı deneyin."
+            state.set(running=False, status="Hata", error=f"{err_msg} → {hint}")
+            state.add_log("ERROR", f"Bağlantı hatası: {err_msg}")
+            state.add_log("WARN",  f"İpucu: {hint}")
             return
 
         # Lot step size
@@ -276,13 +293,13 @@ class BotWorker:
         except Exception as e:
             state.add_log("WARN", f"Geçmiş veri: {e}")
 
-        # ── WebSocket stream ───────────────────────────────────────────────
+        # ── WebSocket stream — Testnet ────────────────────────────────────
         self._twm = ThreadedWebsocketManager(
             api_key=self.api_key, api_secret=self.api_secret,
-            testnet=testnet,
+            testnet=True,   # wss://testnet.binancefuture.com
         )
         self._twm.start()
-        state.set(status=f"Çalışıyor — {sym} izleniyor")
+        state.set(status=f"✅ Çalışıyor [TESTNET] — {sym} izleniyor")
 
         def _on_kline(msg):
             if self._stop_evt.is_set():
