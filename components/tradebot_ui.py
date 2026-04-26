@@ -58,8 +58,8 @@ def render_tradebot():
         f"<div style='font-size:1.15rem;font-weight:700;color:#f0f6fc;"
         f"margin-bottom:4px'>🤖 TradeBot</div>"
         f"<div style='font-size:13px;color:{_DT};margin-bottom:1rem'>"
-        f"Binance Futures otomatik alım-satım botu. "
-        f"WebSocket tabanlı — rate limit / ban riski yok.</div>",
+        f"Binance Futures Testnet botu — gerçek para riski yok. "
+        f"WebSocket tabanlı veri akışı, rate limit / ban riski sıfır.</div>",
         unsafe_allow_html=True,
     )
 
@@ -73,6 +73,40 @@ def render_tradebot():
 
     snap = get_state().snapshot()
 
+    # ════════════════════════════════════════
+    # TESTNET SETUP KILAVUZU
+    # ════════════════════════════════════════
+    with st.expander("📖 Testnet API Key Nasıl Alınır? (İlk kurulum — 2 dakika)", expanded=False):
+        st.markdown(
+            f"""
+<div style='background:#0d2238;border:1px solid #1f6feb40;border-radius:10px;
+            padding:1rem 1.2rem;font-size:14px;line-height:1.9;color:{_TX}'>
+
+<b style='color:#58a6ff'>⚠️ Önemli:</b> Türkiye'den Binance.com API'ye erişim kısıtlıdır.
+Bunun yerine <b>Binance Futures Testnet</b> kullanıyoruz — tamamen ücretsiz ve gerçek
+para riski yok.
+
+<b style='color:#f0f6fc'>Adım 1:</b>
+<a href='https://testnet.binancefuture.com' target='_blank'
+   style='color:#58a6ff'>testnet.binancefuture.com</a> adresine git
+
+<b style='color:#f0f6fc'>Adım 2:</b> GitHub hesabınla giriş yap (Google/GitHub OAuth)
+
+<b style='color:#f0f6fc'>Adım 3:</b>
+Sağ üstte profil → <b>"API Key"</b> sekmesine tıkla
+
+<b style='color:#f0f6fc'>Adım 4:</b>
+<b>"Generate HMAC_SHA256 Key"</b> butonuna bas → Key ve Secret'ı kopyala
+
+<b style='color:#f0f6fc'>Adım 5:</b>
+Aşağıdaki kutulara yapıştır → <b>Kaydet</b> → Botu başlat
+
+<span style='color:#3fb950'>✅ Testnet'te 10,000 USDT sanal bakiye otomatik verilir.</span>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+
     # ── 2 kolon: sol=ayarlar, sağ=canlı durum ────────────────────────────────
     left, right = st.columns([1, 1], gap="large")
 
@@ -82,32 +116,53 @@ def render_tradebot():
     with left:
         _section("⚙️", "Bot Ayarları")
 
-        # API Keys (session_state'te sakla — JSON'a yazma)
-        with st.expander("🔑 Binance API Anahtarları", expanded=not snap["running"]):
+        # API Keys
+        with st.expander("🔑 Testnet API Anahtarları", expanded=not snap["running"]):
+
+            # Testnet mode — her zaman açık, kullanıcı görsün
+            use_testnet = st.checkbox(
+                "✅ Binance Futures Testnet kullan",
+                value=True,   # SABIT — her zaman testnet
+                key="bot_testnet_chk",
+                disabled=True,   # kapatılamaz
+                help="Türkiye'den Binance.com'a doğrudan erişim kısıtlı. "
+                     "Testnet ücretsiz ve güvenlidir.",
+            )
+
+            st.markdown(
+                f"<div style='background:#071a0e;border:1px solid #238636;"
+                f"border-radius:8px;padding:8px 12px;font-size:13px;margin:4px 0 10px'>"
+                f"🔗 Testnet URL: "
+                f"<a href='https://testnet.binancefuture.com' target='_blank' "
+                f"style='color:#58a6ff'>testnet.binancefuture.com</a>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
             api_key = st.text_input(
-                "API Key",
+                "Testnet API Key",
                 value=st.session_state.get("bot_api_key", ""),
                 type="password",
                 key="bot_api_key_input",
-                placeholder="Binance API Key",
+                placeholder="testnet.binancefuture.com'dan alınan API Key",
             )
             api_secret = st.text_input(
-                "API Secret",
+                "Testnet API Secret",
                 value=st.session_state.get("bot_api_secret", ""),
                 type="password",
                 key="bot_api_secret_input",
-                placeholder="Binance API Secret",
+                placeholder="testnet.binancefuture.com'dan alınan Secret",
             )
-            use_testnet = st.checkbox(
-                "Testnet kullan (önerilen — gerçek para riski yok)",
-                value=st.session_state.get("bot_testnet", True),
-                key="bot_testnet_chk",
-            )
-            if st.button("💾 Kaydet", key="bot_save_keys", use_container_width=True):
-                st.session_state["bot_api_key"]    = api_key
-                st.session_state["bot_api_secret"] = api_secret
-                st.session_state["bot_testnet"]    = use_testnet
-                st.success("API bilgileri kaydedildi (sadece oturumda tutulur).")
+
+            if st.button("💾 Kaydet", key="bot_save_keys", use_container_width=True,
+                         type="primary"):
+                if api_key.strip() and api_secret.strip():
+                    st.session_state["bot_api_key"]    = api_key.strip()
+                    st.session_state["bot_api_secret"] = api_secret.strip()
+                    st.session_state["bot_testnet"]    = True
+                    st.success("✅ Testnet API bilgileri kaydedildi.")
+                else:
+                    st.error("API Key ve Secret boş bırakılamaz.")
 
         _section("📐", "Strateji")
 
