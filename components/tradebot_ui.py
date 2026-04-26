@@ -8,7 +8,7 @@ import streamlit as st
 import time
 from datetime import datetime
 
-from bot.engine import get_state, start_bot, stop_bot, HAS_BINANCE
+from bot.engine import get_state, start_bot, stop_bot, HAS_BINANCE, HAS_CCXT
 
 # ── Tema ─────────────────────────────────────────────────────────────────────
 _G  = "#3fb950";  _R = "#ff7b72";  _B = "#58a6ff"
@@ -58,15 +58,16 @@ def render_tradebot():
         f"<div style='font-size:1.15rem;font-weight:700;color:#f0f6fc;"
         f"margin-bottom:4px'>🤖 TradeBot</div>"
         f"<div style='font-size:13px;color:{_DT};margin-bottom:1rem'>"
-        f"Binance Futures Testnet botu — gerçek para riski yok. "
-        f"WebSocket tabanlı veri akışı, rate limit / ban riski sıfır.</div>",
+        f"Binance Futures Testnet botu — <b style='color:#3fb950'>ccxt</b> tabanlı. "
+        f"Streamlit Cloud üzerinde TR kısıtı olmadan çalışır. "
+        f"Gerçek para riski yok.</div>",
         unsafe_allow_html=True,
     )
 
     if not HAS_BINANCE:
         st.error(
-            "**python-binance** yüklü değil.\n\n"
-            "```\npip install python-binance\n```\n\n"
+            "**ccxt** yüklü değil.\n\n"
+            "```\npip install ccxt\n```\n\n"
             "Sonra uygulamayı yeniden başlatın."
         )
         return
@@ -102,6 +103,12 @@ Sağ üstte profil → <b>"API Key"</b> sekmesine tıkla
 Aşağıdaki kutulara yapıştır → <b>Kaydet</b> → Botu başlat
 
 <span style='color:#3fb950'>✅ Testnet'te 10,000 USDT sanal bakiye otomatik verilir.</span>
+
+<b style='color:#e3b341'>💰 Bakiye bitti mi?</b>
+<a href='https://testnet.binancefuture.com' target='_blank' style='color:#58a6ff'>
+testnet.binancefuture.com</a> → sağ üst profil →
+<b>Assets</b> → <b>USDT Transfer</b> ile bakiye yenile
+veya yeni hesap oluştur.
 </div>
 """,
             unsafe_allow_html=True,
@@ -272,8 +279,14 @@ Aşağıdaki kutulara yapıştır → <b>Kaydet</b> → Botu başlat
         _section("📡", "Canlı Durum")
         _render_status_bar(snap)
 
+        _section("🧠", "Bot Düşüncesi")
+        _render_thought(snap)
+
         _section("📊", "Aktif Pozisyon")
         _render_open_trade(snap)
+
+        _section("🛠️", "Manuel İşlem")
+        _render_manual_order(snap)
 
         _section("📋", "Günlük Log")
         _render_log(snap)
@@ -405,7 +418,142 @@ def _render_open_trade(snap: dict):
     """, unsafe_allow_html=True)
 
 
-def _render_log(snap: dict):
+def _render_thought(snap: dict):
+    thought    = snap.get("thought", "—")
+    indicators = snap.get("indicators", {})
+
+    # Renk ve ikon sinyal tipine göre
+    if "LONG SİNYAL" in thought or thought.startswith("🟢"):
+        border_c = _G;  bg_c = "#071a0e"
+    elif "SHORT SİNYAL" in thought or thought.startswith("🔴"):
+        border_c = _R;  bg_c = "#1c0505"
+    elif "KAPAT" in thought or thought.startswith("⚠️"):
+        border_c = _Y;  bg_c = "#1c1007"
+    elif "BEKLE" in thought or thought.startswith("⏸"):
+        border_c = _DG; bg_c = _DB
+    else:
+        border_c = _B;  bg_c = "#0d2238"
+
+    # Düşünce balonu
+    lines = thought.replace("\\n", "\n").split("\n")
+    lines_html = "<br>".join(lines)
+    st.markdown(
+        f"<div style='background:{bg_c};border:1.5px solid {border_c};"
+        f"border-radius:10px;padding:0.75rem 0.9rem;margin-bottom:0.5rem;"
+        f"font-size:14px;line-height:1.7;color:{_TX}'>{lines_html}</div>",
+        unsafe_allow_html=True,
+    )
+
+    # İndikatörler grid
+    if indicators:
+        items = ""
+        for k, v in indicators.items():
+            items += (
+                f"<div style='background:{_DB};border:1px solid {_DG};"
+                f"border-radius:7px;padding:5px 8px'>"
+                f"<div style='font-size:10px;color:{_DT};text-transform:uppercase;"
+                f"letter-spacing:0.08em;margin-bottom:2px'>{k}</div>"
+                f"<div style='font-family:\"Space Mono\",monospace;font-size:13px;"
+                f"font-weight:700;color:{_TX}'>{v}</div></div>"
+            )
+        st.markdown(
+            f"<div style='display:grid;grid-template-columns:repeat(auto-fill,"
+            f"minmax(100px,1fr));gap:0.4rem;margin-top:4px'>{items}</div>",
+            unsafe_allow_html=True,
+        )
+
+
+def _render_manual_order(snap: dict):
+    """Manuel BUY / SELL butonu — test amaçlı gerçek/dry order gönderir."""
+    if not snap.get("running"):
+        st.markdown(
+            f"<div style='color:{_DT};font-size:13px;padding:4px 0'>"
+            f"Bot çalışırken aktif olur.</div>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    state = get_state()
+    sym   = snap.get("symbol", "BTCUSDT")
+
+    mc1, mc2, mc3 = st.columns(3)
+    with mc1:
+        m_qty = st.number_input(
+            "Miktar",
+            min_value=0.001, value=0.001, step=0.001,
+            format="%.3f", key="manual_qty",
+            label_visibility="collapsed",
+        )
+    with mc2:
+        if st.button("🟢 LONG / BUY", key="manual_buy",
+                     use_container_width=True):
+            _send_manual_order(state, snap, sym, "LONG", float(m_qty))
+    with mc3:
+        if st.button("🔴 SHORT / SELL", key="manual_sell",
+                     use_container_width=True):
+            _send_manual_order(state, snap, sym, "SHORT", float(m_qty))
+
+    # Açık pozisyon varsa kapat butonu
+    if snap.get("open_trade"):
+        if st.button("⬜ Pozisyonu Manuel Kapat", key="manual_close",
+                     use_container_width=True):
+            _manual_close(state, snap, sym)
+
+    st.markdown(
+        f"<div style='font-size:11px;color:{_DT};margin-top:4px'>"
+        f"⚠️ Manuel order bot stratejisini bypass eder. "
+        f"Dry Run modunda sadece simüle edilir.</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _send_manual_order(state, snap: dict, sym: str, side: str, qty: float):
+    """Manuel order — engine'deki worker üzerinden gönderir."""
+    from bot.engine import _worker_instance
+    if _worker_instance is None or not snap.get("running"):
+        state.add_log("WARN", "Manuel order: bot çalışmıyor.")
+        return
+
+    dry = snap.get("running") and True   # dry_run ayarını cfg'den al
+    # cfg'ye erişmek için worker'dan al
+    cfg = _worker_instance.cfg
+    dry = cfg.get("dry_run", True)
+    price = snap.get("last_price", 0)
+
+    if price <= 0:
+        state.add_log("WARN", "Manuel order: geçerli fiyat yok.")
+        return
+
+    if snap.get("open_trade"):
+        state.add_log("WARN", "Manuel order: önce mevcut pozisyonu kapat.")
+        return
+
+    ccxt_sym = sym[:-4] + "/USDT" if sym.endswith("USDT") else sym
+    state.add_log("INFO",
+        f"🖱 Manuel {'[DRY] ' if dry else ''}{side} order gönderiliyor: "
+        f"{qty} {sym} @ ~${price:,.4f}")
+    _worker_instance._open_pos(ccxt_sym, side, price,
+                               {**cfg, "risk_pct": 0},  # notional override yok
+                               dry)
+    # qty override — doğrudan state'e yaz
+    ot = state.open_trade
+    if ot:
+        ot["qty"]      = qty
+        ot["notional"] = round(qty * price, 4)
+        ot["manual"]   = True
+        state.set(open_trade=ot)
+
+
+def _manual_close(state, snap: dict, sym: str):
+    from bot.engine import _worker_instance
+    if _worker_instance is None:
+        return
+    ccxt_sym = sym[:-4] + "/USDT" if sym.endswith("USDT") else sym
+    cfg   = _worker_instance.cfg
+    price = snap.get("last_price", 0)
+    state.add_log("INFO", f"🖱 Manuel pozisyon kapatılıyor @ ~${price:,.4f}")
+    _worker_instance._close_pos(ccxt_sym, price, "Manuel", cfg,
+                                cfg.get("dry_run", True))
     logs = snap.get("log", [])
     if not logs:
         st.markdown(
