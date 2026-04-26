@@ -373,6 +373,31 @@ class BotWorker:
         except Exception as e:
             state.add_log("WARN", f"Kaldıraç ayarlanamadı: {e}")
 
+        # ── Hesap modunu Futures'a al ─────────────────────────────────────────
+        # OKX Demo varsayılan "simple" modda gelir → swap işlem yapamaz
+        # "2" = Multi-currency margin, "3" = Portfolio margin
+        try:
+            # Hesap konfigürasyonunu kontrol et
+            cfg_resp = self._ex.privateGetAccountConfig()
+            acct_lv  = str(cfg_resp.get("data", [{}])[0].get("acctLv", "1"))
+            state.add_log("INFO", f"OKX hesap modu: {acct_lv} "
+                         f"({'Single' if acct_lv=='1' else 'Multi' if acct_lv=='2' else 'Portfolio' if acct_lv=='3' else acct_lv})")
+
+            if acct_lv == "1":
+                # Single currency → Multi-currency margin'e yükselt
+                try:
+                    self._ex.privatePostAccountSetAccountLevel(
+                        params={"acctLv": "2"}
+                    )
+                    state.add_log("INFO", "✅ Hesap modu Multi-currency margin'e alındı")
+                except Exception as e2:
+                    state.add_log("WARN",
+                        f"Hesap modu değiştirilemedi: {e2}\n"
+                        f"OKX demo sitesinde manuel olarak:\n"
+                        f"Varlıklar → Hesap Modu → Multi-currency margin seç")
+        except Exception as e:
+            state.add_log("WARN", f"Hesap modu kontrol edilemedi: {e}")
+
         # Market bilgisi
         try:
             markets = self._ex.load_markets()
@@ -512,14 +537,29 @@ class BotWorker:
         if not dry:
             try:
                 b_side = "buy" if side == "LONG" else "sell"
+                # OKX Swap order:
+                # tdMode "isolated" = tüm hesap modlarında çalışır
+                # posSide "net" = one-way mode (long/short ayrımı yok)
                 self._ex.create_market_order(
                     okx_sym, b_side, qty,
-                    params={"tdMode": "cross"},   # OKX cross margin
+                    params={
+                        "tdMode":  "isolated",
+                        "posSide": "net",
+                    },
                 )
             except ccxt.InsufficientFunds as e:
                 state.add_log("ERROR", f"Yetersiz bakiye: {e}"); return
             except Exception as e:
-                state.add_log("ERROR", f"Order hatası: {e}"); return
+                # sCode 51010 = hesap modu hatası — kullanıcıya açık mesaj ver
+                err_str = str(e)
+                if "51010" in err_str:
+                    state.add_log("ERROR",
+                        "❌ Hesap modu hatası (51010). Çözüm:\n"
+                        "OKX Demo sitesine git → Varlıklar (Assets) → \n"
+                        "Hesap Modu → 'Multi-currency margin' seç → Onayla")
+                else:
+                    state.add_log("ERROR", f"Order hatası: {e}")
+                return
 
         trade = {
             "id":        int(time.time() * 1000),
@@ -555,7 +595,11 @@ class BotWorker:
             try:
                 self._ex.create_market_order(
                     okx_sym, b_side, ot["qty"],
-                    params={"tdMode": "cross", "reduceOnly": True},
+                    params={
+                        "tdMode":    "isolated",
+                        "posSide":   "net",
+                        "reduceOnly": True,
+                    },
                 )
             except Exception as e:
                 state.add_log("ERROR", f"Kapat hatası: {e}")
