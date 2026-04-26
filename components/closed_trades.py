@@ -253,21 +253,13 @@ def _render_detail_panel(trade: dict):
                 f"font-weight:700;color:{vc}'>{val}</div>"
                 f"</div>", unsafe_allow_html=True)
 
-    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
-    # ── Chart + Sub-tabs ──────────────────────────────────────────────────────
-    chart_col, tabs_col = st.columns([3, 2])
-
-    with chart_col:
-        # Binance gerçek OHLC verisi + Entry/SL/TP/Exit işaretleri
-        from components.chart_binance import render_binance_chart
-        render_binance_chart(trade)
-
-    with tabs_col:
-        nt, pt, et = st.tabs(["📝 Notlar", "📊 Performans", "🏷️ Etiketler"])
-        with nt: _tab_notes(trade)
-        with pt: _tab_performance(trade, hold_h, avg_entry, stop_loss, tps, direction)
-        with et: _tab_labels(trade)
+    # ── Sub-tabs (tam genişlik, chart yok) ───────────────────────────────────
+    nt, pt, et = st.tabs(["📝 Notlar & Psikoloji", "📊 Performans", "🏷️ Etiketler"])
+    with nt: _tab_notes(trade)
+    with pt: _tab_performance(trade, hold_h, avg_entry, stop_loss, tps, direction)
+    with et: _tab_labels(trade)
 
     st.markdown("</div>", unsafe_allow_html=True)
 

@@ -244,91 +244,84 @@ def render_trade_rules():
         for r in cat_rules:
             rid     = r["id"]
             active  = r.get("active", True)
-            opacity = "1" if active else "0.4"
-
-            # Düzenleme modu
+            opacity = "1" if active else "0.45"
             edit_key = f"tr_edit_{rid}"
             st.session_state.setdefault(edit_key, False)
 
-            rule_card_style = (
-                f"background:#161b22;border:1px solid "
-                f"{'#21262d' if active else '#161b22'};"
-                f"border-left:3px solid {fg if active else '#30363d'};"
-                f"border-radius:10px;padding:0.7rem 0.9rem;"
-                f"margin-bottom:0.4rem;opacity:{opacity}"
-            )
+            border_c = fg if active else "#30363d"
+            card_bg  = "#161b22" if active else "#0f1520"
 
-            st.markdown(f"<div style='{rule_card_style}'>", unsafe_allow_html=True)
-
-            if st.session_state.get(edit_key):
-                # Edit mode
-                edited_text = st.text_area(
-                    "Kuralı düzenle",
-                    value=r["rule"],
-                    key=f"tr_edit_text_{rid}",
-                    height=80,
-                )
-                edited_cat = st.selectbox(
-                    "Kategori",
-                    CATEGORIES,
-                    index=CATEGORIES.index(r.get("category", "Diğer")) if r.get("category") in CATEGORIES else 0,
-                    key=f"tr_edit_cat_{rid}",
-                )
-                ec1, ec2 = st.columns(2)
-                with ec1:
-                    if st.button("💾 Kaydet", key=f"tr_save_{rid}", use_container_width=True, type="primary"):
-                        idx = next((i for i, x in enumerate(rules) if x["id"] == rid), None)
-                        if idx is not None:
-                            rules[idx]["rule"]     = edited_text.strip()
-                            rules[idx]["category"] = edited_cat
-                        _save_rules(rules)
-                        st.session_state.tr_rules = rules
-                        st.session_state[edit_key] = False
-                        st.rerun()
-                with ec2:
-                    if st.button("İptal", key=f"tr_cancel_{rid}", use_container_width=True):
-                        st.session_state[edit_key] = False
-                        st.rerun()
-            else:
-                # View mode
-                num_in_cat = cat_rules.index(r) + 1
+            with st.container():
                 st.markdown(
-                    f"<div style='display:flex;align-items:flex-start;gap:0.8rem;padding:0.2rem 0'>"
+                    f"<div style='background:{card_bg};border:1px solid {_DG};"
+                    f"border-left:3px solid {border_c};border-radius:10px;"
+                    f"padding:0.75rem 1rem;margin-bottom:0.45rem;opacity:{opacity}'>"
+                    f"<div style='display:flex;align-items:flex-start;gap:0.75rem'>"
                     f"<span style='color:{fg};font-family:\"Space Mono\",monospace;"
-                    f"font-size:14px;min-width:26px;margin-top:2px;font-weight:700'>"
-                    f"{num_in_cat:02d}</span>"
-                    f"<span style='color:#e6edf3;font-size:15px;line-height:1.7;font-weight:500'>"
-                    f"{r['rule']}</span>"
-                    f"</div>",
+                    f"font-size:13px;min-width:24px;padding-top:2px;font-weight:700'>"
+                    f"{cat_rules.index(r)+1:02d}</span>"
+                    f"<span style='color:#e6edf3;font-size:15px;line-height:1.75;"
+                    f"font-weight:500;flex:1'>{r['rule']}</span>"
+                    f"</div></div>",
                     unsafe_allow_html=True,
                 )
 
-                # Action buttons
-                b1, b2, b3, _ = st.columns([1, 1, 1, 4])
-                with b1:
-                    toggle_lbl = "⏸️" if active else "▶️"
-                    if st.button(toggle_lbl, key=f"tr_toggle_{rid}", help="Aktif/Devre dışı",
-                                 use_container_width=True):
-                        idx = next((i for i, x in enumerate(rules) if x["id"] == rid), None)
-                        if idx is not None:
-                            rules[idx]["active"] = not active
-                        _save_rules(rules)
-                        st.session_state.tr_rules = rules
-                        st.rerun()
-                with b2:
-                    if st.button("✏️", key=f"tr_edit_btn_{rid}", help="Düzenle",
-                                 use_container_width=True):
-                        st.session_state[edit_key] = True
-                        st.rerun()
-                with b3:
-                    if st.button("🗑️", key=f"tr_del_{rid}", help="Sil",
-                                 use_container_width=True):
-                        rules = [x for x in rules if x["id"] != rid]
-                        _save_rules(rules)
-                        st.session_state.tr_rules = rules
-                        st.rerun()
+                if st.session_state.get(edit_key):
+                    edited_text = st.text_area(
+                        "Kuralı düzenle", value=r["rule"],
+                        key=f"tr_edit_text_{rid}", height=80,
+                    )
+                    edited_cat = st.selectbox(
+                        "Kategori", CATEGORIES,
+                        index=CATEGORIES.index(r.get("category","Diğer"))
+                              if r.get("category") in CATEGORIES else 0,
+                        key=f"tr_edit_cat_{rid}",
+                    )
+                    ec1, ec2 = st.columns(2)
+                    with ec1:
+                        if st.button("💾 Kaydet", key=f"tr_save_{rid}",
+                                     use_container_width=True, type="primary"):
+                            idx = next((i for i,x in enumerate(rules)
+                                        if x["id"]==rid), None)
+                            if idx is not None:
+                                rules[idx]["rule"]     = edited_text.strip()
+                                rules[idx]["category"] = edited_cat
+                            _save_rules(rules)
+                            st.session_state.tr_rules = rules
+                            st.session_state[edit_key] = False
+                            st.rerun()
+                    with ec2:
+                        if st.button("İptal", key=f"tr_cancel_{rid}",
+                                     use_container_width=True):
+                            st.session_state[edit_key] = False
+                            st.rerun()
+                else:
+                    b1, b2, b3, _ = st.columns([1, 1, 1, 5])
+                    with b1:
+                        lbl = "⏸️" if active else "▶️"
+                        if st.button(lbl, key=f"tr_toggle_{rid}",
+                                     help="Aktif/Devre dışı",
+                                     use_container_width=True):
+                            idx = next((i for i,x in enumerate(rules)
+                                        if x["id"]==rid), None)
+                            if idx is not None:
+                                rules[idx]["active"] = not active
+                            _save_rules(rules)
+                            st.session_state.tr_rules = rules
+                            st.rerun()
+                    with b2:
+                        if st.button("✏️", key=f"tr_edit_btn_{rid}",
+                                     help="Düzenle", use_container_width=True):
+                            st.session_state[edit_key] = True
+                            st.rerun()
+                    with b3:
+                        if st.button("🗑️", key=f"tr_del_{rid}",
+                                     help="Sil", use_container_width=True):
+                            rules = [x for x in rules if x["id"] != rid]
+                            _save_rules(rules)
+                            st.session_state.tr_rules = rules
+                            st.rerun()
 
-            st.markdown("</div>", unsafe_allow_html=True)
 
     if not filtered:
         st.markdown(
