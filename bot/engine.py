@@ -373,30 +373,43 @@ class BotWorker:
         except Exception as e:
             state.add_log("WARN", f"Kaldıraç ayarlanamadı: {e}")
 
-        # ── Hesap modunu Futures'a al ─────────────────────────────────────────
-        # OKX Demo varsayılan "simple" modda gelir → swap işlem yapamaz
-        # "2" = Multi-currency margin, "3" = Portfolio margin
+        # ── Hesap modu + Funding→Trading transfer ──────────────────────────────
+        # OKX Demo Simple modda → Multi-currency'ye yükselt
+        # Görüntüde Funding hesabında USDT var → Trading'e aktar
         try:
-            # Hesap konfigürasyonunu kontrol et
-            cfg_resp = self._ex.privateGetAccountConfig()
-            acct_lv  = str(cfg_resp.get("data", [{}])[0].get("acctLv", "1"))
-            state.add_log("INFO", f"OKX hesap modu: {acct_lv} "
-                         f"({'Single' if acct_lv=='1' else 'Multi' if acct_lv=='2' else 'Portfolio' if acct_lv=='3' else acct_lv})")
-
+            cfg_data = self._ex.privateGetAccountConfig()
+            acct_lv  = str(cfg_data.get("data", [{}])[0].get("acctLv", "1"))
+            names    = {"1":"Simple","2":"Multi-currency","3":"Portfolio","4":"Multi-portfolio"}
+            state.add_log("INFO", f"OKX hesap modu: {names.get(acct_lv, acct_lv)}")
             if acct_lv == "1":
-                # Single currency → Multi-currency margin'e yükselt
                 try:
-                    self._ex.privatePostAccountSetAccountLevel(
-                        params={"acctLv": "2"}
-                    )
-                    state.add_log("INFO", "✅ Hesap modu Multi-currency margin'e alındı")
+                    self._ex.privatePostAccountSetAccountLevel(params={"acctLv": "2"})
+                    state.add_log("INFO", "✅ Hesap modu Multi-currency'ye alındı")
                 except Exception as e2:
-                    state.add_log("WARN",
-                        f"Hesap modu değiştirilemedi: {e2}\n"
-                        f"OKX demo sitesinde manuel olarak:\n"
-                        f"Varlıklar → Hesap Modu → Multi-currency margin seç")
+                    state.add_log("WARN", f"Hesap modu değiştirilemedi: {e2}")
         except Exception as e:
-            state.add_log("WARN", f"Hesap modu kontrol edilemedi: {e}")
+            state.add_log("WARN", f"Hesap modu kontrol: {e}")
+
+        # Funding → Trading/Unified hesabına USDT transfer et
+        try:
+            trading_bal = self._ex.fetch_balance({"type": "trading"})
+            t_usdt = float((trading_bal.get("USDT") or {}).get("free") or 0)
+            state.add_log("INFO", f"Trading USDT: ${t_usdt:,.2f}")
+            if t_usdt < 10:
+                try:
+                    self._ex.transfer("USDT", 1000, "funding", "trading")
+                    state.add_log("INFO", "✅ Funding→Trading: 1000 USDT transfer edildi")
+                    bal2  = self._ex.fetch_balance({"type": "trading"})
+                    t_usdt = float((bal2.get("USDT") or {}).get("free") or 0)
+                except Exception as te:
+                    state.add_log("WARN",
+                        f"Otomatik transfer başarısız: {te} | "
+                        f"Manuel: OKX Demo → Assets → Transfer → "
+                        f"Funding→Trading, 1000 USDT")
+            if t_usdt > 0:
+                state.set(equity=t_usdt)
+        except Exception as e:
+            state.add_log("WARN", f"Trading bakiye/transfer: {e}")
 
         # Market bilgisi
         try:
@@ -537,26 +550,43 @@ class BotWorker:
         if not dry:
             try:
                 b_side = "buy" if side == "LONG" else "sell"
-                # OKX Swap order:
-                # tdMode "isolated" = tüm hesap modlarında çalışır
-                # posSide "net" = one-way mode (long/short ayrımı yok)
-                self._ex.create_market_order(
-                    okx_sym, b_side, qty,
-                    params={
-                        "tdMode":  "isolated",
-                        "posSide": "net",
-                    },
-                )
+                # OKX Perpetual Swap sırasıyla dener:
+                # 1) cross + hedge mode (multi-currency hesaplarda)
+                # 2) isolated + hedge mode (futures mode hesaplarda)
+                pos_side = "long" if side == "LONG" else "short"
+                order_params_list = [
+                    {"tdMode": "cross",    "posSide": pos_side},
+                    {"tdMode": "isolated", "posSide": pos_side},
+                    {"tdMode": "cross",    "posSide": "net"},
+                    {"tdMode": "isolated", "posSide": "net"},
+                ]
+                last_err = None
+                for params in order_params_list:
+                    try:
+                        self._ex.create_market_order(okx_sym, b_side, qty, params=params)
+                        state.add_log("INFO", f"Order OK: {params}")
+                        last_err = None
+                        break
+                    except Exception as attempt_err:
+                        last_err = attempt_err
+                        continue
+
+                if last_err is not None:
+                    raise last_err
+
             except ccxt.InsufficientFunds as e:
                 state.add_log("ERROR", f"Yetersiz bakiye: {e}"); return
             except Exception as e:
-                # sCode 51010 = hesap modu hatası — kullanıcıya açık mesaj ver
                 err_str = str(e)
                 if "51010" in err_str:
                     state.add_log("ERROR",
-                        "❌ Hesap modu hatası (51010). Çözüm:\n"
-                        "OKX Demo sitesine git → Varlıklar (Assets) → \n"
-                        "Hesap Modu → 'Multi-currency margin' seç → Onayla")
+                        "❌ Hesap modu hatası (51010).\n"
+                        "OKX Demo → Trade → ⚙️ Settings → Account mode → "
+                        "Multi-currency margin VEYA Futures mode seç.")
+                elif "51000" in err_str:
+                    state.add_log("ERROR",
+                        "❌ Pozisyon modu hatası (51000).\n"
+                        "OKX Demo → Trade → ⚙️ Settings → Position mode → One-way seç.")
                 else:
                     state.add_log("ERROR", f"Order hatası: {e}")
                 return
