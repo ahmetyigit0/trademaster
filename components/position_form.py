@@ -75,9 +75,6 @@ def _render_form(edit_id=None):
 
     sz_key  = f"{_SZ}_{px}"
     ver_key = f"{_VER}_{px}"
-    if sz_key not in st.session_state:
-        st.session_state[sz_key]  = float(pos.get("position_size", 10000)) if editing else 10000.0
-        st.session_state[ver_key] = 0
 
     # ── Başlık ────────────────────────────────────────────────────────────────
     if not editing:
@@ -158,6 +155,10 @@ def _render_form(edit_id=None):
             min_value=1.0,
             value=float(pos["capital"]) if editing else 10000.0,
             step=100.0, key=f"{px}cap")
+        # sz_key başlangıçta sermaye olsun
+        if sz_key not in st.session_state:
+            st.session_state[sz_key]  = float(pos.get("position_size", capital)) if editing else float(capital)
+            st.session_state[ver_key] = 0
 
     with r1c5:
         risk_pct = st.number_input("Max Risk %",
@@ -256,31 +257,64 @@ def _render_form(edit_id=None):
         )
         _divider("🛑 Stop Loss", _R)
 
-        sl_def = float(pos["stop_loss"]) if editing else 0.0
-        stop_loss = st.number_input("SL Fiyat",
-            min_value=0.0, value=sl_def,
-            format="%.4f", key=f"{px}sl",
-            label_visibility="collapsed")
-
-        # SL preset slider
         sl_pct_key = f"{px}sl_pct"
+        sl_price_key = f"{px}sl"
+
+        # Slider değişince fiyat güncelle
+        def _sl_slider_changed():
+            pct = st.session_state.get(sl_pct_key, 1.0)
+            ae  = st.session_state.get(f"{px}_avg_e", 0.0)
+            if ae > 0:
+                d = st.session_state.get(f"{px}dir", "LONG")
+                price = ae * (1 - pct/100) if d == "LONG" else ae * (1 + pct/100)
+                st.session_state[sl_price_key] = round(price, 6)
+
+        # Fiyat değişince slider güncelle
+        def _sl_price_changed():
+            ae = st.session_state.get(f"{px}_avg_e", 0.0)
+            p  = st.session_state.get(sl_price_key, 0.0)
+            if ae > 0 and p > 0:
+                pct = abs(ae - p) / ae * 100
+                # En yakın preset'e snap
+                closest = min(SL_PRESETS, key=lambda x: abs(x - pct))
+                st.session_state[sl_pct_key] = closest
+
+        # avg_e'yi session_state'e yaz (callback'ler erişebilsin)
+        st.session_state[f"{px}_avg_e"] = avg_e
+
         if sl_pct_key not in st.session_state:
-            st.session_state[sl_pct_key] = 1.0
+            # Editing modunda mevcut fiyattan başlangıç yüzdesi hesapla
+            if editing and pos.get("stop_loss",0) > 0 and avg_e > 0:
+                init_pct = abs(avg_e - pos["stop_loss"]) / avg_e * 100
+                closest  = min(SL_PRESETS, key=lambda x: abs(x - init_pct))
+                st.session_state[sl_pct_key] = closest
+            else:
+                st.session_state[sl_pct_key] = 1.0
+
         sl_pct_v = st.select_slider(
             "SL %", options=SL_PRESETS,
             value=st.session_state[sl_pct_key],
             key=sl_pct_key,
+            on_change=_sl_slider_changed,
             label_visibility="visible",
         )
-        # SL preset → fiyata dönüştür
-        if avg_e > 0 and st.button("↻ Uygula", key=f"{px}sl_apply",
-                                    use_container_width=True):
-            if direction == "LONG":
-                new_sl = round(avg_e * (1 - sl_pct_v/100), 6)
-            else:
-                new_sl = round(avg_e * (1 + sl_pct_v/100), 6)
-            st.session_state[f"{px}sl"] = new_sl
-            st.rerun()
+
+        # Slider'dan hesaplanan fiyat (eğer henüz elle yazılmadıysa)
+        sl_default = 0.0
+        if editing and sl_price_key not in st.session_state:
+            sl_default = float(pos.get("stop_loss", 0.0))
+        elif avg_e > 0 and sl_price_key not in st.session_state:
+            d = direction
+            sl_default = round(avg_e * (1 - sl_pct_v/100) if d=="LONG" else avg_e * (1 + sl_pct_v/100), 6)
+        else:
+            sl_default = float(st.session_state.get(sl_price_key, 0.0))
+
+        stop_loss = st.number_input("SL Fiyat",
+            min_value=0.0,
+            value=sl_default,
+            format="%.4f", key=sl_price_key,
+            on_change=_sl_price_changed,
+            label_visibility="collapsed")
 
         # SL risk bilgisi
         if stop_loss > 0 and avg_e > 0:
@@ -312,12 +346,57 @@ def _render_form(edit_id=None):
         for i in range(ntp):
             tp_pd = float(pos["take_profits"][i]["price"])  if editing and i < len(pos.get("take_profits",[])) else 0.0
             tp_wd = float(pos["take_profits"][i]["weight"]) if editing and i < len(pos.get("take_profits",[])) else default_tw
+            tp_pct_key  = f"{px}tp_pct_{i}"
+            tp_price_key= f"{px}tpp{i}"
+
+            # Slider → fiyat callback
+            def _tp_slider_cb(idx=i, ppk=tp_pct_key, tpk=tp_price_key):
+                pct = st.session_state.get(ppk, 1.5)
+                ae  = st.session_state.get(f"{px}_avg_e", 0.0)
+                if ae > 0:
+                    d = st.session_state.get(f"{px}dir", "LONG")
+                    price = ae * (1 + pct/100) if d == "LONG" else ae * (1 - pct/100)
+                    st.session_state[tpk] = round(price, 6)
+
+            # Fiyat → slider callback
+            def _tp_price_cb(ppk=tp_pct_key, tpk=tp_price_key):
+                ae = st.session_state.get(f"{px}_avg_e", 0.0)
+                p  = st.session_state.get(tpk, 0.0)
+                if ae > 0 and p > 0:
+                    pct     = abs(p - ae) / ae * 100
+                    closest = min(TP_PRESETS, key=lambda x: abs(x - pct))
+                    st.session_state[ppk] = closest
+
+            if tp_pct_key not in st.session_state:
+                if editing and tp_pd > 0 and avg_e > 0:
+                    init_pct = abs(avg_e - tp_pd) / avg_e * 100
+                    st.session_state[tp_pct_key] = min(TP_PRESETS, key=lambda x: abs(x - init_pct))
+                else:
+                    st.session_state[tp_pct_key] = TP_PRESETS[min(i*2, len(TP_PRESETS)-1)]
+
+            tp_pct_v = st.select_slider(
+                f"TP{i+1} %", options=TP_PRESETS,
+                value=st.session_state[tp_pct_key],
+                key=tp_pct_key,
+                on_change=_tp_slider_cb,
+                label_visibility="collapsed",
+            )
+
+            # Slider'dan default fiyat
+            if editing and tp_price_key not in st.session_state:
+                tp_default = tp_pd
+            elif avg_e > 0 and tp_price_key not in st.session_state:
+                d = direction
+                tp_default = round(avg_e * (1 + tp_pct_v/100) if d=="LONG" else avg_e * (1 - tp_pct_v/100), 6)
+            else:
+                tp_default = float(st.session_state.get(tp_price_key, 0.0))
 
             tc1, tc2 = st.columns([1.3, 0.7])
             with tc1:
                 tp_p = st.number_input(
-                    f"TP{i+1} Fiyat", min_value=0.0, value=tp_pd,
-                    format="%.4f", key=f"{px}tpp{i}",
+                    f"TP{i+1} Fiyat", min_value=0.0, value=tp_default,
+                    format="%.4f", key=tp_price_key,
+                    on_change=_tp_price_cb,
                     label_visibility="collapsed")
             with tc2:
                 tp_w = st.number_input(
@@ -325,36 +404,19 @@ def _render_form(edit_id=None):
                     value=tp_wd, step=5.0, key=f"{px}tpw{i}",
                     label_visibility="collapsed")
 
-            # TP preset slider
-            tp_pct_key = f"{px}tp_pct_{i}"
-            if tp_pct_key not in st.session_state:
-                st.session_state[tp_pct_key] = TP_PRESETS[min(i, len(TP_PRESETS)-1)]
-            tp_pct_v = st.select_slider(
-                f"TP{i+1} %", options=TP_PRESETS,
-                value=st.session_state[tp_pct_key],
-                key=tp_pct_key,
-                label_visibility="collapsed",
-            )
-            if avg_e > 0 and st.button(f"↻", key=f"{px}tp_apply_{i}",
-                                        use_container_width=True):
-                if direction == "LONG":
-                    new_tp = round(avg_e * (1 + tp_pct_v/100), 6)
-                else:
-                    new_tp = round(avg_e * (1 - tp_pct_v/100), 6)
-                st.session_state[f"{px}tpp{i}"] = new_tp
-                st.rerun()
-
-            # TP kâr hint
+            # TP kâr + RR hint
             if tp_p > 0 and avg_e > 0:
                 move   = abs(tp_p - avg_e) / avg_e
                 profit = st.session_state.get(sz_key, capital) * (tp_w/100) * move
                 sl_d   = abs(avg_e - stop_loss) if stop_loss > 0 else 0
                 rr_v   = round(move / (sl_d/avg_e), 2) if sl_d > 0 else 0
                 rrc    = _G if rr_v >= 2 else _Y if rr_v >= 1 else _R
+                pct_move = round(move * 100, 2)
                 st.markdown(
                     f"<div style='font-size:11px;color:{_DT};margin-bottom:6px'>"
-                    f"<b style='color:{_G}'>+${profit:,.2f}</b> "
-                    f"<span style='color:{rrc}'>RR: {rr_v:.1f}</span></div>",
+                    f"<b style='color:{_G}'>+${profit:,.2f}</b>  "
+                    f"<span style='color:{_DT}'>%{pct_move}</span>  "
+                    f"<span style='color:{rrc}'>RR:{rr_v:.1f}</span></div>",
                     unsafe_allow_html=True,
                 )
             if tp_p > 0:
@@ -438,12 +500,11 @@ def _render_form(edit_id=None):
                       f"${position_size*lev:,.0f}" if lev > 1 else "—",
                       _B)
         with mc5:
-            heat = calculate_position_heat(
-                position_size, capital, calc.get("risk_per_unit",0)
-            )
-            _info_box("Heat",
-                      f"%{heat:.1f}",
-                      _R if heat > risk_pct*1.5 else _Y if heat > risk_pct else _G)
+            pos_risk_usd = position_size * calc.get("risk_per_unit", 0)
+            pos_risk_pct = pos_risk_usd / capital * 100 if capital > 0 else 0
+            _info_box("Poz. Riski",
+                      f"%{pos_risk_pct:.2f}",
+                      _R if pos_risk_pct > risk_pct*1.5 else _Y if pos_risk_pct > risk_pct else _G)
 
         st.markdown("</div>", unsafe_allow_html=True)
     else:
@@ -482,10 +543,7 @@ def _render_form(edit_id=None):
         es    = st.slider("Execution", 0, 10,
                           int(pos.get("execution_score",7)) if editing else 7,
                           key=f"{px}exec")
-        # İnanç puanı
-        belief = st.slider("İnanç 🎯", 0, 10,
-                           int(pos.get("belief_score",7)) if editing else 7,
-                           key=f"{px}belief")
+
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -532,7 +590,7 @@ def _render_form(edit_id=None):
             risk_calc=calc_s, rr=rr_s, heat=heat_s,
             setup_type=setup, market_condition=mkt,
             emotion=emo, plan_followed=pf,
-            execution_score=es, belief_score=belief,
+            execution_score=es,
             mistakes=[], notes=notes,
         )
 
