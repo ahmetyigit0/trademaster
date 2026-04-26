@@ -1,11 +1,11 @@
 """
-TradeBot Engine — ccxt + Binance USDM Futures Testnet
-======================================================
+TradeBot Engine — ccxt + Binance USDM Futures Demo Trading
+===========================================================
 Streamlit Cloud üzerinde çalışır:
-  - ccxt.binanceusdm + set_sandbox_mode(True)
-  - Tüm REST çağrıları testnet.binancefuture.com/fapi/ → TR kısıtı yok
-  - Streamlit Cloud ABD/EU IP kullandığı için Binance.com'a da erişir
-  - Thread tabanlı: WebSocket veya polling ile canlı veri
+  - ccxt.binanceusdm + enable_demo_trading(True)
+  - Tüm REST çağrıları demo-fapi.binance.com/fapi/ → TR kısıtı yok
+  - Binance Demo Trading: gerçek fiyatlar, sanal para
+  - Thread tabanlı: polling ile canlı veri
 
 Rate limit koruması:
   - Kline: 5s polling (WebSocket ekstra bağımlılık gerektiriyor)
@@ -107,21 +107,29 @@ def get_state() -> BotState:
 
 def _make_exchange(api_key: str, api_secret: str) -> "ccxt.binanceusdm":
     """
-    ccxt.binanceusdm + set_sandbox_mode(True)
-    → Tüm istek testnet.binancefuture.com/fapi/ adresine gider.
-    TR IP kısıtı bu URL'de yoktur. Streamlit Cloud'dan da çalışır.
+    ccxt.binanceusdm + enable_demo_trading(True)
+
+    Neden demo trading?
+    - ccxt 4.x, Binance Futures testnet desteğini kaldırdı (enable_demo_trading kullan)
+    - Demo trading: https://demo-fapi.binance.com/fapi/ → gerçek fiyatlar, sanal para
+    - Streamlit Cloud (ABD IP) üzerinden doğrudan çalışır
+    - demo.binance.com adresinden ayrı API key alınır
+
+    Duyuru: https://t.me/ccxt_announcements/92
     """
     ex = ccxt.binanceusdm({
-        "apiKey":  api_key,
-        "secret":  api_secret,
+        "apiKey": api_key,
+        "secret": api_secret,
         "options": {
-            "defaultType":       "future",
-            "adjustForTimeDifference": True,   # timestamp auto-sync
+            "defaultType":            "future",
+            "adjustForTimeDifference": True,   # timestamp farkını otomatik düzelt
         },
-        "timeout": 15000,
-        "enableRateLimit": True,               # ccxt built-in rate limiter
+        "enableRateLimit": True,    # ccxt built-in rate limiter
+        "timeout":         15000,
     })
-    ex.set_sandbox_mode(True)   # ← tüm URL'leri testnet'e yönlendirir
+    # Demo trading modunu aktif et
+    # URL'leri demo-fapi.binance.com/fapi/ olarak günceller
+    ex.enable_demo_trading(True)
     return ex
 
 
@@ -402,7 +410,7 @@ class BotWorker:
         state.set(running=True, status="Başlatılıyor...",
                   symbol=sym, strategy=cfg.get("strategy", "EMA_CROSS"), error="")
         state.add_log("INFO",
-            f"[TESTNET·ccxt] {'[DRY]' if dry else '[CANLI]'} "
+            f"[DEMO·ccxt] {'[DRY]' if dry else '[CANLI]'} "
             f"{ccxt_sym} · {tf} · poll:{poll_s}s")
 
         # ── 1. Exchange bağlantısı ────────────────────────────────────────────
@@ -425,9 +433,9 @@ class BotWorker:
             equity  = float(balance.get("USDT", {}).get("free", 0))
             state.set(equity=equity)
             state.add_log("INFO",
-                f"✅ ccxt testnet bağlandı. Bakiye: ${equity:,.2f} USDT")
+                f"✅ ccxt demo bağlandı. Bakiye: ${equity:,.2f} USDT")
             state.add_log("INFO",
-                f"Sandbox URL: {self._ex.urls.get('api',{}).get('fapiPublic','?')}")
+                f"Demo URL: {self._ex.urls.get('api',{}).get('fapiPublic','?')}")
             # Bakiye uyarısı
             if equity < 10:
                 state.add_log("WARN",
@@ -513,7 +521,7 @@ class BotWorker:
         except Exception as e:
             state.add_log("WARN", f"Geçmiş kline alınamadı: {e}")
 
-        state.set(status=f"✅ Çalışıyor [TESTNET·ccxt] — {ccxt_sym} · {tf}")
+        state.set(status=f"✅ Çalışıyor [DEMO·ccxt] — {ccxt_sym} · {tf}")
         state.add_log("INFO",
             f"Polling modu: {poll_s}s arayla veri çekiliyor. "
             f"Mum kapandığında strateji çalıştırılır.")
