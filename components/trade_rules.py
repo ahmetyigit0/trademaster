@@ -3,6 +3,11 @@ import streamlit as st
 import json
 import os
 
+# ── Renk sabitleri ────────────────────────────────────────────────────────────
+_G  = "#3fb950";  _R = "#ff7b72";  _B = "#58a6ff"
+_Y  = "#e3b341";  _DT= "#b1bac4";  _TX= "#e6edf3"
+_BG = "#161b22";  _DB= "#0d1117";  _DG= "#21262d"
+
 RULES_FILE = "trade_rules.json"
 
 DEFAULT_RULES = [
