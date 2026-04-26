@@ -124,32 +124,22 @@ okx.com/demo-trading</a> → Varlıklar → Futures hesabına USDT aktar
         # API Keys
         with st.expander("🔑 OKX Demo API Anahtarları", expanded=not snap["running"]):
 
-            # Demo Trading mode — her zaman açık
-            use_testnet = st.checkbox(
-                "✅ Binance Futures Demo Trading modu",
-                value=True,   # SABIT — her zaman demo
-                key="bot_testnet_chk",
-                disabled=True,   # kapatılamaz
-                help="Türkiye'den Binance.com'a doğrudan erişim kısıtlı. "
-                     "Demo Trading ücretsiz ve güvenlidir.",
-            )
-
             st.markdown(
                 f"<div style='background:#071a0e;border:1px solid #238636;"
-                f"border-radius:8px;padding:8px 12px;font-size:13px;margin:4px 0 10px'>"
-                f"🔗 Demo URL: "
-                f"<a href='https://demo.binance.com' target='_blank' "
-                f"style='color:#58a6ff'>demo.binance.com</a>"
-                f"</div>",
+                f"border-radius:8px;padding:8px 12px;font-size:13px;margin:0 0 10px'>"
+                f"🔗 OKX Demo: "
+                f"<a href='https://www.okx.com/demo-trading' target='_blank' "
+                f"style='color:#58a6ff'>okx.com/demo-trading</a>"
+                f" → API → Demo Trading key oluştur</div>",
                 unsafe_allow_html=True,
             )
 
             api_key = st.text_input(
-                "Demo API Key",
+                "OKX API Key",
                 value=st.session_state.get("bot_api_key", ""),
                 type="password",
                 key="bot_api_key_input",
-                placeholder="demo.binance.com'dan alınan API Key",
+                placeholder="OKX Demo API Key",
             )
             api_secret = st.text_input(
                 "OKX API Secret",
@@ -163,19 +153,23 @@ okx.com/demo-trading</a> → Varlıklar → Futures hesabına USDT aktar
                 value=st.session_state.get("bot_passphrase", ""),
                 type="password",
                 key="bot_passphrase_input",
-                placeholder="API oluştururken girdiğin Passphrase",
+                placeholder="API oluştururken belirlediğin şifre",
                 help="OKX'te her API key için passphrase zorunludur.",
             )
 
-            if st.button("💾 Kaydet", key="bot_save_keys", use_container_width=True,
-                         type="primary"):
-                if api_key.strip() and api_secret.strip():
+            if st.button("💾 Kaydet", key="bot_save_keys",
+                         use_container_width=True, type="primary"):
+                if not api_key.strip():
+                    st.error("API Key boş olamaz.")
+                elif not api_secret.strip():
+                    st.error("API Secret boş olamaz.")
+                elif not api_pass.strip():
+                    st.error("Passphrase boş olamaz.")
+                else:
                     st.session_state["bot_api_key"]    = api_key.strip()
                     st.session_state["bot_api_secret"] = api_secret.strip()
-                    st.session_state["bot_testnet"]    = True
-                    st.success("✅ Demo API bilgileri kaydedildi.")
-                else:
-                    st.error("API Key ve Secret boş bırakılamaz.")
+                    st.session_state["bot_passphrase"] = api_pass.strip()
+                    st.success("✅ OKX Demo API bilgileri kaydedildi. Artık botu başlatabilirsin.")
 
         _section("📐", "Strateji")
 
@@ -264,7 +258,7 @@ okx.com/demo-trading</a> → Varlıklar → Futures hesabına USDT aktar
                 else:
                     cfg = _build_cfg(strategy, symbol, timeframe,
                                      risk_pct, tp_pct, sl_pct, leverage, cooldown,
-                                     dry_run, use_testnet)
+                                     dry_run, True)
                     cfg["passphrase"] = saved_pass
                     ok  = start_bot(saved_key, saved_secret, cfg)
                     if ok:
