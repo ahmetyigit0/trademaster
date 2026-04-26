@@ -79,8 +79,10 @@ def _render_form(edit_id=None):
     # ── Başlık ────────────────────────────────────────────────────────────────
     if not editing:
         st.markdown(
-            f"<div style='font-style:italic;color:#484f58;font-size:13px;"
-            f"border-left:2px solid {_B};padding:3px 10px;margin-bottom:10px'>"
+            f"<div style='background:#0d1520;border:1px solid {_B}40;"
+            f"border-left:3px solid {_B};border-radius:10px;"
+            f"padding:8px 14px;margin-bottom:10px;"
+            f"font-style:italic;color:#6e7681;font-size:13px;line-height:1.6'>"
             f"\"Herkes teknik analiz bilebilir — çok azı plana sadık kalabilir.\"</div>",
             unsafe_allow_html=True,
         )
@@ -474,31 +476,43 @@ def _render_form(edit_id=None):
         def _sync():
             st.session_state[sz_key] = float(st.session_state.get(widget_key, 0.0))
 
+        # position_size session_state'ten oku — widget render'dan önce hesapla
+        position_size = float(st.session_state.get(sz_key, capital))
+
+        # Metrik hesaplamaları (position_size kullanarak)
+        risk_per_unit = calc.get("risk_per_unit", 0)
+        pos_risk_usd  = position_size * risk_per_unit          # yatırılan tutar × risk oranı
+        pos_risk_pct  = pos_risk_usd / capital * 100 if capital > 0 else 0
+        # Sermaye riski: TÜM sermayeyi yatırırsan sl'e gidersen ne kaybedersin
+        cap_risk_usd  = capital * risk_per_unit
+        cap_risk_pct  = cap_risk_usd / capital * 100           # = full_capital_risk_pct
+
         mc0, mc1, mc2, mc3, mc4, mc5 = st.columns(6)
         with mc0:
             position_size = st.number_input(
                 "💰 Pozisyon (USDT)", min_value=0.0,
                 max_value=float(capital)*200,
-                value=float(st.session_state.get(sz_key, capital)),
+                value=position_size,
                 step=10.0, key=widget_key, on_change=_sync,
             )
+            # Widget değiştikten sonra güncelle
+            position_size = float(st.session_state.get(sz_key, position_size))
+            pos_risk_usd  = position_size * risk_per_unit
+            pos_risk_pct  = pos_risk_usd / capital * 100 if capital > 0 else 0
         with mc1:
             _info_box("Risk $",
-                      f"${calc['risk_amount']:,.0f}",
+                      f"${pos_risk_usd:,.2f}",
                       _Y)
         with mc2:
-            # Poz. Riski = bu pozisyon büyüklüğüyle stop'a gidersek sermayenin kaçını kaybederiz
-            pos_risk_usd = position_size * calc.get("risk_per_unit", 0)
-            pos_risk_pct = pos_risk_usd / capital * 100 if capital > 0 else 0
+            # Poz. Riski: yatırılan tutar üzerinden stop'a giderse kayıp / toplam sermaye
             _info_box("Poz. Riski",
                       f"%{pos_risk_pct:.2f}",
                       _R if pos_risk_pct > risk_pct else _Y if pos_risk_pct > risk_pct * 0.8 else _G)
         with mc3:
-            # Sermaye Riski = tüm sermayeyi yatırırsan kaybedersin (giriş noktasına göre)
-            cap_risk = calc["full_capital_risk_pct"]
+            # Sermaye Riski: tüm sermaye yatırılsaydı stop'ta kayıp
             _info_box("Sermaye Risk",
-                      f"%{cap_risk:.2f}",
-                      _R if cap_risk > risk_pct else _G)
+                      f"%{cap_risk_pct:.2f}",
+                      _R if cap_risk_pct > risk_pct else _G)
         with mc4:
             rr_str = f"1:{rr}" if rr else "—"
             rrc    = rr_color(rr) if rr else _DT
@@ -661,3 +675,156 @@ def _clear(px, sz_key, ver_key):
         if k.startswith(px) or k in (sz_key, ver_key):
             try: del st.session_state[k]
             except: pass
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TASLAK DÜZENLEME
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _render_draft_edit(draft: dict):
+    """
+    Taslak üzerinde hızlı düzenleme + İşlem Aç akışı.
+    Tüm form alanları dolu gelir, kullanıcı değiştirir, İşlem Aç'a basar.
+    """
+    did  = draft.get("id")
+    px   = f"de_{did}_"
+    sz_k = f"{_SZ}_{px}"
+    vk   = f"{_VER}_{px}"
+    edit_draft_key = f"edit_draft_{did}"
+
+    if sz_k not in st.session_state:
+        st.session_state[sz_k] = float(draft.get("position_size", draft.get("capital", 10000)))
+        st.session_state[vk]   = 0
+
+    # ── Satır 1: Temel ────────────────────────────────────────────────────────
+    c1, c2, c3, c4, c5 = st.columns([2.5, 2, 1.5, 2.5, 2])
+    with c1:
+        symbol = st.text_input("Sembol",
+            value=draft.get("symbol",""), key=f"{px}sym").upper().strip()
+    with c2:
+        if f"{px}dir" not in st.session_state:
+            st.session_state[f"{px}dir"] = draft.get("direction","LONG")
+        direction = st.session_state[f"{px}dir"]
+        b1, b2 = st.columns(2)
+        with b1:
+            if st.button("📈 LONG", key=f"{px}long",
+                         type="primary" if direction=="LONG" else "secondary",
+                         use_container_width=True):
+                st.session_state[f"{px}dir"] = "LONG"; st.rerun()
+        with b2:
+            if st.button("📉 SHORT", key=f"{px}short",
+                         type="primary" if direction=="SHORT" else "secondary",
+                         use_container_width=True):
+                st.session_state[f"{px}dir"] = "SHORT"; st.rerun()
+    with c3:
+        lev = st.number_input("Kaldıraç ×",
+            min_value=1.0, max_value=500.0,
+            value=float(draft.get("leverage",1)), step=1.0, key=f"{px}lev")
+    with c4:
+        capital = st.number_input("Sermaye ($)",
+            min_value=1.0,
+            value=float(draft.get("capital",10000)), step=100.0, key=f"{px}cap")
+    with c5:
+        risk_pct = st.number_input("Risk %",
+            min_value=0.1, max_value=50.0,
+            value=float(draft.get("risk_pct",2.0)), step=0.1, key=f"{px}rp")
+
+    # ── Satır 2: Entry / Stop ─────────────────────────────────────────────────
+    ec1, ec2 = st.columns(2)
+    with ec1:
+        entries_raw = draft.get("entries", [{"price":0,"weight":100}])
+        entries = []
+        for i, e in enumerate(entries_raw):
+            ea, eb = st.columns([2, 1])
+            with ea:
+                ep = st.number_input(f"Entry {i+1} Fiyat",
+                    min_value=0.0, value=float(e.get("price",0)),
+                    format="%.4f", key=f"{px}ep{i}")
+            with eb:
+                ew = st.number_input(f"Ağırlık {i+1}%",
+                    min_value=0.1, max_value=100.0,
+                    value=float(e.get("weight",100)), step=5.0, key=f"{px}ew{i}")
+            if ep > 0:
+                entries.append({"price": ep, "weight": ew})
+        avg_e = calculate_avg_entry(entries) if entries else 0.0
+    with ec2:
+        sl_def = float(draft.get("stop_loss",0))
+        stop_loss = st.number_input("Stop Loss",
+            min_value=0.0, value=sl_def,
+            format="%.4f", key=f"{px}sl")
+
+        tps_raw = draft.get("take_profits",[{"price":0,"weight":100}])
+        take_profits = []
+        for i, t in enumerate(tps_raw):
+            ta, tb = st.columns([2, 1])
+            with ta:
+                tp_p = st.number_input(f"TP {i+1} Fiyat",
+                    min_value=0.0, value=float(t.get("price",0)),
+                    format="%.4f", key=f"{px}tpp{i}")
+            with tb:
+                tp_w = st.number_input(f"TP {i+1}%",
+                    min_value=0.1, max_value=100.0,
+                    value=float(t.get("weight",100)), step=5.0, key=f"{px}tpw{i}")
+            if tp_p > 0:
+                take_profits.append({"price": tp_p, "weight": tp_w})
+
+    # ── Notlar ───────────────────────────────────────────────────────────────
+    notes = st.text_area("Not", value=draft.get("notes",""),
+        placeholder="Ek notlar...", key=f"{px}notes", height=55)
+
+    # ── Butonlar ─────────────────────────────────────────────────────────────
+    b1, b2, b3 = st.columns([1.5, 1.5, 3])
+    with b1:
+        if st.button("▶️ İşlemi Aç", key=f"{px}open",
+                     type="primary", use_container_width=True):
+            if not symbol or not entries or stop_loss <= 0:
+                st.error("Sembol, entry ve stop loss zorunlu."); return
+            avg_e2 = calculate_avg_entry(entries)
+            calc_s = calculate_position_size(capital, risk_pct, avg_e2, stop_loss)
+            rr_s   = calculate_rr(avg_e2, stop_loss, take_profits, direction)
+            pos_sz = float(st.session_state.get(sz_k, capital))
+            data   = st.session_state.data
+            pos_rec = {
+                **draft,
+                "symbol": symbol, "direction": direction, "leverage": lev,
+                "capital": capital, "risk_pct": risk_pct,
+                "entries": entries, "avg_entry": avg_e2, "stop_loss": stop_loss,
+                "take_profits": take_profits, "position_size": pos_sz,
+                "risk_calc": calc_s, "rr": rr_s,
+                "notes": notes,
+                "created_at": datetime.now().isoformat(),
+            }
+            pos_rec.pop("is_draft", None)
+            data["active_positions"].append(pos_rec)
+            data["drafts"] = [d for d in data.get("drafts",[])
+                               if d.get("id") != did]
+            save_data(data)
+            st.session_state.data = data
+            st.session_state[edit_draft_key] = False
+            st.success(f"✅ {symbol} pozisyonu açıldı!")
+            st.rerun()
+    with b2:
+        if st.button("💾 Taslağı Güncelle", key=f"{px}save_draft",
+                     use_container_width=True):
+            if not symbol or not entries:
+                st.error("Sembol ve entry zorunlu."); return
+            avg_e2 = calculate_avg_entry(entries)
+            rr_s   = calculate_rr(avg_e2, stop_loss, take_profits, direction)
+            data   = st.session_state.data
+            updated = {
+                **draft,
+                "symbol": symbol, "direction": direction, "leverage": lev,
+                "capital": capital, "risk_pct": risk_pct,
+                "entries": entries, "avg_entry": avg_e2, "stop_loss": stop_loss,
+                "take_profits": take_profits, "notes": notes, "rr": rr_s,
+            }
+            data["drafts"] = [updated if d.get("id")==did else d
+                              for d in data.get("drafts",[])]
+            save_data(data)
+            st.session_state.data = data
+            st.session_state[edit_draft_key] = False
+            st.rerun()
+    with b3:
+        if st.button("✕ İptal", key=f"{px}cancel", use_container_width=True):
+            st.session_state[edit_draft_key] = False
+            st.rerun()
