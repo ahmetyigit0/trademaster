@@ -290,7 +290,7 @@ def _render_chart(klines, liq_map, ob_data, current_price, symbol, tf_label):
             text=f"  🧲 ${mag['price']:,.2f}",
             font=dict(size=11, color=_Y, family="Space Mono"),
             showarrow=False, xanchor="left",
-            bgcolor=f"{_BG}CC",
+            bgcolor="rgba(13,17,23,0.8)",
         )
 
     # ── Order book duvarları ─────────────────────────────────────────────────
@@ -326,7 +326,7 @@ def _render_chart(klines, liq_map, ob_data, current_price, symbol, tf_label):
         y=current_price, x=open_times[-1],
         text=f"  ${current_price:,.4f}",
         font=dict(size=13, color=pc, family="Space Mono"),
-        showarrow=False, xanchor="left", bgcolor=f"{_BG}CC",
+        showarrow=False, xanchor="left", bgcolor="rgba(13,17,23,0.8)",
     )
 
     # ── Legend ───────────────────────────────────────────────────────────────
