@@ -1,582 +1,688 @@
 """
-Liquidity Heatmap — Premium Trading Terminal Ekranı
-====================================================
-Demo verilerle çalışan, CoinGlass tarzı profesyonel likidite analiz ekranı.
-Her rerun'da veriler güncellenir. st.fragment ile 3s auto-refresh.
+Liquidity Heatmap — Gerçek Binance Verisi
+==========================================
+CoinGlass benzeri likidite ısı haritası.
+
+HESAPLAMA:
+  Her mum için stop loss kümeleri:
+    High * (1 + offset) → Short stop cluster (shorts burada durur)
+    Low  * (1 - offset) → Long liquidation zone (longs burada patlar)
+  Hacimle ağırlıklandırılır. Grid hücrelerine yuvarlanır.
+  Zaman dilimi: 12H / 1D / 3D / 1W / 1M / 3M
 """
 
 import streamlit as st
 import time
 import random
-import math
 from datetime import datetime, timedelta
+from typing import Optional
+
+try:
+    import requests as _req
+    HAS_REQUESTS = True
+except ImportError:
+    HAS_REQUESTS = False
 
 try:
     import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
     HAS_PLOTLY = True
 except ImportError:
     HAS_PLOTLY = False
 
-# ── Renk paleti (mevcut tema ile uyumlu) ──────────────────────────────────────
-_BG   = "#0d1117";  _BG2 = "#161b22";  _BG3 = "#1c2128"
-_DG   = "#21262d";  _DG2 = "#30363d"
-_TX   = "#e6edf3";  _DT  = "#8b949e";  _DT2 = "#6e7681"
-_G    = "#3fb950";  _G2  = "#56d364";  _GD  = "#0a2e1a"
-_R    = "#ff7b72";  _R2  = "#da3633";  _RD  = "#2d0f0f"
-_B    = "#58a6ff";  _B2  = "#388bfd";  _BD  = "#0d2238"
-_Y    = "#e3b341";  _YD  = "#2b1d0a"
-_P    = "#a371f7";  _PD  = "#1e1030"   # mor
+# ── Tema ─────────────────────────────────────────────────────────────────────
+_BG = "#0d1117"; _BG2 = "#161b22"; _BG3 = "#1c2128"
+_DG = "#21262d"; _DG2 = "#30363d"
+_TX = "#e6edf3"; _DT  = "#8b949e"; _DT2 = "#6e7681"
+_G  = "#3fb950"; _R   = "#ff7b72"; _B   = "#58a6ff"
+_Y  = "#e3b341"; _P   = "#a371f7"
 
-PAIRS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"]
-TIMEFRAMES = ["5m", "15m", "1H", "4H"]
-
-BASE_PRICES = {
-    "BTCUSDT": 94_500.0,
-    "ETHUSDT": 3_200.0,
-    "SOLUSDT": 175.0,
-    "BNBUSDT": 620.0,
+PAIRS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT"]
+TIMEFRAMES = {
+    "12H": ("1h",  12,  "12 Saat"),
+    "1D":  ("1h",  24,  "1 Gün"),
+    "3D":  ("1h",  72,  "3 Gün"),
+    "1W":  ("4h",  42,  "1 Hafta"),
+    "1M":  ("1d",  30,  "1 Ay"),
+    "3M":  ("1d",  90,  "3 Ay"),
 }
-
-EVENT_TYPES = ["Short Liquidated", "Long Liquidated", "Wall Added", "Wall Removed"]
+BINANCE_FAPI = "https://fapi.binance.com"
+BASE_PRICES  = {"BTCUSDT":94500,"ETHUSDT":3200,"SOLUSDT":175,"BNBUSDT":620,
+                "XRPUSDT":0.62,"DOGEUSDT":0.18}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# DEMO DATA GENERATOR
+# DATA FETCH
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _seed_from_time(interval_s: int = 3) -> int:
-    return int(time.time() // interval_s)
+@st.cache_data(ttl=120, show_spinner=False)
+def fetch_klines(symbol: str, interval: str, limit: int) -> Optional[list]:
+    if not HAS_REQUESTS: return None
+    try:
+        r = _req.get(f"{BINANCE_FAPI}/fapi/v1/klines",
+                     params={"symbol":symbol,"interval":interval,"limit":limit},
+                     headers={"User-Agent":"Mozilla/5.0"}, timeout=10)
+        r.raise_for_status(); return r.json()
+    except Exception: return None
 
-def _gen_market(pair: str, tf: str, seed: int) -> dict:
-    rng   = random.Random(seed)
-    base  = BASE_PRICES.get(pair, 1000.0)
-    drift = (rng.random() - 0.48) * base * 0.002
-    price = round(base + drift, 2 if base > 100 else 4)
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_ticker(symbol: str) -> Optional[dict]:
+    if not HAS_REQUESTS: return None
+    try:
+        r = _req.get(f"{BINANCE_FAPI}/fapi/v1/ticker/24hr",
+                     params={"symbol":symbol},
+                     headers={"User-Agent":"Mozilla/5.0"}, timeout=8)
+        r.raise_for_status(); return r.json()
+    except Exception: return None
 
-    # Funding rate −0.05% ~ +0.05%
-    funding = round((rng.random() - 0.48) * 0.1, 4)
-    # OI change
-    oi_chg  = round((rng.random() - 0.48) * 5, 2)
-    # L/S ratio
-    ls_long  = round(48 + rng.random() * 8, 1)
-    ls_short = round(100 - ls_long, 1)
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_funding(symbol: str) -> Optional[dict]:
+    if not HAS_REQUESTS: return None
+    try:
+        r = _req.get(f"{BINANCE_FAPI}/fapi/v1/premiumIndex",
+                     params={"symbol":symbol},
+                     headers={"User-Agent":"Mozilla/5.0"}, timeout=8)
+        r.raise_for_status(); return r.json()
+    except Exception: return None
 
-    # Likidite seviyeleri
-    n_levels = 12
-    levels   = []
-    spread   = base * 0.04
-    for i in range(n_levels):
-        offset = (rng.random() - 0.5) * spread * 2
-        lev_price = round(price + offset, 2 if base > 100 else 4)
-        size  = round(rng.random() * 800 + 50, 1)
-        kind  = rng.choice(["SHORT_CLUSTER", "LONG_LIQ", "WALL", "GAP"])
-        levels.append({"price": lev_price, "size": size, "kind": kind})
-    levels.sort(key=lambda x: x["price"], reverse=True)
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_oi(symbol: str) -> Optional[dict]:
+    if not HAS_REQUESTS: return None
+    try:
+        r = _req.get(f"{BINANCE_FAPI}/fapi/v1/openInterest",
+                     params={"symbol":symbol},
+                     headers={"User-Agent":"Mozilla/5.0"}, timeout=8)
+        r.raise_for_status(); return r.json()
+    except Exception: return None
 
-    # Magnet zone
-    mag_offset = (rng.choice([1,-1])) * base * (0.005 + rng.random()*0.012)
-    magnet     = round(price + mag_offset, 2 if base > 100 else 4)
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_ls_ratio(symbol: str) -> Optional[list]:
+    if not HAS_REQUESTS: return None
+    try:
+        r = _req.get(f"{BINANCE_FAPI}/futures/data/globalLongShortAccountRatio",
+                     params={"symbol":symbol,"period":"1h","limit":1},
+                     headers={"User-Agent":"Mozilla/5.0"}, timeout=8)
+        r.raise_for_status(); return r.json()
+    except Exception: return None
 
-    # Squeeze / flush risk
-    short_crowd = sum(l["size"] for l in levels if l["price"] > price and l["kind"] == "SHORT_CLUSTER")
-    long_crowd  = sum(l["size"] for l in levels if l["price"] < price and l["kind"] == "LONG_LIQ")
-    max_crowd   = 3000
-    short_risk  = min(short_crowd / max_crowd, 1.0)
-    long_risk   = min(long_crowd  / max_crowd, 1.0)
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_orderbook(symbol: str) -> Optional[dict]:
+    if not HAS_REQUESTS: return None
+    try:
+        r = _req.get(f"{BINANCE_FAPI}/fapi/v1/depth",
+                     params={"symbol":symbol,"limit":100},
+                     headers={"User-Agent":"Mozilla/5.0"}, timeout=8)
+        r.raise_for_status(); return r.json()
+    except Exception: return None
 
-    # AI yorumu
-    ai_text = _gen_ai(pair, price, levels, funding, short_risk, long_risk, magnet, rng)
 
-    # Fiyat geçmişi (son 80 mum)
-    history = _gen_price_history(price, base, tf, seed, rng)
+# ══════════════════════════════════════════════════════════════════════════════
+# LIQUIDITY CALCULATION
+# ══════════════════════════════════════════════════════════════════════════════
 
-    # Likidite events
-    events = _gen_events(pair, price, seed, rng)
+def calculate_liquidity_map(klines: list, current_price: float, grid_pct: float = 0.05) -> dict:
+    """
+    OHLCV verilerinden likidite haritası üret.
+    Her mum için stop loss kümeleri hesaplanır, grid hücrelerine yuvarlanır.
+    """
+    all_highs = [float(k[2]) for k in klines]
+    all_lows  = [float(k[3]) for k in klines]
+    price_max = max(all_highs) * 1.005
+    price_min = min(all_lows)  * 0.995
+    cell_size = max(current_price * grid_pct / 100, 0.01)
+
+    levels: dict = {}
+    total_volume = sum(float(k[5]) for k in klines) or 1
+
+    def _add(price, short_v, long_v, w):
+        gk = round(round(price / cell_size) * cell_size, 8)
+        if gk not in levels:
+            levels[gk] = {"price": gk, "short_liq": 0.0, "long_liq": 0.0, "total": 0.0}
+        levels[gk]["short_liq"] += short_v * w
+        levels[gk]["long_liq"]  += long_v  * w
+        levels[gk]["total"]     += (short_v + long_v) * w
+
+    for i, k in enumerate(klines):
+        h   = float(k[2]); lo = float(k[3])
+        vol = float(k[5])
+        # Son mumlara daha fazla ağırlık (yakın geçmiş daha önemli)
+        rw  = 0.4 + 0.6 * (i / max(len(klines) - 1, 1))
+        nv  = vol / total_volume * len(klines)
+
+        for offset in [0.001, 0.0025, 0.005, 0.01]:
+            strength = nv * max(1 - offset * 40, 0.1) * rw
+            # Short stops: high üstünde
+            sp = h * (1 + offset)
+            if price_min <= sp <= price_max:
+                _add(sp, strength, 0, 1.0)
+            # Long liquidations: low altında
+            lp = lo * (1 - offset)
+            if price_min <= lp <= price_max:
+                _add(lp, 0, strength, 1.0)
+
+    if not levels:
+        return {"levels": [], "gaps": [], "magnets": [], "price_min": price_min, "price_max": price_max}
+
+    # Normalize
+    max_total = max(v["total"] for v in levels.values()) or 1
+    for lv in levels.values():
+        lv["intensity"]       = lv["total"]       / max_total
+        lv["short_intensity"] = lv["short_liq"]   / max_total
+        lv["long_intensity"]  = lv["long_liq"]    / max_total
+
+    sorted_levels = sorted(levels.values(), key=lambda x: x["price"])
+
+    # Gap tespiti
+    gaps = []
+    for i in range(len(sorted_levels) - 1):
+        p1, p2 = sorted_levels[i]["price"], sorted_levels[i+1]["price"]
+        gap_pct = (p2 - p1) / current_price * 100
+        if (gap_pct > grid_pct * 5 and
+                sorted_levels[i]["total"] < max_total * 0.05 and
+                sorted_levels[i+1]["total"] < max_total * 0.05):
+            gaps.append({"from": p1, "to": p2, "size_pct": gap_pct})
+
+    # Magnet zones: yüksek yoğunluklu bölgeler
+    magnets = sorted(sorted_levels, key=lambda x: x["total"], reverse=True)[:3]
+    magnets = [{"price": m["price"], "intensity": m["intensity"]} for m in magnets]
 
     return {
-        "price": price, "funding": funding, "oi_chg": oi_chg,
-        "ls_long": ls_long, "ls_short": ls_short,
-        "levels": levels, "magnet": magnet,
-        "short_risk": short_risk, "long_risk": long_risk,
-        "ai_text": ai_text, "history": history, "events": events,
+        "levels": sorted_levels, "gaps": gaps[:5], "magnets": magnets,
+        "price_min": price_min, "price_max": price_max,
     }
 
 
-def _gen_price_history(current: float, base: float, tf: str, seed: int, rng) -> list:
-    tf_min = {"5m": 5, "15m": 15, "1H": 60, "4H": 240}.get(tf, 60)
-    n      = 80
-    prices = [current]
-    vol    = base * 0.0008
-    for _ in range(n - 1):
-        change = (rng.random() - 0.497) * vol
-        prices.insert(0, max(prices[0] - change, base * 0.8))
-    now    = datetime.now()
-    times  = [now - timedelta(minutes=tf_min * (n-i-1)) for i in range(n)]
-    return list(zip(times, prices))
-
-
-def _gen_events(pair: str, price: float, seed: int, rng) -> list:
-    events = []
-    base   = BASE_PRICES.get(pair, 1000.0)
-    now    = datetime.now()
-    for i in range(18):
-        t    = now - timedelta(seconds=rng.randint(0, 3600))
-        kind = rng.choice(EVENT_TYPES)
-        ep   = round(price + (rng.random()-0.5) * base * 0.03, 2 if base > 100 else 4)
-        sz   = round(rng.random() * 2000 + 100, 0)
-        events.append({"time": t, "pair": pair, "type": kind, "price": ep, "size": sz})
-    events.sort(key=lambda x: x["time"], reverse=True)
-    return events
-
-
-def _gen_ai(pair, price, levels, funding, sr, lr, magnet, rng) -> str:
-    sym    = pair.replace("USDT","")
-    above  = [l for l in levels if l["price"] > price and l["kind"] == "SHORT_CLUSTER"]
-    below  = [l for l in levels if l["price"] < price and l["kind"] == "LONG_LIQ"]
-    lines  = []
-    if above:
-        nearest_above = above[-1]["price"]
-        lines.append(
-            f"Short positions clustered above **${nearest_above:,.2f}**. "
-            f"{'High squeeze risk — momentum could accelerate upward.' if sr > 0.6 else 'Moderate overhead resistance.'}"
-        )
-    if below:
-        nearest_below = below[0]["price"]
-        lines.append(
-            f"Long liquidation zone at **${nearest_below:,.2f}**. "
-            f"{'Flush risk elevated — stop cascade possible below this level.' if lr > 0.6 else 'Support liquidity present, watch for reactions.'}"
-        )
-    if funding > 0.02:
-        lines.append(f"Funding rate elevated at **{funding:.4f}%** — shorts paying longs, bullish pressure building.")
-    elif funding < -0.02:
-        lines.append(f"Negative funding **{funding:.4f}%** — longs paying shorts, bearish pressure building.")
-    lines.append(f"Magnet zone identified near **${magnet:,.2f}** — high probability price attraction target.")
-    return "\n\n".join(lines) if lines else f"Market structure neutral. Monitoring liquidity zones around ${price:,.2f}."
+def analyze_orderbook(ob: Optional[dict], current_price: float) -> dict:
+    """Order book'tan büyük duvarları bul."""
+    if not ob:
+        return {"big_asks": [], "big_bids": []}
+    asks = [(float(p), float(q)) for p, q in ob.get("asks", [])]
+    bids = [(float(p), float(q)) for p, q in ob.get("bids", [])]
+    ta = sum(q for _, q in asks) or 1
+    tb = sum(q for _, q in bids) or 1
+    thr = 0.03
+    big_asks = sorted([{"price":p,"qty":q,"pct":q/ta} for p,q in asks if q/ta>thr],
+                      key=lambda x: x["pct"], reverse=True)[:4]
+    big_bids = sorted([{"price":p,"qty":q,"pct":q/tb} for p,q in bids if q/tb>thr],
+                      key=lambda x: x["pct"], reverse=True)[:4]
+    return {"big_asks": big_asks, "big_bids": big_bids}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# CHART
+# HEATMAP CHART
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _render_chart(data: dict, pair: str):
+def _render_chart(klines, liq_map, ob_data, current_price, symbol, tf_label):
     if not HAS_PLOTLY:
-        st.warning("Plotly gerekli: `pip install plotly`"); return
+        st.warning("Plotly gerekli."); return
 
-    history = data["history"]
-    times   = [h[0] for h in history]
-    prices  = [h[1] for h in history]
-    levels  = data["levels"]
-    magnet  = data["magnet"]
-    current = data["price"]
+    fig         = go.Figure()
+    levels      = liq_map["levels"]
+    price_min   = liq_map["price_min"]
+    price_max   = liq_map["price_max"]
+    close_prices = [float(k[4]) for k in klines]
+    open_times   = [datetime.fromtimestamp(k[0]/1000) for k in klines]
+    threshold    = 0.07
 
-    fig = go.Figure()
+    # ── Likidite bantları ────────────────────────────────────────────────────
+    for lv in levels:
+        if lv["intensity"] < threshold:
+            continue
 
-    # ── Heatmap bantları (arka plan renk şeritleri) ────────────────────────
-    color_map = {
-        "SHORT_CLUSTER": ("rgba(255,123,114,{a})", "rgba(255,123,114,0.06)"),
-        "LONG_LIQ":      ("rgba(63,185,80,{a})",   "rgba(63,185,80,0.06)"),
-        "WALL":          ("rgba(88,166,255,{a})",   "rgba(88,166,255,0.04)"),
-        "GAP":           ("rgba(163,113,247,{a})",  "rgba(163,113,247,0.05)"),
-    }
-    price_range = max(p for _,p in history) - min(p for _,p in history)
-    band_h      = price_range * 0.003
+        is_above  = lv["price"] > current_price
+        is_short  = lv["short_intensity"] > lv["long_intensity"]
+        is_long   = lv["long_intensity"]  > lv["short_intensity"]
+        is_overlap= abs(lv["short_intensity"] - lv["long_intensity"]) < lv["intensity"] * 0.25
 
-    for lev in levels:
-        kind    = lev["kind"]
-        line_c, fill_c = color_map.get(kind, ("rgba(200,200,200,{a})","rgba(200,200,200,0.03)"))
-        alpha   = min(0.7, lev["size"] / 800)
-        lc      = line_c.format(a=alpha)
+        if is_overlap:
+            r, g, b = 227, 179, 65   # sarı
+        elif is_short and is_above:
+            r, g, b = 255, 100, 80   # kırmızı
+        elif is_long and not is_above:
+            r, g, b = 63, 185, 80    # yeşil
+        elif is_short:
+            r, g, b = 255, 150, 100
+        else:
+            r, g, b = 100, 200, 120
 
-        # Glow band
+        alpha_fill = lv["intensity"] * 0.15
+        alpha_line = min(lv["intensity"] * 0.85, 0.85)
+        lw         = 0.6 + lv["intensity"] * 2.5
+        band       = current_price * 0.0004 * (0.5 + lv["intensity"])
+
         fig.add_hrect(
-            y0=lev["price"] - band_h * lev["size"]/400,
-            y1=lev["price"] + band_h * lev["size"]/400,
-            fillcolor=fill_c,
-            line_color="rgba(0,0,0,0)",
-            layer="below",
+            y0=lv["price"] - band, y1=lv["price"] + band,
+            fillcolor=f"rgba({r},{g},{b},{alpha_fill:.3f})",
+            line_color="rgba(0,0,0,0)", layer="below",
         )
-        # Ana çizgi
         fig.add_hline(
-            y=lev["price"],
-            line_color=lc,
-            line_width=1.2 + lev["size"]/600,
-            line_dash="dot" if kind == "GAP" else "solid",
+            y=lv["price"],
+            line=dict(color=f"rgba({r},{g},{b},{alpha_line:.3f})",
+                      width=lw, dash="dot" if is_overlap else "solid"),
         )
 
-    # ── Magnet zone ───────────────────────────────────────────────────────────
-    fig.add_hrect(
-        y0=magnet * 0.9995,
-        y1=magnet * 1.0005,
-        fillcolor="rgba(227,179,65,0.12)",
-        line_color="rgba(227,179,65,0.5)",
-        line_width=1,
-    )
-    fig.add_annotation(
-        y=magnet, x=times[-1],
-        text=f"  🧲 ${magnet:,.2f}",
-        font=dict(size=12, color=_Y, family="Space Mono"),
-        showarrow=False, xanchor="left",
-    )
+    # ── Likidite boşlukları ──────────────────────────────────────────────────
+    for gap in liq_map["gaps"][:3]:
+        fig.add_hrect(
+            y0=gap["from"], y1=gap["to"],
+            fillcolor="rgba(163,113,247,0.07)",
+            line_color="rgba(163,113,247,0.3)", line_width=0.5, layer="below",
+        )
+        mid = (gap["from"] + gap["to"]) / 2
+        fig.add_annotation(
+            y=mid, x=open_times[int(len(open_times)*0.05)],
+            text=f"⚡ Gap {gap['size_pct']:.2f}%",
+            font=dict(size=10, color=_P, family="Space Mono"),
+            showarrow=False,
+        )
 
-    # ── Fiyat çizgisi ─────────────────────────────────────────────────────────
+    # ── Magnet zonlar ────────────────────────────────────────────────────────
+    for mag in liq_map["magnets"]:
+        if abs(mag["price"] - current_price) / current_price < 0.001:
+            continue
+        band = current_price * 0.001
+        fig.add_hrect(
+            y0=mag["price"] - band, y1=mag["price"] + band,
+            fillcolor="rgba(227,179,65,0.12)",
+            line_color="rgba(227,179,65,0.55)", line_width=1.5,
+        )
+        fig.add_annotation(
+            y=mag["price"], x=open_times[-1],
+            text=f"  🧲 ${mag['price']:,.2f}",
+            font=dict(size=11, color=_Y, family="Space Mono"),
+            showarrow=False, xanchor="left",
+            bgcolor=f"{_BG}CC",
+        )
+
+    # ── Order book duvarları ─────────────────────────────────────────────────
+    for wall in ob_data.get("big_asks", []):
+        fig.add_hline(y=wall["price"],
+                      line=dict(color="rgba(255,123,114,0.7)", width=1.5, dash="dot"))
+        fig.add_annotation(y=wall["price"], x=open_times[-1],
+            text=f"  ASK Wall ${wall['price']:,.2f}",
+            font=dict(size=10, color=_R, family="Space Mono"),
+            showarrow=False, xanchor="left")
+    for wall in ob_data.get("big_bids", []):
+        fig.add_hline(y=wall["price"],
+                      line=dict(color="rgba(63,185,80,0.7)", width=1.5, dash="dot"))
+        fig.add_annotation(y=wall["price"], x=open_times[-1],
+            text=f"  BID Wall ${wall['price']:,.2f}",
+            font=dict(size=10, color=_G, family="Space Mono"),
+            showarrow=False, xanchor="left")
+
+    # ── Fiyat çizgisi ────────────────────────────────────────────────────────
     fig.add_trace(go.Scatter(
-        x=times, y=prices,
-        mode="lines",
-        line=dict(color=_B, width=2),
-        fill="tozeroy",
+        x=open_times, y=close_prices, mode="lines",
+        line=dict(color=_B, width=2.5),
         fillcolor="rgba(88,166,255,0.04)",
         name="Price",
-        hovertemplate="<b>$%{y:,.2f}</b><extra></extra>",
+        hovertemplate="<b>$%{y:,.4f}</b><br>%{x|%d %b %H:%M}<extra></extra>",
     ))
 
-    # ── Anlık fiyat ───────────────────────────────────────────────────────────
-    fig.add_hline(
-        y=current,
-        line_color=_B, line_width=1.5, line_dash="dash",
-    )
+    # ── Anlık fiyat ──────────────────────────────────────────────────────────
+    pc = _G if close_prices[-1] >= close_prices[-2] else _R
+    fig.add_hline(y=current_price,
+                  line=dict(color=pc, width=2, dash="dash"))
     fig.add_annotation(
-        y=current, x=times[-1],
-        text=f"  ${current:,.2f}",
-        font=dict(size=13, color=_B, family="Space Mono"),
-        showarrow=False, xanchor="left",
+        y=current_price, x=open_times[-1],
+        text=f"  ${current_price:,.4f}",
+        font=dict(size=13, color=pc, family="Space Mono"),
+        showarrow=False, xanchor="left", bgcolor=f"{_BG}CC",
     )
 
-    # ── Legend ────────────────────────────────────────────────────────────────
-    for name, color in [
-        ("Short Cluster", _R),
-        ("Long Liq Zone", _G),
-        ("Liquidity Gap", _P),
-        ("Wall",          _B),
-        ("Magnet Zone",   _Y),
+    # ── Legend ───────────────────────────────────────────────────────────────
+    for lbl, clr in [
+        ("Short Stop Cluster", "rgba(255,100,80,0.9)"),
+        ("Long Liq Zone",      "rgba(63,185,80,0.9)"),
+        ("Magnet Zone",        "rgba(227,179,65,0.9)"),
+        ("Liquidity Gap",      "rgba(163,113,247,0.8)"),
+        ("OB Wall",            "rgba(88,166,255,0.7)"),
     ]:
-        fig.add_trace(go.Scatter(
-            x=[None], y=[None], mode="lines",
-            line=dict(color=color, width=3),
-            name=name, showlegend=True,
-        ))
+        fig.add_trace(go.Scatter(x=[None], y=[None], mode="lines",
+            line=dict(color=clr, width=3), name=lbl, showlegend=True))
 
     fig.update_layout(
-        height=520,
-        paper_bgcolor=_BG,
-        plot_bgcolor=_BG,
+        height=560, paper_bgcolor=_BG, plot_bgcolor=_BG,
         font=dict(family="DM Sans,sans-serif", size=13, color=_DT),
-        margin=dict(l=10, r=100, t=10, b=40),
-        xaxis=dict(
-            gridcolor=_DG, showgrid=True, zeroline=False,
-            tickfont=dict(size=11, color=_DT),
-            tickformat="%H:%M",
-        ),
-        yaxis=dict(
-            gridcolor=_DG, showgrid=True, zeroline=False,
-            tickfont=dict(size=11, color=_DT),
-            tickprefix="$", side="right",
-        ),
-        legend=dict(
-            bgcolor="rgba(13,17,23,0.85)",
-            bordercolor=_DG, borderwidth=1,
-            font=dict(size=12, color=_DT),
-            orientation="h", y=1.04, x=0,
-        ),
+        margin=dict(l=10, r=140, t=30, b=50),
+        xaxis=dict(gridcolor=_DG, showgrid=True, zeroline=False,
+                   tickfont=dict(size=11, color=_DT), tickformat="%d %b\n%H:%M"),
+        yaxis=dict(gridcolor=_DG, showgrid=True, zeroline=False,
+                   tickfont=dict(size=11, color=_DT),
+                   tickformat="$,.2f", side="right",
+                   range=[price_min * 0.9985, price_max * 1.0015]),
+        legend=dict(bgcolor="rgba(13,17,23,0.92)", bordercolor=_DG, borderwidth=1,
+                    font=dict(size=11, color=_DT), orientation="h", y=1.07, x=0),
         hovermode="x unified",
-        hoverlabel=dict(bgcolor=_BG2, bordercolor=_DG,
-                        font=dict(size=13, color=_TX)),
+        hoverlabel=dict(bgcolor=_BG2, bordercolor=_DG, font=dict(size=13, color=_TX)),
+        title=dict(
+            text=f"<b>{symbol}</b> · Liquidity Heatmap · {tf_label}",
+            font=dict(size=13, color=_TX, family="Space Mono"), x=0.01, y=0.98,
+        ),
     )
 
     st.plotly_chart(fig, use_container_width=True,
                     config={"displayModeBar": True,
-                            "modeBarButtonsToRemove": ["select2d","lasso2d"],
-                            "displaylogo": False})
+                            "modeBarButtonsToRemove": ["select2d","lasso2d","autoScale2d"],
+                            "displaylogo": False, "scrollZoom": True})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# UI HELPERS
+# RIGHT PANEL
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _risk_badge(val: float, label: str) -> str:
-    if val > 0.65:
-        lvl, c, bg = "HIGH", _R, _RD
-    elif val > 0.35:
-        lvl, c, bg = "MEDIUM", _Y, _YD
-    else:
-        lvl, c, bg = "LOW", _G, _GD
-    return (
-        f"<div style='background:{bg};border:1px solid {c}40;"
-        f"border-radius:10px;padding:10px 14px;text-align:center'>"
-        f"<div style='font-size:11px;color:{_DT};text-transform:uppercase;"
-        f"letter-spacing:0.1em;margin-bottom:4px'>{label}</div>"
-        f"<div style='font-size:1.2rem;font-weight:800;color:{c};"
-        f"letter-spacing:0.05em'>{lvl}</div>"
-        f"<div style='margin-top:5px;height:4px;background:{_DG2};"
-        f"border-radius:2px;overflow:hidden'>"
-        f"<div style='width:{int(val*100)}%;height:4px;background:{c};"
-        f"border-radius:2px'></div></div></div>"
-    )
-
-def _kpi_card(label: str, value: str, sub: str = "", color: str = _TX,
-              border: str = _DG) -> str:
-    return (
-        f"<div style='background:{_BG2};border:1px solid {border};"
-        f"border-radius:12px;padding:12px 16px;text-align:center;"
-        f"box-shadow:0 0 12px {border}20'>"
-        f"<div style='font-size:11px;color:{_DT};text-transform:uppercase;"
-        f"letter-spacing:0.1em;margin-bottom:4px'>{label}</div>"
-        f"<div style='font-family:\"Space Mono\",monospace;font-size:1.35rem;"
-        f"font-weight:700;color:{color}'>{value}</div>"
-        f"{'<div style=\"font-size:12px;color:'+_DT2+';margin-top:3px\">'+sub+'</div>' if sub else ''}"
-        f"</div>"
-    )
-
-def _section_card(title: str, content: str, border: str = _DG,
-                  icon: str = "") -> str:
-    return (
-        f"<div style='background:{_BG2};border:1px solid {border};"
-        f"border-radius:12px;padding:12px 14px;margin-bottom:8px;"
-        f"box-shadow:0 0 16px {border}18'>"
-        f"<div style='font-size:12px;font-weight:700;color:{_DT};"
-        f"text-transform:uppercase;letter-spacing:0.12em;margin-bottom:8px'>"
-        f"{icon} {title}</div>"
-        f"{content}</div>"
-    )
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# EVENTS TABLE
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _render_events_table(events: list):
-    type_style = {
-        "Short Liquidated": (_R,   _RD, "↑ SHORT LIQ"),
-        "Long Liquidated":  (_G,   _GD, "↓ LONG LIQ"),
-        "Wall Added":       (_B,   _BD, "+ WALL"),
-        "Wall Removed":     (_DT2, _BG3,"− WALL"),
-    }
-
+def _render_right_panel(liq_map, ticker, funding, ls_data, oi_data, current_price, symbol):
+    # Top Liquidity Levels
     st.markdown(
         f"<div style='background:{_BG2};border:1px solid {_DG};"
-        f"border-radius:12px;overflow:hidden'>"
-        f"<div style='padding:10px 14px;border-bottom:1px solid {_DG};"
-        f"display:flex;align-items:center;justify-content:space-between'>"
-        f"<span style='font-size:12px;font-weight:700;color:{_DT};"
-        f"text-transform:uppercase;letter-spacing:0.12em'>⚡ Liquidity Events</span>"
-        f"<span style='font-size:11px;color:{_DT2}'>Live · Auto-updating</span>"
-        f"</div>"
-        f"<div style='display:grid;"
-        f"grid-template-columns:90px 100px 150px 120px 100px;"
-        f"padding:6px 14px;border-bottom:1px solid {_DG};"
-        f"font-size:11px;font-weight:700;color:{_DT2};"
-        f"text-transform:uppercase;letter-spacing:0.08em'>"
-        f"<div>Time</div><div>Pair</div><div>Type</div>"
-        f"<div>Price</div><div>Size</div></div>",
+        f"border-radius:12px;padding:10px 12px;margin-bottom:8px'>",
         unsafe_allow_html=True,
     )
-
-    for i, ev in enumerate(events[:12]):
-        tc, bg, lbl = type_style.get(ev["type"], (_DT, _BG2, ev["type"]))
-        row_bg      = _BG if i % 2 == 0 else _BG2
+    st.markdown(
+        f"<div style='font-size:12px;font-weight:700;color:{_DT};"
+        f"text-transform:uppercase;letter-spacing:0.12em;margin-bottom:8px'>"
+        f"🎯 Top Likidite Seviyeleri</div>",
+        unsafe_allow_html=True,
+    )
+    top = sorted([l for l in liq_map["levels"] if l["intensity"] > 0.12],
+                 key=lambda x: x["intensity"], reverse=True)[:8]
+    for lv in sorted(top, key=lambda x: x["price"], reverse=True):
+        is_above = lv["price"] > current_price
+        if lv["short_intensity"] > lv["long_intensity"]:
+            lc, lt = _R, "Short Cluster"
+        elif lv["long_intensity"] > lv["short_intensity"]:
+            lc, lt = _G, "Long Liq"
+        else:
+            lc, lt = _Y, "Magnet"
+        dist = abs(lv["price"] - current_price) / current_price * 100
+        arrow = "↑" if is_above else "↓"
+        bar_w = int(lv["intensity"] * 100)
         st.markdown(
-            f"<div style='display:grid;"
-            f"grid-template-columns:90px 100px 150px 120px 100px;"
-            f"padding:7px 14px;background:{row_bg};"
-            f"border-bottom:1px solid {_DG}20;"
-            f"align-items:center;font-size:13px'>"
-            f"<div style='font-family:\"Space Mono\",monospace;color:{_DT2}'>"
-            f"{ev['time'].strftime('%H:%M:%S')}</div>"
-            f"<div style='color:{_TX};font-weight:600'>{ev['pair']}</div>"
-            f"<div><span style='background:{bg};color:{tc};"
-            f"padding:3px 8px;border-radius:5px;font-size:11px;"
-            f"font-weight:700;letter-spacing:0.03em'>{lbl}</span></div>"
-            f"<div style='font-family:\"Space Mono\",monospace;color:{_TX}'>"
-            f"${ev['price']:,.2f}</div>"
-            f"<div style='font-family:\"Space Mono\",monospace;"
-            f"color:{_Y}'>${ev['size']:,.0f}K</div>"
-            f"</div>",
+            f"<div style='margin-bottom:7px'>"
+            f"<div style='display:flex;justify-content:space-between;margin-bottom:2px'>"
+            f"<span style='font-family:\"Space Mono\",monospace;font-size:13px;"
+            f"font-weight:700;color:{lc}'>{arrow} ${lv['price']:,.4f}</span>"
+            f"<span style='font-size:11px;color:{_DT2}'>{lt} {dist:.2f}%</span>"
+            f"</div>"
+            f"<div style='height:3px;background:{_DG};border-radius:2px'>"
+            f"<div style='width:{bar_w}%;height:3px;background:{lc};"
+            f"border-radius:2px;box-shadow:0 0 6px {lc}60'></div></div></div>",
             unsafe_allow_html=True,
         )
+    st.markdown("</div>", unsafe_allow_html=True)
 
+    # Market Pressure
+    st.markdown(
+        f"<div style='background:{_BG2};border:1px solid {_DG};"
+        f"border-radius:12px;padding:10px 12px;margin-bottom:8px'>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<div style='font-size:12px;font-weight:700;color:{_DT};"
+        f"text-transform:uppercase;letter-spacing:0.12em;margin-bottom:8px'>"
+        f"📊 Market Pressure</div>",
+        unsafe_allow_html=True,
+    )
+    def _row(label, value, color):
+        st.markdown(
+            f"<div style='display:flex;justify-content:space-between;"
+            f"padding:5px 0;border-bottom:1px solid {_DG}20'>"
+            f"<span style='font-size:13px;color:{_DT}'>{label}</span>"
+            f"<span style='font-size:13px;font-weight:700;"
+            f"font-family:\"Space Mono\",monospace;color:{color}'>{value}</span>"
+            f"</div>", unsafe_allow_html=True,
+        )
+    if funding:
+        fr = float(funding.get("lastFundingRate",0)) * 100
+        _row("Funding Rate", f"{'+'if fr>=0 else ''}{fr:.4f}%",
+             _R if fr>0.02 else _G if fr<-0.02 else _Y)
+    else:
+        _row("Funding Rate", "N/A", _DT)
+    if oi_data:
+        oi = float(oi_data.get("openInterest",0))
+        _row("Open Interest", f"${oi/1e9:.3f}B" if oi>1e9 else f"${oi/1e6:.1f}M", _B)
+    else:
+        _row("Open Interest", "N/A", _DT)
+    if ticker:
+        chg = float(ticker.get("priceChangePercent",0))
+        _row("24H Change", f"{'+'if chg>=0 else ''}{chg:.2f}%", _G if chg>=0 else _R)
+        vol = float(ticker.get("quoteVolume",0))
+        _row("24H Volume", f"${vol/1e9:.2f}B" if vol>1e9 else f"${vol/1e6:.0f}M", _DT)
+    if ls_data and len(ls_data) > 0:
+        lr = float(ls_data[0].get("longAccount",0.5)) * 100
+        sr = 100 - lr
+        _row("Long/Short", f"L:{lr:.1f}% S:{sr:.1f}%",
+             _G if lr>52 else _R if lr<48 else _Y)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # AI Analysis
+    st.markdown(
+        f"<div style='background:{_BG2};border:1px solid {_P}20;"
+        f"border-radius:12px;padding:10px 12px'>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<div style='font-size:12px;font-weight:700;color:{_DT};"
+        f"text-transform:uppercase;letter-spacing:0.12em;margin-bottom:8px'>"
+        f"🤖 Liquidity Analysis</div>",
+        unsafe_allow_html=True,
+    )
+    above = [l for l in liq_map["levels"] if l["price"] > current_price and l["short_intensity"] > 0.25]
+    below = [l for l in liq_map["levels"] if l["price"] < current_price and l["long_intensity"]  > 0.25]
+    lines = []
+    if above:
+        ca = min(above, key=lambda x: x["price"])
+        d  = (ca["price"] - current_price) / current_price * 100
+        lines.append(f"<b style='color:{_R}'>Short stop clusters</b> above "
+                     f"<b style='color:{_TX}'>${ca['price']:,.4f}</b> (+{d:.2f}%). "
+                     f"Reclaim → squeeze possible.")
+    if below:
+        cb = max(below, key=lambda x: x["price"])
+        d  = (current_price - cb["price"]) / current_price * 100
+        lines.append(f"<b style='color:{_G}'>Long liquidation zone</b> at "
+                     f"<b style='color:{_TX}'>${cb['price']:,.4f}</b> (-{d:.2f}%). "
+                     f"Break below → cascade risk.")
+    if liq_map.get("magnets"):
+        m = liq_map["magnets"][0]
+        d = abs(m["price"] - current_price) / current_price * 100
+        lines.append(f"<b style='color:{_Y}'>🧲 Magnet</b> at "
+                     f"<b style='color:{_TX}'>${m['price']:,.4f}</b> ({d:.2f}% away).")
+    if liq_map.get("gaps"):
+        g = liq_map["gaps"][0]
+        lines.append(f"<b style='color:{_P}'>⚡ Gap</b> "
+                     f"${g['from']:,.2f}–${g['to']:,.2f} ({g['size_pct']:.2f}%). "
+                     f"Fast move zone.")
+    ai_html = "<br><br>".join(lines) if lines else f"Market structure neutral around ${current_price:,.4f}."
+    st.markdown(f"<div style='font-size:13px;line-height:1.8;color:{_DT}'>{ai_html}</div>",
+                unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MAIN RENDER
+# DEMO FALLBACK
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _make_demo_klines(pair, tf_key):
+    rng  = random.Random(int(time.time() // 60))
+    base = BASE_PRICES.get(pair, 1000)
+    tf   = TIMEFRAMES.get(tf_key, ("1h", 24, "1 Gün"))
+    n    = tf[1]
+    p    = base
+    klines = []
+    for i in range(n):
+        o  = p
+        c  = p + (rng.random() - 0.49) * base * 0.004
+        h  = max(o, c) + rng.random() * base * 0.002
+        lo = min(o, c) - rng.random() * base * 0.002
+        v  = rng.random() * 5000 + 500
+        ts = int((datetime.now() - timedelta(hours=n-i)).timestamp() * 1000)
+        klines.append([ts, str(o), str(h), str(lo), str(c), str(v), 0,"0",0,0,0,0])
+        p = c
+    return klines, float(klines[-1][4])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MAIN
 # ══════════════════════════════════════════════════════════════════════════════
 
 def render_liquidity_heatmap():
-    # ── Başlık ────────────────────────────────────────────────────────────────
     st.markdown(
         f"<div style='margin-bottom:12px'>"
         f"<div style='font-family:\"Space Mono\",monospace;font-size:1.25rem;"
-        f"font-weight:700;color:#f0f6fc;letter-spacing:-0.01em'>"
-        f"🔥 LIQUIDITY HEATMAP</div>"
+        f"font-weight:700;color:#f0f6fc'>🔥 LIQUIDITY HEATMAP</div>"
         f"<div style='font-size:13px;color:{_DT2};margin-top:2px'>"
-        f"Smart liquidity zones · Liquidation pressure · Order flow map</div>"
-        f"</div>",
+        f"Real Binance data · Stop cluster & liquidation zone analysis · "
+        f"Cache 2min</div></div>",
         unsafe_allow_html=True,
     )
 
-    # ── Kontroller ────────────────────────────────────────────────────────────
-    ctrl1, ctrl2, ctrl3 = st.columns([2, 2, 6])
-    with ctrl1:
-        pair = st.selectbox("Pair", PAIRS, key="lhm_pair",
-                            label_visibility="collapsed")
-    with ctrl2:
-        tf   = st.selectbox("Timeframe", TIMEFRAMES, index=2,
-                            key="lhm_tf", label_visibility="collapsed")
-    with ctrl3:
-        auto_refresh = st.checkbox("🔄 Auto-refresh (3s)", value=True,
-                                   key="lhm_auto")
+    if not HAS_REQUESTS:
+        st.error("`pip install requests` gerekli."); return
+    if not HAS_PLOTLY:
+        st.error("`pip install plotly` gerekli."); return
 
-    # ── Veri üret ─────────────────────────────────────────────────────────────
-    seed = _seed_from_time(3) if auto_refresh else 42
-    data = _gen_market(pair, tf, seed)
+    # Kontroller
+    c1, c2, c3, c4 = st.columns([2, 2, 2, 4])
+    with c1:
+        pair = st.selectbox("Pair", PAIRS, key="lhm_pair", label_visibility="collapsed")
+    with c2:
+        tf_key = st.selectbox("Timeframe", list(TIMEFRAMES.keys()), index=1,
+                              key="lhm_tf", label_visibility="collapsed")
+    with c3:
+        grid_pct = st.select_slider("Grid", options=[0.02,0.05,0.1,0.2,0.3],
+                                    value=0.05, key="lhm_grid",
+                                    label_visibility="collapsed",
+                                    format_func=lambda x: f"Grid %{x}")
+    with c4:
+        col_a, col_b = st.columns(2)
+        with col_a:
+            if st.button("🔄 Yenile", key="lhm_refresh"):
+                st.cache_data.clear(); st.rerun()
+        with col_b:
+            demo_mode = st.checkbox("Demo mod", key="lhm_demo_chk",
+                                    help="Binance erişimi yoksa demo veri kullan")
 
-    # Auto-refresh: her 3 saniyede yenile
-    if auto_refresh:
-        placeholder = st.empty()
-        placeholder.markdown(
-            f"<div style='font-size:11px;color:{_DT2};text-align:right;"
-            f"margin-top:-18px;margin-bottom:4px'>"
-            f"🟢 Live · {datetime.now().strftime('%H:%M:%S')}</div>",
-            unsafe_allow_html=True,
+    tf_cfg = TIMEFRAMES[tf_key]
+    interval, limit, tf_label = tf_cfg
+
+    # Veri çek
+    use_demo = demo_mode
+    klines = None
+
+    if not use_demo:
+        with st.spinner(f"Binance {pair} · {tf_label} yükleniyor..."):
+            klines = fetch_klines(pair, interval, limit)
+            ticker = fetch_ticker(pair)
+            funding = fetch_funding(pair)
+            oi_data = fetch_oi(pair)
+            ls_data = fetch_ls_ratio(pair)
+            ob_raw  = fetch_orderbook(pair)
+
+        if klines is None:
+            st.warning(
+                f"⚠️ Binance API erişilemiyor (TR IP kısıtı — 403/451). "
+                f"Streamlit Cloud'da deploy edin veya Demo mod'u açın."
+            )
+            use_demo = True
+
+    if use_demo:
+        klines, current_price = _make_demo_klines(pair, tf_key)
+        ticker = funding = oi_data = ls_data = ob_raw = None
+        st.info("📊 Demo mod — simüle edilmiş veri gösteriliyor.")
+    else:
+        current_price = float(klines[-1][4])
+        if ticker:
+            current_price = float(ticker.get("lastPrice", current_price))
+
+    if len(klines) < 3:
+        st.error("Yeterli veri yok."); return
+
+    liq_map = calculate_liquidity_map(klines, current_price, grid_pct)
+    ob_data = analyze_orderbook(ob_raw if not use_demo else None, current_price)
+
+    # KPI Bar
+    k1, k2, k3, k4, k5 = st.columns(5)
+    sym = pair.replace("USDT","")
+
+    chg = float(ticker.get("priceChangePercent",0)) if ticker else 0
+    chg_c = _G if chg >= 0 else _R
+    k1.markdown(
+        f"<div style='background:{_BG2};border:1px solid {chg_c}40;"
+        f"border-radius:10px;padding:10px;text-align:center'>"
+        f"<div style='font-size:11px;color:{_DT};margin-bottom:4px'>{sym}/USDT · {tf_label}</div>"
+        f"<div style='font-family:\"Space Mono\",monospace;font-size:1.2rem;"
+        f"font-weight:700;color:{chg_c}'>${current_price:,.4f}</div>"
+        f"<div style='font-size:12px;color:{chg_c}'>{'▲'if chg>=0 else '▼'} {abs(chg):.2f}%</div>"
+        f"</div>", unsafe_allow_html=True,
+    )
+
+    above_lev = [l for l in liq_map["levels"] if l["price"] > current_price]
+    below_lev = [l for l in liq_map["levels"] if l["price"] < current_price]
+    sp = sum(l["short_intensity"] for l in above_lev) / max(len(above_lev),1)
+    lp = sum(l["long_intensity"]  for l in below_lev) / max(len(below_lev),1)
+
+    def _risk_kpi(col, val, label):
+        if val > 0.5: lvl, c = "HIGH",   _R
+        elif val > 0.25: lvl, c = "MEDIUM", _Y
+        else: lvl, c = "LOW", _G
+        col.markdown(
+            f"<div style='background:{_BG2};border:1px solid {c}40;"
+            f"border-radius:10px;padding:10px;text-align:center'>"
+            f"<div style='font-size:11px;color:{_DT};margin-bottom:4px'>{label}</div>"
+            f"<div style='font-size:1.1rem;font-weight:800;color:{c}'>{lvl}</div>"
+            f"<div style='margin-top:5px;height:4px;background:{_DG};border-radius:2px'>"
+            f"<div style='width:{int(val*100)}%;height:4px;background:{c};"
+            f"border-radius:2px'></div></div></div>", unsafe_allow_html=True,
         )
+    _risk_kpi(k2, sp, "Short Squeeze Risk")
+    _risk_kpi(k3, lp, "Long Flush Risk")
 
-    # ══ ÜST KPI KARTLAR ══════════════════════════════════════════════════════
-    k1, k2, k3, k4 = st.columns(4)
-
-    sym   = pair.replace("USDT","")
-    price = data["price"]
-    px_c  = _G if data["history"][-1][1] > data["history"][-2][1] else _R
-    px_chg = price - data["history"][0][1]
-    px_pct = px_chg / data["history"][0][1] * 100
-
-    with k1:
-        st.markdown(
-            _kpi_card(
-                f"{sym} / USDT · {tf}",
-                f"${price:,.2f}",
-                f"{'▲' if px_chg>=0 else '▼'} {abs(px_pct):.2f}%",
-                px_c, f"{px_c}40",
-            ),
-            unsafe_allow_html=True,
-        )
-    with k2:
-        st.markdown(_risk_badge(data["short_risk"], "Short Squeeze Risk"),
-                    unsafe_allow_html=True)
-    with k3:
-        st.markdown(_risk_badge(data["long_risk"], "Long Flush Risk"),
-                    unsafe_allow_html=True)
     with k4:
-        mag     = data["magnet"]
-        mag_dist= abs(mag - price) / price * 100
-        mag_dir = "↑" if mag > price else "↓"
-        st.markdown(
-            _kpi_card(
-                "🧲 Magnet Zone",
-                f"${mag:,.2f}",
-                f"{mag_dir} {mag_dist:.2f}% away",
-                _Y, f"{_Y}40",
-            ),
-            unsafe_allow_html=True,
-        )
-
-    st.markdown("")
-
-    # ══ ANA İÇERİK: Chart (sol 2/3) + Sağ Panel (1/3) ═══════════════════════
-    chart_col, right_col = st.columns([2.2, 1], gap="medium")
-
-    with chart_col:
-        # Chart arka plan kartı
+        if liq_map["magnets"]:
+            m  = liq_map["magnets"][0]
+            md = abs(m["price"] - current_price) / current_price * 100
+            mdir = "↑" if m["price"] > current_price else "↓"
+            st.markdown(
+                f"<div style='background:{_BG2};border:1px solid {_Y}40;"
+                f"border-radius:10px;padding:10px;text-align:center'>"
+                f"<div style='font-size:11px;color:{_DT};margin-bottom:4px'>🧲 Magnet Zone</div>"
+                f"<div style='font-family:\"Space Mono\",monospace;font-size:1.1rem;"
+                f"font-weight:700;color:{_Y}'>${m['price']:,.4f}</div>"
+                f"<div style='font-size:12px;color:{_DT}'>{mdir} {md:.2f}%</div>"
+                f"</div>", unsafe_allow_html=True,
+            )
+    with k5:
+        n_lev = len([l for l in liq_map["levels"] if l["intensity"] > 0.12])
+        n_gap = len(liq_map["gaps"])
         st.markdown(
             f"<div style='background:{_BG2};border:1px solid {_DG};"
-            f"border-radius:14px;padding:10px 10px 4px;margin-bottom:8px'>",
-            unsafe_allow_html=True,
-        )
-        _render_chart(data, pair)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with right_col:
-        # ── Top Liquidity Levels ──────────────────────────────────────────────
-        levels   = data["levels"]
-        top_lev  = sorted(levels, key=lambda x: x["size"], reverse=True)[:6]
-        lev_html = ""
-        kind_labels = {
-            "SHORT_CLUSTER": (_R, "Short Cluster"),
-            "LONG_LIQ":      (_G, "Long Liq"),
-            "WALL":          (_B, "Wall"),
-            "GAP":           (_P, "Gap"),
-        }
-        for lev in sorted(top_lev, key=lambda x: x["price"], reverse=True):
-            lc, lbl = kind_labels.get(lev["kind"], (_DT, "Zone"))
-            dist    = abs(lev["price"] - price) / price * 100
-            arrow   = "↑" if lev["price"] > price else "↓"
-            bar_w   = int(min(lev["size"]/800 * 100, 100))
-            lev_html += (
-                f"<div style='margin-bottom:7px'>"
-                f"<div style='display:flex;justify-content:space-between;"
-                f"align-items:center;margin-bottom:2px'>"
-                f"<span style='font-family:\"Space Mono\",monospace;"
-                f"font-size:13px;font-weight:700;color:{lc}'>"
-                f"{arrow} ${lev['price']:,.2f}</span>"
-                f"<span style='font-size:11px;color:{_DT2}'>"
-                f"{lbl} · {dist:.1f}%</span></div>"
-                f"<div style='height:3px;background:{_DG};border-radius:2px'>"
-                f"<div style='width:{bar_w}%;height:3px;background:{lc};"
-                f"border-radius:2px;box-shadow:0 0 6px {lc}80'></div></div>"
-                f"</div>"
-            )
-        st.markdown(
-            _section_card("Top Liquidity Levels", lev_html, f"{_R}50", "🎯"),
+            f"border-radius:10px;padding:10px;text-align:center'>"
+            f"<div style='font-size:11px;color:{_DT};margin-bottom:4px'>Harita Özeti</div>"
+            f"<div style='font-size:13px;font-weight:700;color:{_TX}'>{n_lev} seviye</div>"
+            f"<div style='font-size:12px;color:{_P}'>{n_gap} gap</div></div>",
             unsafe_allow_html=True,
         )
 
-        # ── Market Pressure ───────────────────────────────────────────────────
-        fund   = data["funding"]
-        oi_chg = data["oi_chg"]
-        ls_l   = data["ls_long"]
-        ls_s   = data["ls_short"]
-        fund_c = _R if fund > 0.02 else _G if fund < -0.02 else _Y
-        oi_c   = _G if oi_chg > 0 else _R
-        ls_c   = _G if ls_l > 52 else _R if ls_l < 48 else _Y
-
-        press_html = (
-            f"<div style='display:flex;flex-direction:column;gap:7px'>"
-        )
-        for label, val, vc in [
-            ("Funding Rate",       f"{'+'if fund>=0 else ''}{fund:.4f}%",  fund_c),
-            ("OI Change",          f"{'+'if oi_chg>=0 else ''}{oi_chg:.2f}%", oi_c),
-            ("Long/Short Ratio",   f"{ls_l:.1f}% / {ls_s:.1f}%",          ls_c),
-        ]:
-            press_html += (
-                f"<div style='display:flex;justify-content:space-between;"
-                f"padding:5px 0;border-bottom:1px solid {_DG}'>"
-                f"<span style='font-size:13px;color:{_DT}'>{label}</span>"
-                f"<span style='font-size:13px;font-weight:700;"
-                f"font-family:\"Space Mono\",monospace;color:{vc}'>{val}</span>"
-                f"</div>"
-            )
-        press_html += "</div>"
-        st.markdown(
-            _section_card("Market Pressure", press_html, f"{_B}50", "📊"),
-            unsafe_allow_html=True,
-        )
-
-        # ── AI Interpretation ─────────────────────────────────────────────────
-        ai_html = (
-            f"<div style='font-size:13px;line-height:1.75;color:{_DT}'>"
-            + data["ai_text"].replace("\n\n", "<br><br>").replace("**", "<b>").replace("**", "</b>")
-            .replace("<b>", f"<b style='color:{_TX}'>")
-            + "</div>"
-        )
-        st.markdown(
-            _section_card("AI Interpretation", ai_html, f"{_P}50", "🤖"),
-            unsafe_allow_html=True,
-        )
-
-    # ══ ALT: EVENTS TABLE ════════════════════════════════════════════════════
     st.markdown("")
-    _render_events_table(data["events"])
 
-    # ── Auto-refresh ──────────────────────────────────────────────────────────
-    if auto_refresh:
-        time.sleep(3)
-        st.rerun()
+    # Ana içerik
+    chart_col, right_col = st.columns([2.2, 1], gap="medium")
+    with chart_col:
+        st.markdown(
+            f"<div style='background:{_BG2};border:1px solid {_DG};"
+            f"border-radius:14px;padding:8px 8px 2px'>",
+            unsafe_allow_html=True,
+        )
+        _render_chart(klines, liq_map, ob_data, current_price, pair, tf_label)
+        st.markdown("</div>", unsafe_allow_html=True)
+        last_ts = datetime.fromtimestamp(klines[-1][0]/1000)
+        data_src = "Demo" if use_demo else "Binance Futures"
+        st.markdown(
+            f"<div style='font-size:11px;color:{_DT2};margin-top:4px'>"
+            f"📡 {data_src} · {len(klines)} mum · "
+            f"Son: {last_ts.strftime('%d %b %H:%M')} · "
+            f"Grid %{grid_pct}</div>",
+            unsafe_allow_html=True,
+        )
+    with right_col:
+        _render_right_panel(liq_map, ticker, funding, ls_data, oi_data,
+                            current_price, pair)
