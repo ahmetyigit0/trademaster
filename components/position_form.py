@@ -570,7 +570,7 @@ def _render_form(edit_id=None, draft_edit=None):
     with jc3:
         ei    = EMOTIONS.index(pos["emotion"]) if editing and pos.get("emotion") in EMOTIONS else 0
         emo   = st.selectbox("Psikoloji", EMOTIONS, index=ei, key=f"{px}emo")
-        pf    = st.checkbox("☑️ Plana uyuldu", value=pos.get("plan_followed",True) if editing else True,
+        pf    = st.checkbox("Plana uyuldu", value=pos.get("plan_followed",True) if editing else True,
                             key=f"{px}plan")
     with jc4:
         es    = st.slider("Execution", 0, 10,
@@ -591,27 +591,12 @@ def _render_form(edit_id=None, draft_edit=None):
         open_time = st.time_input("⏰ Açılış Saati", value=default_open.time(),
                                   key=f"{px}open_time")
     with da3:
-        show_close = st.checkbox("🗓️ Kapanış tarihi gir",
-                                  value=bool(editing and pos.get("closed_at")),
-                                  key=f"{px}show_close")
+        pass  # kapanış tarihi kapatma formunda girilir
     with da4:
         pass
 
-    if show_close:
-        dc1, dc2 = st.columns(2)
-        default_close = datetime.now()
-        if editing and pos.get("closed_at"):
-            try: default_close = datetime.fromisoformat(pos["closed_at"])
-            except: pass
-        with dc1:
-            close_date = st.date_input("📅 Kapanış Tarihi", value=default_close.date(),
-                                       key=f"{px}close_date")
-        with dc2:
-            close_time = st.time_input("⏰ Kapanış Saati", value=default_close.time(),
-                                       key=f"{px}close_time")
-        closed_at_val = datetime.combine(close_date, close_time).isoformat()
-    else:
-        closed_at_val = pos.get("closed_at", "") if editing else ""
+    # Kapanış tarihi kapatma formunda girilir
+    closed_at_val = pos.get("closed_at", "") if editing else ""
 
     st.markdown("</div>", unsafe_allow_html=True)
 

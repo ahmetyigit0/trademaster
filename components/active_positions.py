@@ -255,32 +255,78 @@ def _render_single(pos: dict):
 
         # ── Close form ────────────────────────────────────────────────────
         if st.session_state.get(close_key):
-            st.markdown("---")
-            st.markdown("**Pozisyonu Kapat**")
-            cf1, cf2 = st.columns(2)
+            st.markdown(
+                f"<div style='background:#0d1117;border:1px solid #21262d;"
+                f"border-left:3px solid #3fb950;border-radius:10px;"
+                f"padding:10px 14px;margin-top:8px'>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div style='font-size:14px;font-weight:700;color:#f0f6fc;"
+                f"margin-bottom:10px'>✅ Pozisyonu Kapat — #{pid} {pos.get("symbol","")}</div>",
+                unsafe_allow_html=True,
+            )
+            cf1, cf2, cf3 = st.columns([1.5, 1.5, 1])
             with cf1:
-                pnl_val    = st.number_input("PnL ($)", value=0.0, step=1.0, key=f"cpnl_{pid}")
-                exec_score = st.slider("Execution Skoru", 0, 10,
+                close_price = st.number_input(
+                    "🎯 Kapanış Fiyatı (zorunlu)",
+                    min_value=0.0, value=0.0,
+                    format="%.4f", key=f"cprice_{pid}",
+                )
+                # PnL otomatik hesapla
+                avg_e = pos.get("avg_entry", 0) or 0
+                pos_sz = pos.get("position_size", 0) or 0
+                if close_price > 0 and avg_e > 0 and pos_sz > 0:
+                    direction_pos = pos.get("direction", "LONG")
+                    move = (close_price - avg_e) / avg_e
+                    if direction_pos == "SHORT":
+                        move = -move
+                    auto_pnl = pos_sz * move
+                    st.markdown(
+                        f"<div style='font-size:13px;color:"
+                        f"{'#3fb950' if auto_pnl>=0 else '#ff7b72'}'>"
+                        f"Tahmini PnL: {'+'if auto_pnl>=0 else ''}{auto_pnl:.2f}$</div>",
+                        unsafe_allow_html=True,
+                    )
+                    pnl_val = auto_pnl
+                else:
+                    pnl_val = st.number_input("PnL ($) — manuel", value=0.0,
+                                               step=1.0, key=f"cpnl_{pid}")
+            with cf2:
+                close_date = st.date_input("📅 Kapanış Tarihi",
+                                           value=datetime.now().date(),
+                                           key=f"cdate_{pid}")
+                close_time = st.time_input("⏰ Kapanış Saati",
+                                           value=datetime.now().time(),
+                                           key=f"ctime_{pid}")
+                exec_score = st.slider("Execution", 0, 10,
                                        int(pos.get("execution_score") or 7),
                                        key=f"cexec_{pid}")
-            with cf2:
+            with cf3:
                 _ei = EMOTIONS.index(pos.get("emotion", "calm")) if pos.get("emotion") in EMOTIONS else 0
                 emotion  = st.selectbox("Psikoloji", EMOTIONS, index=_ei, key=f"cemo_{pid}")
-                mistakes = st.multiselect("Hata Etiketleri", MISTAKES,
+                mistakes = st.multiselect("Hata", MISTAKES,
                                           default=pos.get("mistakes", []),
                                           key=f"cmist_{pid}")
             comment = st.text_area("Yorum", placeholder="Öğrenilen ders...",
-                                   key=f"ccomm_{pid}", height=60)
+                                   key=f"ccomm_{pid}", height=55)
             ok1, ok2 = st.columns(2)
             with ok1:
-                if st.button("Onayla ✅", type="primary", key=f"confclose_{pid}", use_container_width=True):
-                    _close_position(pid, pnl_val, comment, exec_score, emotion, mistakes)
-                    st.session_state[close_key] = False
-                    st.rerun()
+                if st.button("Onayla ✅", type="primary", key=f"confclose_{pid}",
+                             use_container_width=True):
+                    if close_price <= 0:
+                        st.error("Kapanış fiyatı zorunludur.")
+                    else:
+                        closed_at = datetime.combine(close_date, close_time).isoformat()
+                        _close_position(pid, pnl_val, comment, exec_score,
+                                        emotion, mistakes, close_price, closed_at)
+                        st.session_state[close_key] = False
+                        st.rerun()
             with ok2:
                 if st.button("İptal", key=f"canclose_{pid}", use_container_width=True):
                     st.session_state[close_key] = False
                     st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
 
 
 def _delete_position(pos_id: int):
@@ -290,7 +336,8 @@ def _delete_position(pos_id: int):
     st.session_state.data = data
 
 
-def _close_position(pos_id, pnl, comment, exec_score, emotion, mistakes):
+def _close_position(pos_id, pnl, comment, exec_score, emotion, mistakes,
+                    close_price=0.0, closed_at=None):
     data = st.session_state.data
     pos  = next((p for p in data["active_positions"] if p["id"] == pos_id), None)
     if not pos:
@@ -300,12 +347,13 @@ def _close_position(pos_id, pnl, comment, exec_score, emotion, mistakes):
     closed  = {
         **pos,
         "pnl":             pnl,
+        "close_price":     close_price,
         "comment":         comment,
         "execution_score": exec_score,
         "emotion":         emotion,
         "mistakes":        mistakes,
         "r_multiple":      r_mult,
-        "closed_at":       datetime.now().isoformat(),
+        "closed_at":       closed_at or datetime.now().isoformat(),
         "result":          "WIN" if pnl > 0 else "LOSS",
         "rr_display":      f"1:{rr}" if rr else "1:?",
     }
