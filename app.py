@@ -270,6 +270,34 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
     border-radius: 12px !important;
     margin-bottom: 0.65rem !important;
 }
+
+/* ── Form Input Alanları — büyük ve okunabilir ── */
+div[data-testid="stNumberInput"] label,
+div[data-testid="stTextInput"] label,
+div[data-testid="stSelectbox"] label,
+div[data-testid="stTextArea"] label,
+div[data-testid="stSlider"] label,
+div[data-testid="stDateInput"] label,
+div[data-testid="stTimeInput"] label {
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    color: #8b949e !important;
+    letter-spacing: 0.04em !important;
+    text-transform: uppercase !important;
+}
+div[data-testid="stNumberInput"] input,
+div[data-testid="stTextInput"] input {
+    font-size: 15px !important;
+    background: #0d1117 !important;
+    border: 1.5px solid #21262d !important;
+    border-radius: 8px !important;
+    color: #e6edf3 !important;
+}
+div[data-testid="stNumberInput"] input:focus,
+div[data-testid="stTextInput"] input:focus {
+    border-color: #58a6ff !important;
+    box-shadow: 0 0 0 3px rgba(88,166,255,0.12) !important;
+}
 [data-testid="stExpander"] summary {
     padding: 0.95rem 1.1rem !important;
     font-family: 'DM Sans', sans-serif !important;
@@ -351,6 +379,37 @@ st.markdown("""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
+# ── Şifre Koruması ────────────────────────────────────────────────────────────
+_PASSWORD = "efe"
+
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    st.markdown("<div style='height:15vh'></div>", unsafe_allow_html=True)
+    lc, cc, rc = st.columns([1, 1.2, 1])
+    with cc:
+        st.markdown(
+            f"<div style='background:#161b22;border:1px solid #21262d;"
+            f"border-radius:16px;padding:2rem 2rem 1.5rem;text-align:center'>"
+            f"<div style='font-size:2rem;margin-bottom:8px'>📊</div>"
+            f"<div style='font-family:\"Space Mono\",monospace;font-size:1.1rem;"
+            f"font-weight:700;color:#f0f6fc;margin-bottom:4px'>TRADEVAULT</div>"
+            f"<div style='font-size:13px;color:#6e7681;margin-bottom:1.5rem'>"
+            f"Professional Trading Journal</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+        pwd = st.text_input("Şifre", type="password", key="pwd_input",
+                            placeholder="••••••••", label_visibility="collapsed")
+        if st.button("Giriş Yap", type="primary", use_container_width=True, key="login_btn"):
+            if pwd == _PASSWORD:
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.error("Hatalı şifre")
+    st.stop()
 
 if "data" not in st.session_state:
     st.session_state.data = load_data()
