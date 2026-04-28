@@ -62,12 +62,18 @@ def _section_wrap(content_fn, bg=_BG, border=_DG, radius=12, pad="0.9rem 1rem 0.
 
 # ── Ana form ──────────────────────────────────────────────────────────────────
 
-def _render_form(edit_id=None):
-    editing = edit_id is not None
-    px      = f"pf_{edit_id}_" if editing else "pf_"
-    pos     = None
+def _render_form(edit_id=None, draft_edit=None):
+    # draft_edit modu: taslağı düzenle
+    is_draft_edit = draft_edit is not None
+    editing       = edit_id is not None
+    did           = draft_edit.get("id") if is_draft_edit else None
+    px            = f"pf_de_{did}_" if is_draft_edit else (f"pf_{edit_id}_" if editing else "pf_")
+    pos           = None
 
-    if editing:
+    if is_draft_edit:
+        pos     = draft_edit   # taslak veriyi pos olarak kullan
+        editing = True         # form editing modunda açılsın (alanlar dolu)
+    elif editing:
         pos = next((p for p in st.session_state.data["active_positions"]
                     if p["id"] == edit_id), None)
         if pos is None:
@@ -77,7 +83,18 @@ def _render_form(edit_id=None):
     ver_key = f"{_VER}_{px}"
 
     # ── Başlık ────────────────────────────────────────────────────────────────
-    if not editing:
+    if is_draft_edit:
+        st.markdown(
+            f"<div style='background:#0d1a2a;border:1px solid {_B}60;"
+            f"border-left:3px solid {_B};border-radius:10px;"
+            f"padding:8px 14px;margin-bottom:10px;font-size:14px;color:#f0f6fc'>"
+            f"📋 <b>Taslak Düzenle</b> — #{did} {pos.get('symbol','')} "
+            f"<span style='font-size:12px;font-weight:400;color:{_DT}'>"
+            f"· Tüm alanlar düzenlenebilir · ✅ İşlemi Aç veya 📋 Güncelle</span>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+    elif not editing:
         st.markdown(
             f"<div style='background:#0d1520;border:1px solid {_B}40;"
             f"border-left:3px solid {_B};border-radius:10px;"
@@ -560,33 +577,82 @@ def _render_form(edit_id=None):
                           int(pos.get("execution_score",7)) if editing else 7,
                           key=f"{px}exec")
 
+    # ── Tarih alanları ────────────────────────────────────────────────────────
+    st.markdown("")
+    da1, da2, da3, da4 = st.columns([1, 1, 1, 2])
+    with da1:
+        default_open = datetime.now()
+        if editing and pos.get("created_at"):
+            try: default_open = datetime.fromisoformat(pos["created_at"])
+            except: pass
+        open_date = st.date_input("📅 Açılış Tarihi", value=default_open.date(),
+                                  key=f"{px}open_date")
+    with da2:
+        open_time = st.time_input("⏰ Açılış Saati", value=default_open.time(),
+                                  key=f"{px}open_time")
+    with da3:
+        show_close = st.checkbox("🗓️ Kapanış tarihi gir",
+                                  value=bool(editing and pos.get("closed_at")),
+                                  key=f"{px}show_close")
+    with da4:
+        pass
+
+    if show_close:
+        dc1, dc2 = st.columns(2)
+        default_close = datetime.now()
+        if editing and pos.get("closed_at"):
+            try: default_close = datetime.fromisoformat(pos["closed_at"])
+            except: pass
+        with dc1:
+            close_date = st.date_input("📅 Kapanış Tarihi", value=default_close.date(),
+                                       key=f"{px}close_date")
+        with dc2:
+            close_time = st.time_input("⏰ Kapanış Saati", value=default_close.time(),
+                                       key=f"{px}close_time")
+        closed_at_val = datetime.combine(close_date, close_time).isoformat()
+    else:
+        closed_at_val = pos.get("closed_at", "") if editing else ""
 
     st.markdown("</div>", unsafe_allow_html=True)
 
     # ══════════════════════════════════════════════════════════════════════════
     # KAYDET
     # ══════════════════════════════════════════════════════════════════════════
-    sv1, sv2, sv3, sv4 = st.columns([1.2, 1.2, 1, 2])
-    with sv1:
-        save_btn = st.button(
-            "✅ İşlemi Aç" if not editing else "💾 Güncelle",
-            type="primary", use_container_width=True, key=f"{px}save",
-        )
-    with sv2:
-        draft_btn = st.button(
-            "📋 Taslak Kaydet",
-            use_container_width=True, key=f"{px}draft",
-        ) if not editing else False
-    with sv3:
-        cancel_btn = st.button("✕ İptal", use_container_width=True,
-                               key=f"{px}cancel")
+    if is_draft_edit:
+        sv1, sv2, sv3, sv4 = st.columns([1.5, 1.5, 1, 2])
+        with sv1:
+            save_btn  = st.button("✅ İşlemi Aç", type="primary",
+                                  use_container_width=True, key=f"{px}save")
+        with sv2:
+            draft_btn = st.button("📋 Taslak Güncelle",
+                                  use_container_width=True, key=f"{px}draft")
+        with sv3:
+            cancel_btn = st.button("✕ İptal", use_container_width=True,
+                                   key=f"{px}cancel")
+    else:
+        sv1, sv2, sv3, sv4 = st.columns([1.2, 1.2, 1, 2])
+        with sv1:
+            save_btn = st.button(
+                "✅ İşlemi Aç" if not editing else "💾 Güncelle",
+                type="primary", use_container_width=True, key=f"{px}save",
+            )
+        with sv2:
+            draft_btn = st.button(
+                "📋 Taslak Kaydet",
+                use_container_width=True, key=f"{px}draft",
+            ) if not editing else False
+        with sv3:
+            cancel_btn = st.button("✕ İptal", use_container_width=True,
+                                   key=f"{px}cancel")
 
     if cancel_btn:
-        if editing:
+        if is_draft_edit:
+            st.session_state[f"edit_draft_{did}"] = False
+        elif editing:
             st.session_state[f"edit_mode_{edit_id}"] = False
         _clear(px, sz_key, ver_key); st.rerun()
 
-    if not editing and draft_btn:
+    if (not editing or is_draft_edit) and draft_btn:
         if not symbol:
             st.error("Sembol giriniz."); return
         if not entries:
@@ -595,6 +661,7 @@ def _render_form(edit_id=None):
         calc_s = calculate_position_size(capital, risk_pct, avg_e2, stop_loss) if stop_loss > 0 else {}
         rr_s   = calculate_rr(avg_e2, stop_loss, take_profits, direction) if stop_loss > 0 else None
         data   = st.session_state.data
+        open_dt = datetime.combine(open_date, open_time).isoformat()
         draft  = dict(
             symbol=symbol, direction=direction, leverage=lev,
             capital=capital, risk_pct=risk_pct,
@@ -605,17 +672,25 @@ def _render_form(edit_id=None):
             setup_type=setup, market_condition=mkt,
             emotion=emo, plan_followed=pf,
             execution_score=es, mistakes=[], notes=notes,
+            closed_at=closed_at_val,
             is_draft=True,
             id=data["next_id"],
-            created_at=datetime.now().isoformat(),
+            created_at=open_dt,
         )
         if "drafts" not in data:
             data["drafts"] = []
-        data["drafts"].append(draft)
-        data["next_id"] += 1
+        if is_draft_edit:
+            # Mevcut taslağı güncelle
+            data["drafts"] = [draft if d.get("id")==did else d
+                              for d in data["drafts"]]
+            st.session_state[f"edit_draft_{did}"] = False
+            st.success(f"📋 {symbol} {direction} taslak güncellendi!")
+        else:
+            data["drafts"].append(draft)
+            data["next_id"] += 1
+            st.success(f"📋 {symbol} {direction} taslak olarak kaydedildi!")
         save_data(data)
         st.session_state.data = data
-        st.success(f"📋 {symbol} {direction} taslak olarak kaydedildi!")
         _clear(px, sz_key, ver_key); st.rerun()
 
     if save_btn:
@@ -634,6 +709,8 @@ def _render_form(edit_id=None):
         ) if calc_s else 0
 
         data   = st.session_state.data
+        # Açılış tarihi
+        open_dt = datetime.combine(open_date, open_time).isoformat()
         record = dict(
             symbol=symbol, direction=direction, leverage=lev,
             capital=capital, risk_pct=risk_pct,
@@ -645,27 +722,37 @@ def _render_form(edit_id=None):
             emotion=emo, plan_followed=pf,
             execution_score=es,
             mistakes=[], notes=notes,
+            closed_at=closed_at_val,
         )
 
-        if editing:
+        if is_draft_edit:
+            # Taslaktan pozisyon aç
+            record["id"]         = did
+            record["created_at"] = open_dt
+            data["active_positions"].append(record)
+            data["drafts"] = [d for d in data.get("drafts",[])
+                              if d.get("id") != did]
+            st.session_state[f"edit_draft_{did}"] = False
+            st.success(f"✅ {symbol} {direction} pozisyonu açıldı!")
+        elif editing:
             idx = next((i for i,p in enumerate(data["active_positions"])
                         if p["id"]==edit_id), None)
             if idx is not None:
                 record["id"]         = edit_id
-                record["created_at"] = data["active_positions"][idx].get(
-                    "created_at", datetime.now().isoformat())
+                record["created_at"] = open_dt
                 record["updated_at"] = datetime.now().isoformat()
                 data["active_positions"][idx] = record
             st.session_state[f"edit_mode_{edit_id}"] = False
         else:
             record["id"]         = data["next_id"]
-            record["created_at"] = datetime.now().isoformat()
+            record["created_at"] = open_dt
             data["next_id"]     += 1
             data["active_positions"].append(record)
 
         save_data(data)
         st.session_state.data = data
-        st.success(f"✅ {symbol} {direction} pozisyonu kaydedildi!")
+        if not is_draft_edit:
+            st.success(f"✅ {symbol} {direction} pozisyonu kaydedildi!")
         _clear(px, sz_key, ver_key)
         st.rerun()
 
@@ -678,153 +765,20 @@ def _clear(px, sz_key, ver_key):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TASLAK DÜZENLEME
+# TASLAK DÜZENLEME — Asıl form ile aynı sayfa
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _render_draft_edit(draft: dict):
     """
-    Taslak üzerinde hızlı düzenleme + İşlem Aç akışı.
-    Tüm form alanları dolu gelir, kullanıcı değiştirir, İşlem Aç'a basar.
+    Taslağı düzenlemek için asıl _render_form'u kullan.
+    Taslak verisi editing modundaki pos gibi davranır.
+    Kaydet → taslağı günceller. İşlemi Aç → active_positions'a taşır.
     """
-    did  = draft.get("id")
-    px   = f"de_{did}_"
-    sz_k = f"{_SZ}_{px}"
-    vk   = f"{_VER}_{px}"
+    did = draft.get("id")
     edit_draft_key = f"edit_draft_{did}"
 
-    if sz_k not in st.session_state:
-        st.session_state[sz_k] = float(draft.get("position_size", draft.get("capital", 10000)))
-        st.session_state[vk]   = 0
+    # draft_id'yi session_state'e yaz ki _render_form bilsin
+    st.session_state[f"draft_mode_{did}"] = True
 
-    # ── Satır 1: Temel ────────────────────────────────────────────────────────
-    c1, c2, c3, c4, c5 = st.columns([2.5, 2, 1.5, 2.5, 2])
-    with c1:
-        symbol = st.text_input("Sembol",
-            value=draft.get("symbol",""), key=f"{px}sym").upper().strip()
-    with c2:
-        if f"{px}dir" not in st.session_state:
-            st.session_state[f"{px}dir"] = draft.get("direction","LONG")
-        direction = st.session_state[f"{px}dir"]
-        b1, b2 = st.columns(2)
-        with b1:
-            if st.button("📈 LONG", key=f"{px}long",
-                         type="primary" if direction=="LONG" else "secondary",
-                         use_container_width=True):
-                st.session_state[f"{px}dir"] = "LONG"; st.rerun()
-        with b2:
-            if st.button("📉 SHORT", key=f"{px}short",
-                         type="primary" if direction=="SHORT" else "secondary",
-                         use_container_width=True):
-                st.session_state[f"{px}dir"] = "SHORT"; st.rerun()
-    with c3:
-        lev = st.number_input("Kaldıraç ×",
-            min_value=1.0, max_value=500.0,
-            value=float(draft.get("leverage",1)), step=1.0, key=f"{px}lev")
-    with c4:
-        capital = st.number_input("Sermaye ($)",
-            min_value=1.0,
-            value=float(draft.get("capital",10000)), step=100.0, key=f"{px}cap")
-    with c5:
-        risk_pct = st.number_input("Risk %",
-            min_value=0.1, max_value=50.0,
-            value=float(draft.get("risk_pct",2.0)), step=0.1, key=f"{px}rp")
-
-    # ── Satır 2: Entry / Stop ─────────────────────────────────────────────────
-    ec1, ec2 = st.columns(2)
-    with ec1:
-        entries_raw = draft.get("entries", [{"price":0,"weight":100}])
-        entries = []
-        for i, e in enumerate(entries_raw):
-            ea, eb = st.columns([2, 1])
-            with ea:
-                ep = st.number_input(f"Entry {i+1} Fiyat",
-                    min_value=0.0, value=float(e.get("price",0)),
-                    format="%.4f", key=f"{px}ep{i}")
-            with eb:
-                ew = st.number_input(f"Ağırlık {i+1}%",
-                    min_value=0.1, max_value=100.0,
-                    value=float(e.get("weight",100)), step=5.0, key=f"{px}ew{i}")
-            if ep > 0:
-                entries.append({"price": ep, "weight": ew})
-        avg_e = calculate_avg_entry(entries) if entries else 0.0
-    with ec2:
-        sl_def = float(draft.get("stop_loss",0))
-        stop_loss = st.number_input("Stop Loss",
-            min_value=0.0, value=sl_def,
-            format="%.4f", key=f"{px}sl")
-
-        tps_raw = draft.get("take_profits",[{"price":0,"weight":100}])
-        take_profits = []
-        for i, t in enumerate(tps_raw):
-            ta, tb = st.columns([2, 1])
-            with ta:
-                tp_p = st.number_input(f"TP {i+1} Fiyat",
-                    min_value=0.0, value=float(t.get("price",0)),
-                    format="%.4f", key=f"{px}tpp{i}")
-            with tb:
-                tp_w = st.number_input(f"TP {i+1}%",
-                    min_value=0.1, max_value=100.0,
-                    value=float(t.get("weight",100)), step=5.0, key=f"{px}tpw{i}")
-            if tp_p > 0:
-                take_profits.append({"price": tp_p, "weight": tp_w})
-
-    # ── Notlar ───────────────────────────────────────────────────────────────
-    notes = st.text_area("Not", value=draft.get("notes",""),
-        placeholder="Ek notlar...", key=f"{px}notes", height=55)
-
-    # ── Butonlar ─────────────────────────────────────────────────────────────
-    b1, b2, b3 = st.columns([1.5, 1.5, 3])
-    with b1:
-        if st.button("▶️ İşlemi Aç", key=f"{px}open",
-                     type="primary", use_container_width=True):
-            if not symbol or not entries or stop_loss <= 0:
-                st.error("Sembol, entry ve stop loss zorunlu."); return
-            avg_e2 = calculate_avg_entry(entries)
-            calc_s = calculate_position_size(capital, risk_pct, avg_e2, stop_loss)
-            rr_s   = calculate_rr(avg_e2, stop_loss, take_profits, direction)
-            pos_sz = float(st.session_state.get(sz_k, capital))
-            data   = st.session_state.data
-            pos_rec = {
-                **draft,
-                "symbol": symbol, "direction": direction, "leverage": lev,
-                "capital": capital, "risk_pct": risk_pct,
-                "entries": entries, "avg_entry": avg_e2, "stop_loss": stop_loss,
-                "take_profits": take_profits, "position_size": pos_sz,
-                "risk_calc": calc_s, "rr": rr_s,
-                "notes": notes,
-                "created_at": datetime.now().isoformat(),
-            }
-            pos_rec.pop("is_draft", None)
-            data["active_positions"].append(pos_rec)
-            data["drafts"] = [d for d in data.get("drafts",[])
-                               if d.get("id") != did]
-            save_data(data)
-            st.session_state.data = data
-            st.session_state[edit_draft_key] = False
-            st.success(f"✅ {symbol} pozisyonu açıldı!")
-            st.rerun()
-    with b2:
-        if st.button("💾 Taslağı Güncelle", key=f"{px}save_draft",
-                     use_container_width=True):
-            if not symbol or not entries:
-                st.error("Sembol ve entry zorunlu."); return
-            avg_e2 = calculate_avg_entry(entries)
-            rr_s   = calculate_rr(avg_e2, stop_loss, take_profits, direction)
-            data   = st.session_state.data
-            updated = {
-                **draft,
-                "symbol": symbol, "direction": direction, "leverage": lev,
-                "capital": capital, "risk_pct": risk_pct,
-                "entries": entries, "avg_entry": avg_e2, "stop_loss": stop_loss,
-                "take_profits": take_profits, "notes": notes, "rr": rr_s,
-            }
-            data["drafts"] = [updated if d.get("id")==did else d
-                              for d in data.get("drafts",[])]
-            save_data(data)
-            st.session_state.data = data
-            st.session_state[edit_draft_key] = False
-            st.rerun()
-    with b3:
-        if st.button("✕ İptal", key=f"{px}cancel", use_container_width=True):
-            st.session_state[edit_draft_key] = False
-            st.rerun()
+    # Taslağı düzenleyip kaydetmek için özel render
+    _render_form(edit_id=None, draft_edit=draft)
