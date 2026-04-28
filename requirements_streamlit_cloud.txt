@@ -1,6 +1,0 @@
-# Streamlit Cloud için requirements.txt
-# Bu dosyayı Streamlit Cloud'a yüklerken requirements.txt olarak kullanın
-streamlit>=1.32.0
-plotly>=5.0.0
-requests>=2.28.0
-ccxt>=4.2.0
