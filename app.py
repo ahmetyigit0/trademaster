@@ -8,7 +8,6 @@ from components.analytics_dashboard import render_analytics
 from components.backup import render_backup
 from components.pnl_chart import render_pnl_chart
 from components.trade_rules import render_trade_rules
-from components.liquidity_heatmap import render_liquidity_heatmap
 
 st.set_page_config(
     page_title="TradeVault",
@@ -392,12 +391,11 @@ if st.session_state.show_new_pos:
     render_position_form()
     st.markdown('</div>', unsafe_allow_html=True)
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📈 Aktif Pozisyonlar",
     "📁 Kapalı İşlemler",
     "📉 PnL Grafik",
     "📊 Analitik",
-    "🔥 Liquidity Map",
     "⚖️ Trade Yasaları",
     "💾 Yedek / Arşiv",
 ])
@@ -411,8 +409,6 @@ with tab3:
 with tab4:
     render_analytics(st.session_state.data)
 with tab5:
-    render_liquidity_heatmap()
-with tab6:
     render_trade_rules()
-with tab7:
+with tab6:
     render_backup(st.session_state.data)
