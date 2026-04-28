@@ -123,43 +123,53 @@ def _render_form(edit_id=None, draft_edit=None):
         ).upper().strip()
 
     with r1c2:
-        # Yön — iki buton, session_state ile toggle
         dir_default = pos["direction"] if editing else "LONG"
         if f"{px}dir" not in st.session_state:
             st.session_state[f"{px}dir"] = dir_default
         direction = st.session_state[f"{px}dir"]
 
-        st.markdown("<div style='margin-bottom:6px;font-size:12px;"
-                    f"font-weight:600;color:{_DT}'>Yön</div>",
-                    unsafe_allow_html=True)
+        st.markdown(
+            f"<div style='font-size:12px;font-weight:600;color:{_DT};"
+            f"margin-bottom:5px'>Yön</div>",
+            unsafe_allow_html=True,
+        )
         d1, d2 = st.columns(2)
         with d1:
-            long_active = direction == "LONG"
+            is_long = direction == "LONG"
+            long_style = (
+                "background:linear-gradient(135deg,#0e3320,#196c2e);"
+                "color:#3fb950;border:2px solid #3fb950;font-weight:800;"
+                "font-size:15px;letter-spacing:0.05em"
+                if is_long else
+                "background:#161b22;color:#484f58;border:1.5px solid #21262d;"
+                "font-size:14px"
+            )
             if st.button(
-                "📈 LONG",
+                "▲  LONG",
                 key=f"{px}long",
                 use_container_width=True,
-                type="primary" if long_active else "secondary",
+                type="primary" if is_long else "secondary",
             ):
                 st.session_state[f"{px}dir"] = "LONG"; st.rerun()
         with d2:
-            short_active = direction == "SHORT"
+            is_short = direction == "SHORT"
             if st.button(
-                "📉 SHORT",
+                "▼  SHORT",
                 key=f"{px}short",
                 use_container_width=True,
-                type="primary" if short_active else "secondary",
+                type="primary" if is_short else "secondary",
             ):
                 st.session_state[f"{px}dir"] = "SHORT"; st.rerun()
 
-        # Renkli badge
-        dc = _G if direction == "LONG" else _R
+        dc  = _G if direction == "LONG" else _R
         dbg = "#071a0e" if direction == "LONG" else "#1c0505"
+        arrow = "▲" if direction == "LONG" else "▼"
         st.markdown(
             f"<div style='text-align:center;background:{dbg};"
-            f"border:1px solid {dc};border-radius:6px;padding:3px;"
-            f"font-size:12px;font-weight:700;color:{dc};margin-top:3px'>"
-            f"{'↑ LONG' if direction=='LONG' else '↓ SHORT'}</div>",
+            f"border:1.5px solid {dc};border-radius:8px;padding:5px 0;"
+            f"font-size:13px;font-weight:800;color:{dc};margin-top:4px;"
+            f"letter-spacing:0.08em;font-family:\"Space Mono\",monospace'>"
+            f"{arrow} {direction}</div>",
             unsafe_allow_html=True,
         )
 
