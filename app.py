@@ -367,7 +367,25 @@ hr { border-color:#21262d !important; margin:1rem 0 !important; }
     .block-container { padding:0.75rem 0.75rem 3rem !important; }
     .detail-grid  { grid-template-columns:repeat(2,1fr) !important; }
     .stats-container { grid-template-columns:repeat(2,1fr) !important; }
-    [data-testid="stTabs"] [data-baseweb="tab"] { font-size:13px !important; padding:0.45rem 0.6rem !important; }
+    [data-testid="stTabs"] [data-baseweb="tab"] { font-size:12px !important; padding:0.4rem 0.5rem !important; }
+
+    /* Kapalı işlemler — mobilde kart görünümü */
+    .ct-table-header { display:none !important; }
+    .ct-row {
+        display:flex !important;
+        flex-direction:column !important;
+        background:#161b22;
+        border:1px solid #21262d;
+        border-radius:10px;
+        padding:10px 12px;
+        margin-bottom:8px;
+    }
+
+    /* Trade yasaları — mobilde tam genişlik */
+    div[data-testid="column"] { min-width:0 !important; }
+
+    /* Form — mobilde tek kolon */
+    .pos-form-row { flex-direction:column !important; }
 }
 </style>
 """, unsafe_allow_html=True)
