@@ -269,29 +269,26 @@ def _render_single(pos: dict):
             cf1, cf2, cf3 = st.columns([1.5, 1.5, 1])
             with cf1:
                 close_price = st.number_input(
-                    "🎯 Kapanış Fiyatı (zorunlu)",
+                    "🎯 Çıkış Fiyatı",
                     min_value=0.0, value=0.0,
                     format="%.4f", key=f"cprice_{pid}",
+                    help="İşlemi kapattığın fiyat"
                 )
-                # PnL otomatik hesapla
-                avg_e = pos.get("avg_entry", 0) or 0
-                pos_sz = pos.get("position_size", 0) or 0
-                if close_price > 0 and avg_e > 0 and pos_sz > 0:
-                    direction_pos = pos.get("direction", "LONG")
-                    move = (close_price - avg_e) / avg_e
-                    if direction_pos == "SHORT":
-                        move = -move
-                    auto_pnl = pos_sz * move
+                pnl_val = st.number_input(
+                    "💵 PnL ($) — zorunlu",
+                    value=0.0, step=1.0,
+                    key=f"cpnl_{pid}",
+                    help="Gerçekleşen kar/zarar (borsa ekranından al)"
+                )
+                # PnL renk göstergesi
+                if pnl_val != 0:
+                    pc = "#3fb950" if pnl_val > 0 else "#ff7b72"
                     st.markdown(
-                        f"<div style='font-size:13px;color:"
-                        f"{'#3fb950' if auto_pnl>=0 else '#ff7b72'}'>"
-                        f"Tahmini PnL: {'+'if auto_pnl>=0 else ''}{auto_pnl:.2f}$</div>",
+                        f"<div style='font-size:13px;color:{pc};font-weight:700'>"
+                        f"{'🟢 KÂR' if pnl_val > 0 else '🔴 ZARAR'}: "
+                        f"{'+'if pnl_val>0 else ''}{pnl_val:.2f}$</div>",
                         unsafe_allow_html=True,
                     )
-                    pnl_val = auto_pnl
-                else:
-                    pnl_val = st.number_input("PnL ($) — manuel", value=0.0,
-                                               step=1.0, key=f"cpnl_{pid}")
             with cf2:
                 close_date = st.date_input("📅 Kapanış Tarihi",
                                            value=datetime.now().date(),
@@ -314,8 +311,8 @@ def _render_single(pos: dict):
             with ok1:
                 if st.button("Onayla ✅", type="primary", key=f"confclose_{pid}",
                              use_container_width=True):
-                    if close_price <= 0:
-                        st.error("Kapanış fiyatı zorunludur.")
+                    if pnl_val == 0:
+                        st.error("PnL giriniz (borsadan aldığınız gerçek değer).")
                     else:
                         closed_at = datetime.combine(close_date, close_time).isoformat()
                         _close_position(pid, pnl_val, comment, exec_score,

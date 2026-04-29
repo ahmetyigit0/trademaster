@@ -99,7 +99,7 @@ def render_closed_trades(data: dict):
         f"<div style='display:grid;"
         f"grid-template-columns:36px 80px 60px 60px 105px 80px 60px 88px 88px 88px;"
         f"gap:0;padding:8px 12px;background:{_DBG};border:1.5px solid {_DG};"
-        f"border-radius:12px 12px 0 0;font-size:12px;font-weight:700;"
+        f"border-radius:12px 12px 0 0;font-size:12px;font-weight:700;class='ct-table-header';"
         f"color:{_DT};text-transform:uppercase;letter-spacing:0.08em'>"
         f"<div>#</div><div>Coin</div><div>Yön</div><div>Sonuç</div>"
         f"<div>PnL</div><div>R</div><div>R:R</div>"
@@ -164,7 +164,7 @@ def _render_trade_row(trade: dict):
         st.markdown(
             f"<div style='display:grid;"
             f"grid-template-columns:36px 80px 60px 60px 105px 80px 60px 88px 88px 88px;"
-            f"gap:0;padding:9px 12px;background:{row_bg};"
+            f"gap:0;padding:9px 12px;background:{row_bg};class='ct-row';"
             f"border:1.5px solid {_DG};border-top:none;{top_border}"
             f"border-radius:{'0' if is_open else '0 0 10px 10px'};"
             f"align-items:center'>"

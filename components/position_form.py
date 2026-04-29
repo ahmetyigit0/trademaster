@@ -347,16 +347,19 @@ def _render_form(edit_id=None, draft_edit=None):
 
         # SL risk bilgisi
         if stop_loss > 0 and avg_e > 0:
-            pdiff   = abs(avg_e - stop_loss)
+            pdiff    = abs(avg_e - stop_loss)
             sl_pct_r = pdiff / avg_e * 100
-            sl_loss  = st.session_state.get(sz_key, capital) * pdiff / avg_e
+            # Kaldıraçlı pozisyonda SL kaybı: pozisyon × SL% (kaldıraç zaten pozisyona dahil)
+            cur_sz   = float(st.session_state.get(sz_key, capital))
+            sl_loss  = cur_sz * pdiff / avg_e
             sl_cap   = sl_loss / capital * 100
             rc = _R if sl_cap > risk_pct * 1.2 else _Y if sl_cap > risk_pct else _G
             st.markdown(
                 f"<div style='background:#120808;border:1px solid #2d1010;"
                 f"border-radius:7px;padding:5px 8px;font-size:12px;margin-top:4px'>"
                 f"<span style='color:{rc};font-weight:700'>-${sl_loss:,.2f}</span>"
-                f"<span style='color:{_DT};margin-left:8px'>%{sl_cap:.2f} sermaye</span>"
+                f"<span style='color:{_DT};margin-left:8px'>%{sl_pct_r:.2f} fiyat"
+                f" · %{sl_cap:.2f} sermaye</span>"
                 f"</div>",
                 unsafe_allow_html=True,
             )
@@ -503,40 +506,36 @@ def _render_form(edit_id=None, draft_edit=None):
         def _sync():
             st.session_state[sz_key] = float(st.session_state.get(widget_key, 0.0))
 
-        # position_size session_state'ten oku — widget render'dan önce hesapla
-        position_size = float(st.session_state.get(sz_key, capital))
-
-        # Metrik hesaplamaları (position_size kullanarak)
-        risk_per_unit = calc.get("risk_per_unit", 0)
-        pos_risk_usd  = position_size * risk_per_unit          # yatırılan tutar × risk oranı
-        pos_risk_pct  = pos_risk_usd / capital * 100 if capital > 0 else 0
-        # Sermaye riski: TÜM sermayeyi yatırırsan sl'e gidersen ne kaybedersin
-        cap_risk_usd  = capital * risk_per_unit
-        cap_risk_pct  = cap_risk_usd / capital * 100           # = full_capital_risk_pct
-
+        # position_size widget — önce render et, sonra metrics hesapla
         mc0, mc1, mc2, mc3, mc4, mc5 = st.columns(6)
         with mc0:
             position_size = st.number_input(
                 "💰 Pozisyon (USDT)", min_value=0.0,
                 max_value=float(capital)*200,
-                value=position_size,
+                value=float(st.session_state.get(sz_key, capital)),
                 step=10.0, key=widget_key, on_change=_sync,
             )
-            # Widget değiştikten sonra güncelle
+            # Her render'da session_state'ten güncel değeri al
             position_size = float(st.session_state.get(sz_key, position_size))
-            pos_risk_usd  = position_size * risk_per_unit
-            pos_risk_pct  = pos_risk_usd / capital * 100 if capital > 0 else 0
+
+        # Metrikler position_size kesinleştikten sonra hesaplanır
+        risk_per_unit = calc.get("risk_per_unit", 0)
+        # Kaldıraç dahil: SL mesafesi / kaldıraç = gerçek kayıp oranı
+        lev_factor    = lev if lev > 1 else 1.0
+        pos_risk_usd  = position_size * risk_per_unit
+        pos_risk_pct  = pos_risk_usd / capital * 100 if capital > 0 else 0
+        cap_risk_usd  = capital * risk_per_unit
+        cap_risk_pct  = cap_risk_usd / capital * 100
+
         with mc1:
             _info_box("Risk $",
                       f"${pos_risk_usd:,.2f}",
                       _Y)
         with mc2:
-            # Poz. Riski: yatırılan tutar üzerinden stop'a giderse kayıp / toplam sermaye
             _info_box("Poz. Riski",
                       f"%{pos_risk_pct:.2f}",
                       _R if pos_risk_pct > risk_pct else _Y if pos_risk_pct > risk_pct * 0.8 else _G)
         with mc3:
-            # Sermaye Riski: tüm sermaye yatırılsaydı stop'ta kayıp
             _info_box("Sermaye Risk",
                       f"%{cap_risk_pct:.2f}",
                       _R if cap_risk_pct > risk_pct else _G)
