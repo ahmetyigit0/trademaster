@@ -26,7 +26,7 @@ SETUP_TYPES = ["liquidity", "breakout", "trend", "range", "diğer"]
 
 # ── Tema renkleri ──────────────────────────────────────────────────────────────
 _G   = "#3fb950";  _R  = "#ff7b72";  _B  = "#58a6ff"
-_Y   = "#e3b341";  _TX = "#e6edf3";  _DT = "#b1bac4"
+_Y   = "#e3b341";  _TX = "#e6edf3";  _DT = "#b1bac4";  _DT2 = "#6e7681"
 _BG  = "#161b22";  _DBG= "#0d1117";  _DG = "#21262d"
 
 
