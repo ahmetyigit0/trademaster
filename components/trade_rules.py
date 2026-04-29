@@ -325,8 +325,7 @@ def render_trade_rules():
                 with btn_col:
                     if st.button("▼" if not is_open else "▲",
                                  key=f"tr_acc_{rid}",
-                                 use_container_width=True,
-                                 label_visibility="collapsed"):
+                                 use_container_width=True):
                         st.session_state[open_key] = not is_open
                         st.rerun()
 
