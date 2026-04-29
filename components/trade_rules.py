@@ -294,52 +294,89 @@ def render_trade_rules():
                             st.rerun()
                     st.markdown("</div>", unsafe_allow_html=True)
             else:
-                # ── Görünüm modu — kart + butonlar satır içi ─────────────
-                st.markdown(
-                    f"<div style='background:{card_bg};border:1px solid {_DG};"
-                    f"border-left:3px solid {border_c};border-radius:10px;"
-                    f"padding:0.6rem 1rem 0.5rem;opacity:{opacity};"
-                    f"margin-bottom:2px'>",
-                    unsafe_allow_html=True,
-                )
-                # Kural metni
-                st.markdown(
-                    f"<div style='display:flex;align-items:flex-start;"
-                    f"gap:0.6rem;margin-bottom:6px'>"
-                    f"<span style='color:{fg};font-family:\"Space Mono\",monospace;"
-                    f"font-size:13px;min-width:22px;font-weight:700;"
-                    f"flex-shrink:0;padding-top:2px'>{num:02d}</span>"
-                    f"<span style='color:#e6edf3;font-size:14px;line-height:1.65;"
-                    f"font-weight:500'>{r['rule']}</span>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-                # Butonlar — tam genişlik satırda, küçük
-                bc1, bc2, bc3, _ = st.columns([1, 1, 1, 9])
-                with bc1:
-                    lbl = "⏸" if active else "▶"
-                    if st.button(lbl, key=f"tr_toggle_{rid}",
-                                 help="Aktif/Devre dışı",
-                                 use_container_width=True):
-                        idx = next((i for i,x in enumerate(rules) if x["id"]==rid), None)
-                        if idx is not None:
-                            rules[idx]["active"] = not active
-                        _save_rules(rules)
-                        st.session_state.tr_rules = rules
+                # ── Accordion görünüm modu ────────────────────────────────
+                open_key = f"tr_open_{rid}"
+                st.session_state.setdefault(open_key, False)
+                is_open  = st.session_state[open_key]
+
+                dot_c  = fg if active else "#30363d"
+                hdr_bg = card_bg
+                brd_c  = fg if is_open else (border_c if active else "#30363d")
+                brad   = "10px 10px 0 0" if is_open else "10px"
+
+                # Header
+                h_col, btn_col = st.columns([14, 1])
+                with h_col:
+                    st.markdown(
+                        f"<div style='background:{hdr_bg};border:1px solid {brd_c};"
+                        f"border-left:3px solid {dot_c};border-radius:{brad};"
+                        f"padding:0.65rem 1rem;opacity:{opacity};cursor:pointer;"
+                        f"display:flex;align-items:center;gap:0.75rem'>"
+                        f"<span style='color:{fg};font-family:\"Space Mono\",monospace;"
+                        f"font-size:12px;min-width:22px;font-weight:700;"
+                        f"flex-shrink:0'>{num:02d}</span>"
+                        f"<span style='color:#e6edf3;font-size:14px;line-height:1.6;"
+                        f"font-weight:500;flex:1'>{r['rule']}</span>"
+                        f"<span style='font-size:11px;color:{_DT};flex-shrink:0'>"
+                        f"{'▲' if is_open else '▼'}</span>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+                with btn_col:
+                    if st.button("▼" if not is_open else "▲",
+                                 key=f"tr_acc_{rid}",
+                                 use_container_width=True,
+                                 label_visibility="collapsed"):
+                        st.session_state[open_key] = not is_open
                         st.rerun()
-                with bc2:
-                    if st.button("✏️", key=f"tr_edit_btn_{rid}",
-                                 help="Düzenle", use_container_width=True):
-                        st.session_state[edit_key] = True
-                        st.rerun()
-                with bc3:
-                    if st.button("🗑️", key=f"tr_del_{rid}",
-                                 help="Sil", use_container_width=True):
-                        rules = [x for x in rules if x["id"] != rid]
-                        _save_rules(rules)
-                        st.session_state.tr_rules = rules
-                        st.rerun()
-                st.markdown("</div>", unsafe_allow_html=True)
+
+                # Açık gövde: butonlar + kategori
+                if is_open:
+                    st.markdown(
+                        f"<div style='background:{_BG3};border:1px solid {fg}50;"
+                        f"border-top:none;border-radius:0 0 10px 10px;"
+                        f"padding:10px 14px;margin-bottom:2px'>",
+                        unsafe_allow_html=True,
+                    )
+                    # Kategori badge
+                    cat_name = r.get("category","")
+                    if cat_name:
+                        st.markdown(
+                            f"<span style='background:{fg}18;color:{fg};"
+                            f"border:1px solid {fg}40;border-radius:20px;"
+                            f"padding:2px 10px;font-size:11px;font-weight:600'>"
+                            f"{cat_name}</span>",
+                            unsafe_allow_html=True,
+                        )
+                        st.markdown("<div style='height:8px'></div>",
+                                    unsafe_allow_html=True)
+
+                    # Butonlar
+                    ba1, ba2, ba3, _ = st.columns([1, 1, 1, 6])
+                    with ba1:
+                        lbl = "⏸ Durdur" if active else "▶ Aç"
+                        if st.button(lbl, key=f"tr_toggle_{rid}",
+                                     use_container_width=True):
+                            idx = next((i for i,x in enumerate(rules)
+                                        if x["id"]==rid), None)
+                            if idx is not None:
+                                rules[idx]["active"] = not active
+                            _save_rules(rules)
+                            st.session_state.tr_rules = rules
+                            st.rerun()
+                    with ba2:
+                        if st.button("✏️ Düzenle", key=f"tr_edit_btn_{rid}",
+                                     use_container_width=True):
+                            st.session_state[edit_key] = True
+                            st.rerun()
+                    with ba3:
+                        if st.button("🗑️ Sil", key=f"tr_del_{rid}",
+                                     use_container_width=True):
+                            rules = [x for x in rules if x["id"] != rid]
+                            _save_rules(rules)
+                            st.session_state.tr_rules = rules
+                            st.rerun()
+                    st.markdown("</div>", unsafe_allow_html=True)
 
 
     if not filtered:
