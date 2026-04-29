@@ -94,17 +94,20 @@ def render_closed_trades(data: dict):
             f"{'+'if avg_r>=0 else ''}{avg_r:.2f}R</b></span>"
             f"</div>", unsafe_allow_html=True)
 
-    # ── Tablo başlığı ─────────────────────────────────────────────────────────
+    # ── Tablo başlığı — native columns (mobil uyumlu) ────────────────────────
     st.markdown(
-        f"<div style='display:grid;"
-        f"grid-template-columns:36px 80px 60px 60px 105px 80px 60px 88px 88px 88px;"
-        f"gap:0;padding:8px 12px;background:{_DBG};border:1.5px solid {_DG};"
-        f"border-radius:12px 12px 0 0;font-size:12px;font-weight:700;class='ct-table-header';"
-        f"color:{_DT};text-transform:uppercase;letter-spacing:0.08em'>"
-        f"<div>#</div><div>Coin</div><div>Yön</div><div>Sonuç</div>"
-        f"<div>PnL</div><div>R</div><div>R:R</div>"
-        f"<div>Entry</div><div>Kapanış</div><div>Tarih</div></div>",
-        unsafe_allow_html=True)
+        f"<div style='padding:6px 4px 4px;border-bottom:1.5px solid {_DG};"
+        f"margin-bottom:4px'>",
+        unsafe_allow_html=True,
+    )
+    h1, h2, h3, h4, h5, _, hb1, hb2 = st.columns([1, 2, 1.5, 1.5, 2.5, 7.5, 1, 1])
+    for col, label in [(h1,"#"),(h2,"Coin"),(h3,"Yön"),(h4,"Sonuç"),(h5,"PnL")]:
+        with col:
+            st.markdown(
+                f"<div style='font-size:11px;font-weight:700;color:{_DT};"
+                f"text-transform:uppercase;letter-spacing:0.08em'>{label}</div>",
+                unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     # ── İşlem satırları ───────────────────────────────────────────────────────
     for trade in reversed(filtered):
@@ -158,32 +161,69 @@ def _render_trade_row(trade: dict):
     entry_str  = f"${avg_entry:,.2f}"  if avg_entry  > 0 else '—'
     close_str2 = f"${close_px:,.2f}"   if close_px   > 0 else '—'
 
-    # Satır + butonlar aynı st.columns içinde
+    # ── Mobil uyumlu kart satırı ─────────────────────────────────────────────
     row_c, det_c, del_c = st.columns([14, 1, 1])
     with row_c:
+        # Üst satır: # | Coin | Yön | Sonuç | PnL
+        r1a, r1b, r1c, r1d, r1e = st.columns([1, 2, 1.5, 1.5, 2.5])
+        with r1a:
+            st.markdown(
+                f"<div style='font-family:\"Space Mono\",monospace;font-size:11px;"
+                f"color:{_DT};padding-top:4px'>#{tid}</div>",
+                unsafe_allow_html=True)
+        with r1b:
+            st.markdown(
+                f"<div style='font-weight:700;font-size:15px;color:{_TX};padding-top:2px'>"
+                f"{symbol}</div>", unsafe_allow_html=True)
+        with r1c:
+            st.markdown(
+                f"<div style='margin-top:2px'>"
+                f"<span style='background:{dir_bg};color:{dir_c};padding:3px 8px;"
+                f"border-radius:5px;font-size:11px;font-weight:700'>{direction}</span>"
+                f"</div>", unsafe_allow_html=True)
+        with r1d:
+            st.markdown(
+                f"<div style='margin-top:2px'>"
+                f"<span style='background:{res_bg};color:{res_c};padding:3px 8px;"
+                f"border-radius:5px;font-size:11px;font-weight:700'>{result}</span>"
+                f"</div>", unsafe_allow_html=True)
+        with r1e:
+            st.markdown(
+                f"<div style='font-family:\"Space Mono\",monospace;font-size:14px;"
+                f"font-weight:700;color:{pnl_c};padding-top:2px'>{format_pnl(pnl)}</div>",
+                unsafe_allow_html=True)
+
+        # Alt satır: R | R:R | Entry | Kapanış | Tarih
+        r2a, r2b, r2c, r2d, r2e = st.columns([1.5, 1.5, 2.5, 2.5, 2])
+        with r2a:
+            st.markdown(
+                f"<div style='font-family:\"Space Mono\",monospace;font-size:12px;"
+                f"color:{r_c}'>{r_sign}{r_mult:.2f}R</div>",
+                unsafe_allow_html=True)
+        with r2b:
+            st.markdown(
+                f"<div style='font-size:12px;color:{_DT}'>{rr_str}</div>",
+                unsafe_allow_html=True)
+        with r2c:
+            st.markdown(
+                f"<div style='font-family:\"Space Mono\",monospace;font-size:11px;"
+                f"color:{_DT}'><span style='color:{_DT2}'>E:</span> {entry_str}</div>",
+                unsafe_allow_html=True)
+        with r2d:
+            st.markdown(
+                f"<div style='font-family:\"Space Mono\",monospace;font-size:11px;"
+                f"color:{_TX}'><span style='color:{_DT2}'>C:</span> {close_str2}</div>",
+                unsafe_allow_html=True)
+        with r2e:
+            st.markdown(
+                f"<div style='font-size:11px;color:{_DT}'>{closed_str}</div>",
+                unsafe_allow_html=True)
+
+        # Satırlar arası ince çizgi
         st.markdown(
-            f"<div style='display:grid;"
-            f"grid-template-columns:36px 80px 60px 60px 105px 80px 60px 88px 88px 88px;"
-            f"gap:0;padding:9px 12px;background:{row_bg};class='ct-row';"
-            f"border:1.5px solid {_DG};border-top:none;{top_border}"
-            f"border-radius:{'0' if is_open else '0 0 10px 10px'};"
-            f"align-items:center'>"
-            f"<div style='font-family:\"Space Mono\",monospace;font-size:12px;"
-            f"color:{_DT}'>#{tid}</div>"
-            f"<div style='font-weight:700;font-size:14px;color:{_TX}'>{symbol}</div>"
-            f"<div><span style='background:{dir_bg};color:{dir_c};padding:2px 7px;"
-            f"border-radius:5px;font-size:11px;font-weight:700'>{direction}</span></div>"
-            f"<div><span style='background:{res_bg};color:{res_c};padding:2px 7px;"
-            f"border-radius:5px;font-size:11px;font-weight:700'>{result}</span></div>"
-            f"<div style='font-family:\"Space Mono\",monospace;font-size:13px;"
-            f"font-weight:700;color:{pnl_c}'>{format_pnl(pnl)}</div>"
-            f"<div style='font-family:\"Space Mono\",monospace;font-size:12px;"
-            f"color:{r_c}'>{r_sign}{r_mult:.2f}R</div>"
-            f"<div style='font-size:12px;color:{_DT}'>{rr_str}</div>"
-            f"<div style='font-family:\"Space Mono\",monospace;font-size:12px;color:{_DT}'>{entry_str}</div>"
-            f"<div style='font-family:\"Space Mono\",monospace;font-size:12px;color:{_TX}'>{close_str2}</div>"
-            f"<div style='font-size:12px;color:{_DT}'>{closed_str}</div>"
-            f"</div>", unsafe_allow_html=True)
+            f"<hr style='margin:4px 0;border-color:{_DG}40'>",
+            unsafe_allow_html=True)
+
     with det_c:
         lbl = "▲" if is_open else "🔍"
         if st.button(lbl, key=f"ct_dbtn_{tid}", use_container_width=True,
