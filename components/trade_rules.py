@@ -5,8 +5,8 @@ import os
 
 # ── Renk sabitleri ────────────────────────────────────────────────────────────
 _G  = "#3fb950";  _R = "#ff7b72";  _B = "#58a6ff"
-_Y  = "#e3b341";  _DT= "#b1bac4";  _TX= "#e6edf3"
-_BG = "#161b22";  _DB= "#0d1117";  _DG= "#21262d"
+_Y  = "#e3b341";  _DT= "#b1bac4";  _TX= "#e6edf3";  _DT2= "#6e7681"
+_BG = "#161b22";  _DB= "#0d1117";  _DG= "#21262d";  _BG3= "#1c2128"
 
 RULES_FILE = "trade_rules.json"
 
@@ -331,24 +331,23 @@ def render_trade_rules():
 
                 # Açık gövde: butonlar + kategori
                 if is_open:
+                    rule_cat = r.get("category", "Diğer")
+                    body_fg, _ = CAT_COLORS.get(rule_cat, ("#8b949e", "#161b22"))
                     st.markdown(
-                        f"<div style='background:{_BG3};border:1px solid {fg}50;"
+                        f"<div style='background:{_BG3};border:1px solid {body_fg}50;"
                         f"border-top:none;border-radius:0 0 10px 10px;"
                         f"padding:10px 14px;margin-bottom:2px'>",
                         unsafe_allow_html=True,
                     )
-                    # Kategori badge
-                    cat_name = r.get("category","")
-                    if cat_name:
+                    if rule_cat:
                         st.markdown(
-                            f"<span style='background:{fg}18;color:{fg};"
-                            f"border:1px solid {fg}40;border-radius:20px;"
+                            f"<span style='background:{body_fg}18;color:{body_fg};"
+                            f"border:1px solid {body_fg}40;border-radius:20px;"
                             f"padding:2px 10px;font-size:11px;font-weight:600'>"
-                            f"{cat_name}</span>",
+                            f"{rule_cat}</span>",
                             unsafe_allow_html=True,
                         )
-                        st.markdown("<div style='height:8px'></div>",
-                                    unsafe_allow_html=True)
+                        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
                     # Butonlar
                     ba1, ba2, ba3, _ = st.columns([1, 1, 1, 6])
