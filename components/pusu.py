@@ -5,6 +5,7 @@ Binance'den EMA/ATR çek → seviyeler gir → plan kur → ateşle
 """
 
 import streamlit as st
+import streamlit.components.v1 as components
 import plotly.graph_objects as go
 import json, os, math
 from datetime import datetime
@@ -35,6 +36,106 @@ def _save_pusu(pusular: list):
         json.dump(pusular, f, ensure_ascii=False, indent=2)
 
 # ── Binance API ───────────────────────────────────────────────────────────────
+
+def _render_js_fetcher(symbol: str, interval: str):
+    """Tarayıcı JS ile Binance'den veri çek, query_params üzerinden Streamlit'e gönder."""
+    import streamlit.components.v1 as components
+
+    # Binance interval formatı
+    html = f"""
+<div id="fetch-status" style="
+    background:#0f0f0f;border:1px solid #f0b42940;border-radius:8px;
+    padding:10px 14px;font-family:monospace;font-size:12px;color:#f0b429;
+    margin:4px 0">
+  ⏳ Tarayıcıdan {symbol} {interval} verisi çekiliyor...
+</div>
+<script>
+(async function() {{
+  const sym      = "{symbol.upper()}";
+  const interval = "{interval}";
+  const status   = document.getElementById("fetch-status");
+
+  function calcEMA(prices, n) {{
+    const k = 2 / (n + 1);
+    let e = prices[0];
+    for (let i = 1; i < prices.length; i++) e = prices[i] * k + e * (1 - k);
+    return Math.round(e * 10000) / 10000;
+  }}
+
+  function calcATR(highs, lows, closes, period=14) {{
+    const trs = [];
+    for (let i = 1; i < closes.length; i++) {{
+      const hl = highs[i] - lows[i];
+      const hc = Math.abs(highs[i] - closes[i-1]);
+      const lc = Math.abs(lows[i] - closes[i-1]);
+      trs.push(Math.max(hl, hc, lc));
+    }}
+    const last = trs.slice(-period);
+    return Math.round(last.reduce((a,b) => a+b, 0) / last.length * 10000) / 10000;
+  }}
+
+  async function tryFetch(url) {{
+    const r = await fetch(url, {{signal: AbortSignal.timeout(8000)}});
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
+  }}
+
+  const sources = [
+    [`https://api.binance.com/api/v3/klines?symbol=${{sym}}&interval=${{interval}}&limit=210`, "Binance"],
+    [`https://fapi.binance.com/fapi/v1/klines?symbol=${{sym}}&interval=${{interval}}&limit=210`, "BinanceFut"],
+    [`https://api.bybit.com/v5/market/kline?symbol=${{sym}}&interval=${{interval.replace("h","").replace("4h","240").replace("1h","60").replace("15m","15").replace("1d","D").replace("1w","W")}}&limit=210&category=linear`, "Bybit"],
+  ];
+
+  let candles = null;
+  let srcName = "";
+
+  for (const [url, name] of sources) {{
+    try {{
+      status.textContent = `⏳ ${{name}} deneniyor...`;
+      const data = await tryFetch(url);
+      const arr = Array.isArray(data) ? data : (data?.result?.list ? data.result.list.reverse() : null);
+      if (arr && arr.length >= 50) {{
+        candles = arr;
+        srcName = name;
+        break;
+      }}
+    }} catch(e) {{ /* continue */ }}
+  }}
+
+  if (!candles) {{
+    status.innerHTML = `<span style="color:#ff4444">❌ Tüm kaynaklar başarısız. Değerleri manuel gir.</span>`;
+    return;
+  }}
+
+  const closes = candles.map(c => parseFloat(c[4]));
+  const highs  = candles.map(c => parseFloat(c[2]));
+  const lows   = candles.map(c => parseFloat(c[3]));
+
+  const price  = closes[closes.length - 1];
+  const ema20  = calcEMA(closes, 20);
+  const ema50  = calcEMA(closes, 50);
+  const ema200 = calcEMA(closes, 200);
+  const atr    = calcATR(highs, lows, closes);
+
+  status.innerHTML = `<span style="color:#00ff88">✅ ${{srcName}} · Veri alındı — price=${{price.toFixed(2)}} ema20=${{ema20.toFixed(2)}}</span>`;
+
+  // Streamlit query params üzerinden gönder
+  const params = new URLSearchParams(window.location.search);
+  params.set("price",  price.toFixed(4));
+  params.set("ema20",  ema20.toFixed(4));
+  params.set("ema50",  ema50.toFixed(4));
+  params.set("ema200", ema200.toFixed(4));
+  params.set("atr",    atr.toFixed(4));
+  params.set("src",    srcName);
+  window.history.replaceState(null, "", "?" + params.toString());
+
+  // Streamlit'i tetikle
+  setTimeout(() => window.location.reload(), 800);
+}})();
+</script>
+"""
+    components.html(html, height=60)
+
 
 def _calc_ema(prices, n):
     k = 2 / (n + 1)
@@ -565,9 +666,40 @@ def render_pusu():
                 result = _fetch_binance(symbol, interval)
             if result:
                 st.session_state[fetched_key] = result
-                st.success(f"✅ {result['fetched_at']} — Veri alındı")
+                src_lbl = result.get("source","?")
+                st.success(f"✅ {src_lbl} · {result['fetched_at']} — Veri alındı")
             else:
-                st.warning("⚠️ Binance'e erişilemedi. Değerleri manuel gir.")
+                # Tarayıcı JS fallback
+                st.session_state["pus_use_js"] = True
+                st.warning("⚠️ Sunucu erişimi yok — Tarayıcı üzerinden deneniyor...")
+                st.rerun()
+
+        # JS Fetch fallback
+        if st.session_state.get("pus_use_js"):
+            _render_js_fetcher(symbol, interval)
+
+        fetched = st.session_state.get(fetched_key, {})
+
+        # JS'den gelen veri kontrolü
+        qp = st.query_params
+        if "ema20" in qp and f"pus_fetched_{symbol}_{interval}" not in st.session_state:
+            try:
+                result = {
+                    "price":  float(qp.get("price",0)),
+                    "ema20":  float(qp.get("ema20",0)),
+                    "ema50":  float(qp.get("ema50",0)),
+                    "ema200": float(qp.get("ema200",0)),
+                    "atr":    float(qp.get("atr",0)),
+                    "source": qp.get("src","Browser"),
+                    "fetched_at": datetime.now().strftime("%H:%M:%S"),
+                }
+                st.session_state[fetched_key] = result
+                st.session_state["pus_use_js"] = False
+                # Query param'ları temizle
+                st.query_params.clear()
+                st.rerun()
+            except Exception:
+                pass
 
         fetched = st.session_state.get(fetched_key, {})
 
