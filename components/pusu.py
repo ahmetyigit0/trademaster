@@ -658,84 +658,92 @@ def render_pusu():
                                  key="pus_dir", label_visibility="collapsed")
 
         # ── Veri çekme: st_javascript ile tarayıcıdan fetch ─────────────
-        fetched_key = f"pus_fetched_{symbol}_{interval}"
+        fetched_key  = f"pus_fetched_{symbol}_{interval}"
+        js_active_key = "pus_js_active"
 
-        fetch_btn = st.button("🔄 Veri Çek", key="pus_fetch",
-                              use_container_width=False)
+        fc4, fc5 = st.columns([1, 3])
+        with fc4:
+            fetch_btn = st.button("🔄 Veri Çek", key="pus_fetch",
+                                  use_container_width=True)
+        with fc5:
+            if st.session_state.get(js_active_key):
+                st.markdown(
+                    f"<div style='padding-top:8px;font-size:12px;color:{_B}'>"
+                    f"⏳ Veri çekiliyor...</div>",
+                    unsafe_allow_html=True)
 
         if fetch_btn:
+            st.session_state[js_active_key] = True
+            st.session_state["pus_js_sym"] = symbol
+            st.session_state["pus_js_iv"]  = interval
+            st.rerun()
+
+        # JS her zaman render edilir — sonuç gelince yakalar
+        if st.session_state.get(js_active_key):
             from streamlit_javascript import st_javascript
 
+            sym = st.session_state.get("pus_js_sym", symbol)
+            iv  = st.session_state.get("pus_js_iv",  interval)
             bybit_iv = {"15m":"15","1h":"60","4h":"240","1d":"D","1w":"W"}
             okx_iv   = {"15m":"15m","1h":"1H","4h":"4H","1d":"1D","1w":"1W"}
-            biv = bybit_iv.get(interval,"240")
-            oiv = okx_iv.get(interval,"4H")
-            sym = symbol.upper()
+            biv = bybit_iv.get(iv,"240")
+            oiv = okx_iv.get(iv,"4H")
 
             js_code = f"""
 (async () => {{
   function ema(p,n){{const k=2/(n+1);let e=p[0];for(let i=1;i<p.length;i++)e=p[i]*k+e*(1-k);return+e.toFixed(4)}}
   function atr(h,l,c){{const t=[];for(let i=1;i<c.length;i++)t.push(Math.max(h[i]-l[i],Math.abs(h[i]-c[i-1]),Math.abs(l[i]-c[i-1])));const s=t.slice(-14);return+(s.reduce((a,b)=>a+b,0)/s.length).toFixed(4)}}
-
-  const sources = [
-    {{name:'Binance',   url:'https://api.binance.com/api/v3/klines?symbol={sym}&interval={interval}&limit=210',
-      parse: d => {{const c=d.map(x=>+x[4]),h=d.map(x=>+x[2]),l=d.map(x=>+x[3]);return{{c,h,l}}}}}},
-    {{name:'BinanceFut',url:'https://fapi.binance.com/fapi/v1/klines?symbol={sym}&interval={interval}&limit=210',
-      parse: d => {{const c=d.map(x=>+x[4]),h=d.map(x=>+x[2]),l=d.map(x=>+x[3]);return{{c,h,l}}}}}},
-    {{name:'OKX',       url:'https://www.okx.com/api/v5/market/candles?instId={sym.replace("USDT","-USDT")}&bar={oiv}&limit=210',
-      parse: d => {{const a=d.data.reverse();return{{c:a.map(x=>+x[4]),h:a.map(x=>+x[2]),l:a.map(x=>+x[3])}}}}}},
-    {{name:'Bybit',     url:'https://api.bybit.com/v5/market/kline?symbol={sym}&interval={biv}&limit=210&category=linear',
-      parse: d => {{const a=d.result.list.reverse();return{{c:a.map(x=>+x[4]),h:a.map(x=>+x[2]),l:a.map(x=>+x[3])}}}}}},
+  const sources=[
+    {{n:'Binance',   u:'https://api.binance.com/api/v3/klines?symbol={sym}&interval={iv}&limit=210',
+      p:d=>{{const c=d.map(x=>+x[4]),h=d.map(x=>+x[2]),l=d.map(x=>+x[3]);return{{c,h,l}}}}}},
+    {{n:'BinanceFut',u:'https://fapi.binance.com/fapi/v1/klines?symbol={sym}&interval={iv}&limit=210',
+      p:d=>{{const c=d.map(x=>+x[4]),h=d.map(x=>+x[2]),l=d.map(x=>+x[3]);return{{c,h,l}}}}}},
+    {{n:'OKX',       u:'https://www.okx.com/api/v5/market/candles?instId={sym.replace("USDT","-USDT")}&bar={oiv}&limit=210',
+      p:d=>{{const a=d.data.reverse();return{{c:a.map(x=>+x[4]),h:a.map(x=>+x[2]),l:a.map(x=>+x[3])}}}}}},
+    {{n:'Bybit',     u:'https://api.bybit.com/v5/market/kline?symbol={sym}&interval={biv}&limit=210&category=linear',
+      p:d=>{{const a=d.result.list.reverse();return{{c:a.map(x=>+x[4]),h:a.map(x=>+x[2]),l:a.map(x=>+x[3])}}}}}},
   ];
-
-  for(const src of sources){{
+  for(const s of sources){{
     try{{
-      const r = await fetch(src.url, {{signal: AbortSignal.timeout(8000)}});
+      const r=await fetch(s.u,{{signal:AbortSignal.timeout(8000)}});
       if(!r.ok) continue;
-      const raw = await r.json();
-      const {{c,h,l}} = src.parse(raw);
-      if(!c || c.length < 50) continue;
-      return JSON.stringify({{
-        price:  c[c.length-1],
-        ema20:  ema(c,20), ema50: ema(c,50), ema200: ema(c,200),
-        atr:    atr(h,l,c),
-        source: src.name,
-        now:    new Date().toLocaleTimeString('tr-TR')
-      }});
-    }} catch(e) {{}}
+      const raw=await r.json();
+      const {{c,h,l}}=s.p(raw);
+      if(!c||c.length<50) continue;
+      return JSON.stringify({{price:c[c.length-1],ema20:ema(c,20),ema50:ema(c,50),ema200:ema(c,200),atr:atr(h,l,c),source:s.n,now:new Date().toLocaleTimeString('tr-TR')}});
+    }}catch(e){{}}
   }}
   return "ERROR";
 }})()
 """
-            with st.spinner(f"⏳ {symbol} {iv_label} verisi çekiliyor..."):
-                result_json = st_javascript(js_code)
+            result_json = st_javascript(js_code, key=f"jsdata_{sym}_{iv}")
 
-            if result_json and result_json != "ERROR" and isinstance(result_json, str):
+            # default=0, gerçek sonuç str olarak gelir
+            if isinstance(result_json, str) and result_json not in ("0", "ERROR", ""):
                 try:
                     parsed = json.loads(result_json)
-                    fetched_data = {
-                        "price":      float(parsed["price"]),
-                        "ema20":      float(parsed["ema20"]),
-                        "ema50":      float(parsed["ema50"]),
-                        "ema200":     float(parsed["ema200"]),
-                        "atr":        float(parsed["atr"]),
-                        "source":     parsed.get("source","?"),
-                        "fetched_at": parsed.get("now",""),
-                    }
-                    st.session_state[fetched_key] = fetched_data
-                    # Doğrudan widget session_state key'lerine yaz → otomatik dolar
-                    st.session_state["pus_price"]  = fetched_data["price"]
-                    st.session_state["pus_ema20"]  = fetched_data["ema20"]
-                    st.session_state["pus_ema50"]  = fetched_data["ema50"]
-                    st.session_state["pus_ema200"] = fetched_data["ema200"]
-                    st.session_state["pus_atr"]    = fetched_data["atr"]
-                    st.rerun()
+                    if parsed.get("price", 0) > 0:
+                        st.session_state[js_active_key] = False
+                        st.session_state[fetched_key] = {
+                            "price":      float(parsed["price"]),
+                            "ema20":      float(parsed["ema20"]),
+                            "ema50":      float(parsed["ema50"]),
+                            "ema200":     float(parsed["ema200"]),
+                            "atr":        float(parsed["atr"]),
+                            "source":     parsed.get("source","?"),
+                            "fetched_at": parsed.get("now",""),
+                        }
+                        st.session_state["pus_price"]  = float(parsed["price"])
+                        st.session_state["pus_ema20"]  = float(parsed["ema20"])
+                        st.session_state["pus_ema50"]  = float(parsed["ema50"])
+                        st.session_state["pus_ema200"] = float(parsed["ema200"])
+                        st.session_state["pus_atr"]    = float(parsed["atr"])
+                        st.rerun()
                 except Exception:
-                    st.error("Veri parse edilemedi.")
+                    pass
             elif result_json == "ERROR":
+                st.session_state[js_active_key] = False
                 st.error("❌ Tüm kaynaklar başarısız. Değerleri manuel girin.")
-            else:
-                st.info("⏳ Veri bekleniyor — tekrar dene.")
 
         fetched = st.session_state.get(fetched_key, {})
 
