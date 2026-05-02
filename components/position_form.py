@@ -82,6 +82,9 @@ def _section_wrap(content_fn, bg=_BG, border=_DG, radius=12, pad="0.9rem 1rem 0.
 # ── Ana form ──────────────────────────────────────────────────────────────────
 
 def _render_form(edit_id=None, draft_edit=None):
+    # ── Pusu Ateş: session_state'ten otomatik doldur ──────────────────────────
+    fire = st.session_state.pop("pusu_fire", None)
+
     # draft_edit modu: taslağı düzenle
     is_draft_edit = draft_edit is not None
     editing       = edit_id is not None
@@ -135,15 +138,17 @@ def _render_form(edit_id=None, draft_edit=None):
     r1c1, r1c2, r1c3, r1c4, r1c5 = st.columns([2.5, 2, 1.5, 2.5, 2])
 
     with r1c1:
+        fire_sym = fire.get("symbol","") if fire else ""
         symbol = st.text_input(
-            "Sembol", value=pos["symbol"] if editing else "",
+            "Sembol", value=fire_sym if fire_sym else (pos["symbol"] if editing else ""),
             placeholder="BTC / ETH / SOL...",
             key=f"{px}sym",
         ).upper().strip()
 
     with r1c2:
-        dir_default = pos["direction"] if editing else "LONG"
-        if f"{px}dir" not in st.session_state:
+        fire_dir = fire.get("direction","LONG") if fire else None
+        dir_default = fire_dir if fire_dir else (pos["direction"] if editing else "LONG")
+        if f"{px}dir" not in st.session_state or fire:
             st.session_state[f"{px}dir"] = dir_default
         direction = st.session_state[f"{px}dir"]
 
@@ -232,6 +237,9 @@ def _render_form(edit_id=None, draft_edit=None):
 
         if f"{px}nentries" not in st.session_state:
             ne_init = len(pos.get("entries",[])) if editing else 1
+            # Pusu ateş: entry sayısını otomatik ayarla
+            if fire and fire.get("entries"):
+                ne_init = len(fire["entries"])
             st.session_state[f"{px}nentries"] = max(ne_init, 1)
 
         ne = st.session_state[f"{px}nentries"]
@@ -239,7 +247,9 @@ def _render_form(edit_id=None, draft_edit=None):
         default_ew = round(100.0 / ne, 1)
 
         for i in range(ne):
-            ep_d = float(pos["entries"][i]["price"])  if editing and i < len(pos.get("entries",[])) else 0.0
+            # Pusu'dan gelen entry değerleri
+            fire_ep = float(fire["entries"][i]) if (fire and fire.get("entries") and i < len(fire["entries"])) else None
+            ep_d = fire_ep if fire_ep is not None else (float(pos["entries"][i]["price"]) if editing and i < len(pos.get("entries",[])) else 0.0)
             ew_d = float(pos["entries"][i]["weight"]) if editing and i < len(pos.get("entries",[])) else default_ew
 
             ec1, ec2, ec3, ec4 = st.columns([0.25, 1.3, 0.9, 0.5])
@@ -349,7 +359,9 @@ def _render_form(edit_id=None, draft_edit=None):
 
         # Slider'dan hesaplanan fiyat (eğer henüz elle yazılmadıysa)
         sl_default = 0.0
-        if editing and sl_price_key not in st.session_state:
+        if fire and fire.get("sl", 0) > 0:
+            sl_default = float(fire["sl"])
+        elif editing and sl_price_key not in st.session_state:
             sl_default = float(pos.get("stop_loss", 0.0))
         elif avg_e > 0 and sl_price_key not in st.session_state:
             d = direction
@@ -388,6 +400,9 @@ def _render_form(edit_id=None, draft_edit=None):
 
         if f"{px}ntp" not in st.session_state:
             ntp_init = len(pos.get("take_profits",[])) if editing else 1
+            # Pusu'dan TP sayısını al
+            if fire and fire.get("tps"):
+                ntp_init = len(fire["tps"])
             st.session_state[f"{px}ntp"] = max(ntp_init, 1)
 
         ntp         = st.session_state[f"{px}ntp"]
@@ -395,7 +410,8 @@ def _render_form(edit_id=None, draft_edit=None):
         default_tw   = round(100.0/ntp, 1)
 
         for i in range(ntp):
-            tp_pd = float(pos["take_profits"][i]["price"])  if editing and i < len(pos.get("take_profits",[])) else 0.0
+            fire_tp  = float(fire["tps"][i]) if (fire and fire.get("tps") and i < len(fire["tps"])) else None
+            tp_pd = fire_tp if fire_tp is not None else (float(pos["take_profits"][i]["price"]) if editing and i < len(pos.get("take_profits",[])) else 0.0)
             tp_wd = float(pos["take_profits"][i]["weight"]) if editing and i < len(pos.get("take_profits",[])) else default_tw
             tp_pct_key  = f"{px}tp_pct_{i}"
             tp_price_key= f"{px}tpp{i}"
