@@ -7,8 +7,9 @@ Binance'den EMA/ATR çek → seviyeler gir → plan kur → ateşle
 import streamlit as st
 import streamlit.components.v1 as components
 import plotly.graph_objects as go
-import json, os, math
+import json, os
 from datetime import datetime
+from pathlib import Path
 
 # ── Tema ─────────────────────────────────────────────────────────────────────
 _BG  = "#0a0a0a"; _BG2 = "#0f0f0f"; _BG3 = "#141414"
@@ -639,7 +640,7 @@ def render_pusu():
             f"letter-spacing:0.08em;margin-bottom:8px'>📡 Binance Verisi</div>",
             unsafe_allow_html=True)
 
-        fc1, fc2, fc3, fc4 = st.columns([2, 2, 2, 1.5])
+        fc1, fc2, fc3 = st.columns([2, 2, 2])
         with fc1:
             symbol = st.text_input("Sembol", key="pus_symbol",
                 value=edit_data.get("symbol","BTCUSDT") if edit_data else
@@ -655,51 +656,146 @@ def render_pusu():
         with fc3:
             direction = st.radio("Yön", ["LONG","SHORT"], horizontal=True,
                                  key="pus_dir", label_visibility="collapsed")
-        with fc4:
-            fetch_btn = st.button("🔄 Veri Çek", key="pus_fetch",
-                                  use_container_width=True)
 
-        # Veri çek
+        # ── HTML Widget: tarayıcıdan Binance/OKX/Bybit fetch ─────────────
         fetched_key = f"pus_fetched_{symbol}_{interval}"
-        if fetch_btn:
-            with st.spinner(f"{symbol} {iv_label} verisi çekiliyor..."):
-                result = _fetch_binance(symbol, interval)
-            if result:
-                st.session_state[fetched_key] = result
-                src_lbl = result.get("source","?")
-                st.success(f"✅ {src_lbl} · {result['fetched_at']} — Veri alındı")
-            else:
-                # Tarayıcı JS fallback
-                st.session_state["pus_use_js"] = True
-                st.warning("⚠️ Sunucu erişimi yok — Tarayıcı üzerinden deneniyor...")
-                st.rerun()
 
-        # JS Fetch fallback
-        if st.session_state.get("pus_use_js"):
-            _render_js_fetcher(symbol, interval)
+        widget_html = f"""
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:#0a0a0a;font-family:'Courier New',monospace;color:#e6edf3;font-size:12px;padding:8px}}
+.row{{display:flex;gap:6px;align-items:flex-end;flex-wrap:wrap;margin-bottom:6px}}
+.field{{flex:1;min-width:80px}}
+.lbl{{font-size:10px;color:#6e7681;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px}}
+input,select{{background:#111;border:1px solid #2a2a2a;border-radius:5px;color:#e6edf3;
+  padding:5px 8px;font-family:monospace;font-size:12px;width:100%}}
+button{{border:none;border-radius:6px;padding:7px 14px;font-family:monospace;
+  font-size:12px;cursor:pointer;font-weight:700;white-space:nowrap}}
+.btn-go{{background:#1a3a1a;color:#00ff88;border:1px solid #00ff8830}}
+.btn-send{{background:#1a2a3a;color:#58a6ff;border:1px solid #58a6ff30;display:none}}
+.st{{padding:5px 8px;border-radius:5px;font-size:11px;margin-top:4px;display:none}}
+.st.ok{{background:#051a0e;border:1px solid #00ff8830;color:#00ff88;display:block}}
+.st.err{{background:#1a0505;border:1px solid #ff444430;color:#ff4444;display:block}}
+.st.loading{{background:#0f1a2a;border:1px solid #58a6ff30;color:#58a6ff;display:block}}
+.results{{display:none;margin-top:6px}}
+.grid{{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin-bottom:4px}}
+.cell{{background:#111;border:1px solid #1e1e1e;border-radius:5px;padding:5px 7px}}
+.cell .v{{font-size:13px;font-weight:700;color:#e6edf3;font-family:monospace}}
+.cell .l{{font-size:10px;color:#6e7681;margin-bottom:1px}}
+</style></head><body>
+<div class="row">
+  <div class="field" style="max-width:110px">
+    <div class="lbl">Sembol</div>
+    <input id="sym" value="{symbol}" placeholder="BTCUSDT">
+  </div>
+  <div class="field" style="max-width:110px">
+    <div class="lbl">Interval</div>
+    <select id="iv">
+      <option value="15m"{'selected' if interval=='15m' else ''}>15 Dakika</option>
+      <option value="1h"{'selected' if interval=='1h' else ''}>1 Saat</option>
+      <option value="4h"{'selected' if interval=='4h' else ''}>4 Saat</option>
+      <option value="1d"{'selected' if interval=='1d' else ''}>1 Gün</option>
+      <option value="1w"{'selected' if interval=='1w' else ''}>1 Hafta</option>
+    </select>
+  </div>
+  <div style="padding-bottom:1px">
+    <button class="btn-go" onclick="go()">🔄 Veri Çek</button>
+  </div>
+  <div style="padding-bottom:1px">
+    <button class="btn-send" id="sendBtn" onclick="send()">✅ Forma Uygula</button>
+  </div>
+</div>
+<div id="st" class="st"></div>
+<div id="results" class="results">
+  <div class="grid">
+    <div class="cell"><div class="l">Fiyat</div><div class="v" id="r_price">—</div></div>
+    <div class="cell"><div class="l">EMA 20</div><div class="v" id="r_ema20" style="color:#ffffff">—</div></div>
+    <div class="cell"><div class="l">EMA 50</div><div class="v" id="r_ema50" style="color:#f0b429">—</div></div>
+    <div class="cell"><div class="l">EMA 200</div><div class="v" id="r_ema200" style="color:#ff4444">—</div></div>
+    <div class="cell"><div class="l">ATR (14)</div><div class="v" id="r_atr" style="color:#a371f7">—</div></div>
+  </div>
+  <div style="font-size:10px;color:#6e7681">Kaynak: <span id="r_src" style="color:#58a6ff"></span></div>
+</div>
+<script>
+let last = null;
 
-        fetched = st.session_state.get(fetched_key, {})
+function ema(p,n){{const k=2/(n+1);let e=p[0];for(let i=1;i<p.length;i++)e=p[i]*k+e*(1-k);return+e.toFixed(4)}}
+function atr(h,l,c,per=14){{const t=[];for(let i=1;i<c.length;i++)t.push(Math.max(h[i]-l[i],Math.abs(h[i]-c[i-1]),Math.abs(l[i]-c[i-1])));const s=t.slice(-per);return+(s.reduce((a,b)=>a+b,0)/s.length).toFixed(4)}}
+function setst(msg,cls){{const e=document.getElementById('st');e.textContent=msg;e.className='st '+cls}}
 
-        # JS'den gelen veri kontrolü
-        qp = st.query_params
-        if "ema20" in qp and f"pus_fetched_{symbol}_{interval}" not in st.session_state:
-            try:
-                result = {
-                    "price":  float(qp.get("price",0)),
-                    "ema20":  float(qp.get("ema20",0)),
-                    "ema50":  float(qp.get("ema50",0)),
-                    "ema200": float(qp.get("ema200",0)),
-                    "atr":    float(qp.get("atr",0)),
-                    "source": qp.get("src","Browser"),
-                    "fetched_at": datetime.now().strftime("%H:%M:%S"),
-                }
-                st.session_state[fetched_key] = result
-                st.session_state["pus_use_js"] = False
-                # Query param'ları temizle
-                st.query_params.clear()
-                st.rerun()
-            except Exception:
-                pass
+async function go(){{
+  const sym=document.getElementById('sym').value.toUpperCase().trim();
+  const iv=document.getElementById('iv').value;
+  const bybitIv={{'1m':'1','3m':'3','5m':'5','15m':'15','30m':'30','1h':'60','2h':'120','4h':'240','6h':'360','12h':'720','1d':'D','1w':'W'}};
+  const okxIv={{'15m':'15m','1h':'1H','4h':'4H','1d':'1D','1w':'1W'}};
+  document.getElementById('results').style.display='none';
+  document.getElementById('sendBtn').style.display='none';
+
+  const sources=[
+    {{name:'Binance',url:`https://api.binance.com/api/v3/klines?symbol=${{sym}}&interval=${{iv}}&limit=210`,
+      parse:d=>{{const c=d.map(x=>+x[4]),h=d.map(x=>+x[2]),l=d.map(x=>+x[3]);return{{c,h,l}}}}}},
+    {{name:'Binance Futures',url:`https://fapi.binance.com/fapi/v1/klines?symbol=${{sym}}&interval=${{iv}}&limit=210`,
+      parse:d=>{{const c=d.map(x=>+x[4]),h=d.map(x=>+x[2]),l=d.map(x=>+x[3]);return{{c,h,l}}}}}},
+    {{name:'OKX',url:`https://www.okx.com/api/v5/market/candles?instId=${{sym.replace('USDT','-USDT')}}&bar=${{okxIv[iv]||'4H'}}&limit=210`,
+      parse:d=>{{const a=d.data.reverse();const c=a.map(x=>+x[4]),h=a.map(x=>+x[2]),l=a.map(x=>+x[3]);return{{c,h,l}}}}}},
+    {{name:'Bybit',url:`https://api.bybit.com/v5/market/kline?symbol=${{sym}}&interval=${{bybitIv[iv]||'240'}}&limit=210&category=linear`,
+      parse:d=>{{const a=d.result.list.reverse();const c=a.map(x=>+x[4]),h=a.map(x=>+x[2]),l=a.map(x=>+x[3]);return{{c,h,l}}}}}}
+  ];
+
+  for(const src of sources){{
+    try{{
+      setst(`⏳ ${{src.name}} deneniyor...`,'loading');
+      const r=await fetch(src.url,{{signal:AbortSignal.timeout(7000)}});
+      if(!r.ok) continue;
+      const raw=await r.json();
+      const {{c,h,l}}=src.parse(raw);
+      if(!c||c.length<50) continue;
+
+      const price=c[c.length-1];
+      const e20=ema(c,20),e50=ema(c,50),e200=ema(c,200),a=atr(h,l,c);
+      const now=new Date().toLocaleTimeString('tr-TR');
+
+      last={{price,ema20:e20,ema50:e50,ema200:e200,atr:a,source:src.name,sym,iv,now}};
+      document.getElementById('r_price').textContent=price.toFixed(2);
+      document.getElementById('r_ema20').textContent=e20.toFixed(2);
+      document.getElementById('r_ema50').textContent=e50.toFixed(2);
+      document.getElementById('r_ema200').textContent=e200.toFixed(2);
+      document.getElementById('r_atr').textContent=a.toFixed(4);
+      document.getElementById('r_src').textContent=src.name+' · '+now;
+      document.getElementById('results').style.display='block';
+      document.getElementById('sendBtn').style.display='inline-block';
+      setst(`✅ ${{src.name}} · ${{sym}} ${{iv}} · ${{c.length}} mum — Veri alındı`,'ok');
+      send();
+      return;
+    }}catch(e){{}}
+  }}
+  setst('❌ Tüm kaynaklar başarısız. Değerleri manuel girin.','err');
+}}
+
+function send(){{
+  if(!last) return;
+  window.parent.postMessage({{isStreamlitMessage:true,type:'streamlit:setComponentValue',value:last}},'*');
+}}
+</script></body></html>"""
+
+        result_from_widget = components.html(
+            widget_html, height=220,
+            key=f"pusu_widget_{symbol}_{interval}"
+        )
+
+        # Widget'tan gelen veri
+        if result_from_widget and isinstance(result_from_widget, dict):
+            st.session_state[fetched_key] = {
+                "price":  result_from_widget.get("price", 0),
+                "ema20":  result_from_widget.get("ema20", 0),
+                "ema50":  result_from_widget.get("ema50", 0),
+                "ema200": result_from_widget.get("ema200", 0),
+                "atr":    result_from_widget.get("atr", 0),
+                "source": result_from_widget.get("source", "Widget"),
+                "fetched_at": result_from_widget.get("now",
+                              datetime.now().strftime("%H:%M:%S")),
+            }
 
         fetched = st.session_state.get(fetched_key, {})
 

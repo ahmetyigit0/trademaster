@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0a0a0a; font-family: 'Courier New', monospace; color: #e6edf3; font-size: 13px; padding: 10px; }
+.row { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; align-items: center; }
+input, select { background: #111; border: 1px solid #2a2a2a; border-radius: 6px; color: #e6edf3; padding: 6px 10px; font-family: monospace; font-size: 12px; width: 100%; }
+input:focus, select:focus { outline: none; border-color: #58a6ff; }
+button { border: none; border-radius: 6px; padding: 7px 16px; font-family: monospace; font-size: 12px; cursor: pointer; font-weight: 600; }
+.btn-fetch { background: #1a3a1a; color: #00ff88; border: 1px solid #00ff8840; }
+.btn-fetch:hover { background: #243a24; }
+.btn-fetch:disabled { opacity: 0.5; cursor: not-allowed; }
+.lbl { font-size: 10px; color: #6e7681; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 3px; }
+.field { flex: 1; min-width: 90px; }
+.status { padding: 6px 10px; border-radius: 6px; font-size: 11px; margin-top: 4px; display: none; }
+.status.ok  { background: #051a0e; border: 1px solid #00ff8840; color: #00ff88; display: block; }
+.status.err { background: #1a0505; border: 1px solid #ff444440; color: #ff4444; display: block; }
+.status.loading { background: #0f1a2a; border: 1px solid #58a6ff40; color: #58a6ff; display: block; }
+.copy-btn { background: #1a2a3a; color: #58a6ff; border: 1px solid #58a6ff40; font-size: 10px; padding: 3px 8px; border-radius: 4px; cursor: pointer; margin-left: 6px; }
+</style>
+</head>
+<body>
+
+<div class="row">
+  <div class="field" style="max-width:120px">
+    <div class="lbl">Sembol</div>
+    <input type="text" id="symbol" value="BTCUSDT" placeholder="BTCUSDT">
+  </div>
+  <div class="field" style="max-width:120px">
+    <div class="lbl">Interval</div>
+    <select id="interval">
+      <option value="15m">15 Dakika</option>
+      <option value="1h">1 Saat</option>
+      <option value="4h" selected>4 Saat</option>
+      <option value="1d">1 Gün</option>
+      <option value="1w">1 Hafta</option>
+    </select>
+  </div>
+  <div style="padding-top:16px">
+    <button class="btn-fetch" id="fetchBtn" onclick="fetchData()">🔄 Veri Çek</button>
+  </div>
+</div>
+
+<div id="status" class="status"></div>
+
+<div id="results" style="display:none; margin-top:8px">
+  <div class="row">
+    <div class="field">
+      <div class="lbl">Güncel Fiyat</div>
+      <input type="text" id="r_price" readonly>
+    </div>
+    <div class="field">
+      <div class="lbl">EMA 20</div>
+      <input type="text" id="r_ema20" readonly>
+    </div>
+    <div class="field">
+      <div class="lbl">EMA 50</div>
+      <input type="text" id="r_ema50" readonly>
+    </div>
+    <div class="field">
+      <div class="lbl">EMA 200</div>
+      <input type="text" id="r_ema200" readonly>
+    </div>
+    <div class="field">
+      <div class="lbl">ATR (14)</div>
+      <input type="text" id="r_atr" readonly>
+    </div>
+  </div>
+  <div style="font-size:11px;color:#6e7681;margin-top:4px">
+    Kaynak: <span id="r_source" style="color:#58a6ff"></span>
+    &nbsp;·&nbsp; <span id="r_time"></span>
+    &nbsp;·&nbsp; <button class="copy-btn" onclick="sendToStreamlit()">✅ Streamlit'e Gönder</button>
+  </div>
+</div>
+
+<script>
+function calcEMA(prices, n) {
+  const k = 2 / (n + 1);
+  let e = prices[0];
+  for (let i = 1; i < prices.length; i++) e = prices[i] * k + e * (1 - k);
+  return +e.toFixed(4);
+}
+
+function calcATR(highs, lows, closes, period = 14) {
+  const trs = [];
+  for (let i = 1; i < closes.length; i++) {
+    trs.push(Math.max(
+      highs[i] - lows[i],
+      Math.abs(highs[i] - closes[i-1]),
+      Math.abs(lows[i]  - closes[i-1])
+    ));
+  }
+  const last = trs.slice(-period);
+  return +(last.reduce((a,b) => a+b, 0) / last.length).toFixed(4);
+}
+
+function setStatus(msg, type) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = 'status ' + type;
+}
+
+let lastResult = null;
+
+async function fetchData() {
+  const sym = document.getElementById('symbol').value.toUpperCase().trim();
+  const iv  = document.getElementById('interval').value;
+  const btn = document.getElementById('fetchBtn');
+  btn.disabled = true;
+  document.getElementById('results').style.display = 'none';
+  setStatus('⏳ Veriler çekiliyor...', 'loading');
+
+  // Bybit interval map
+  const bybitMap = {'1m':'1','3m':'3','5m':'5','15m':'15','30m':'30',
+                    '1h':'60','2h':'120','4h':'240','6h':'360','12h':'720',
+                    '1d':'D','1w':'W'};
+
+  const sources = [
+    {
+      name: 'Binance',
+      url: `https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${iv}&limit=210`,
+      parse: d => ({
+        closes: d.map(c => parseFloat(c[4])),
+        highs:  d.map(c => parseFloat(c[2])),
+        lows:   d.map(c => parseFloat(c[3])),
+      })
+    },
+    {
+      name: 'Binance Futures',
+      url: `https://fapi.binance.com/fapi/v1/klines?symbol=${sym}&interval=${iv}&limit=210`,
+      parse: d => ({
+        closes: d.map(c => parseFloat(c[4])),
+        highs:  d.map(c => parseFloat(c[2])),
+        lows:   d.map(c => parseFloat(c[3])),
+      })
+    },
+    {
+      name: 'OKX',
+      url: `https://www.okx.com/api/v5/market/candles?instId=${sym.replace('USDT','-USDT')}&bar=${iv.toUpperCase()}&limit=210`,
+      parse: d => {
+        const arr = d.data.reverse();
+        return {
+          closes: arr.map(c => parseFloat(c[4])),
+          highs:  arr.map(c => parseFloat(c[2])),
+          lows:   arr.map(c => parseFloat(c[3])),
+        };
+      }
+    },
+    {
+      name: 'Bybit',
+      url: `https://api.bybit.com/v5/market/kline?symbol=${sym}&interval=${bybitMap[iv]||'240'}&limit=210&category=linear`,
+      parse: d => {
+        const arr = d.result.list.reverse();
+        return {
+          closes: arr.map(c => parseFloat(c[4])),
+          highs:  arr.map(c => parseFloat(c[2])),
+          lows:   arr.map(c => parseFloat(c[3])),
+        };
+      }
+    },
+  ];
+
+  for (const src of sources) {
+    try {
+      setStatus(`⏳ ${src.name} deneniyor...`, 'loading');
+      const res = await fetch(src.url, { signal: AbortSignal.timeout(7000) });
+      if (!res.ok) continue;
+      const raw  = await res.json();
+      const data = src.parse(raw);
+      if (!data.closes || data.closes.length < 50) continue;
+
+      const { closes, highs, lows } = data;
+      const price  = closes[closes.length - 1];
+      const ema20  = calcEMA(closes, 20);
+      const ema50  = calcEMA(closes, 50);
+      const ema200 = calcEMA(closes, 200);
+      const atr    = calcATR(highs, lows, closes);
+      const now    = new Date().toLocaleTimeString('tr-TR');
+
+      lastResult = { price, ema20, ema50, ema200, atr, source: src.name, sym, iv, now };
+
+      document.getElementById('r_price').value  = price.toFixed(2);
+      document.getElementById('r_ema20').value  = ema20.toFixed(2);
+      document.getElementById('r_ema50').value  = ema50.toFixed(2);
+      document.getElementById('r_ema200').value = ema200.toFixed(2);
+      document.getElementById('r_atr').value    = atr.toFixed(4);
+      document.getElementById('r_source').textContent = src.name;
+      document.getElementById('r_time').textContent   = now;
+      document.getElementById('results').style.display = 'block';
+      setStatus(`✅ ${src.name} · ${sym} ${iv} · ${closes.length} mum · ${now}`, 'ok');
+      btn.disabled = false;
+
+      // Otomatik gönder
+      sendToStreamlit();
+      return;
+    } catch(e) { /* try next */ }
+  }
+
+  setStatus('❌ Tüm kaynaklar başarısız. Sayfayı yenile veya değerleri manuel gir.', 'err');
+  btn.disabled = false;
+}
+
+function sendToStreamlit() {
+  if (!lastResult) return;
+  // postMessage ile parent Streamlit iframe'e gönder
+  window.parent.postMessage({
+    type: 'pusu_data',
+    data: lastResult
+  }, '*');
+  setStatus(`✅ Streamlit'e gönderildi — ${lastResult.source} · ${lastResult.now}`, 'ok');
+}
+</script>
+</body>
+</html>
