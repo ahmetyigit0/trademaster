@@ -779,23 +779,14 @@ function send(){{
 }}
 </script></body></html>"""
 
-        result_from_widget = components.html(
-            widget_html, height=220,
-            key=f"pusu_widget_{symbol}_{interval}"
-        )
+        # Widget — sadece gösterim ve hesaplama yapar
+        components.html(widget_html, height=220)
 
-        # Widget'tan gelen veri
-        if result_from_widget and isinstance(result_from_widget, dict):
-            st.session_state[fetched_key] = {
-                "price":  result_from_widget.get("price", 0),
-                "ema20":  result_from_widget.get("ema20", 0),
-                "ema50":  result_from_widget.get("ema50", 0),
-                "ema200": result_from_widget.get("ema200", 0),
-                "atr":    result_from_widget.get("atr", 0),
-                "source": result_from_widget.get("source", "Widget"),
-                "fetched_at": result_from_widget.get("now",
-                              datetime.now().strftime("%H:%M:%S")),
-            }
+        # ── Manuel veri girişi (widget değerleri buraya kopyalanır) ──────
+        st.markdown(
+            f"<div style='font-size:11px;color:{_DT2};margin:4px 0 6px'>"
+            f"👆 Yukarıdan veri çek → aşağıya yapıştır / güncelle</div>",
+            unsafe_allow_html=True)
 
         fetched = st.session_state.get(fetched_key, {})
 
