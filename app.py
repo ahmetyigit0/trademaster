@@ -9,7 +9,7 @@ from components.backup import render_backup
 from components.pnl_chart import render_pnl_chart
 from components.trade_rules import render_trade_rules
 from components.arge_lab import render_arge_lab
-from components.sniper import render_sniper
+from components.pusu import render_pusu
 
 st.set_page_config(
     page_title="TradeVault",
@@ -476,16 +476,27 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "📉 PnL Grafik",
     "📊 Analitik",
     "🧪 AR-GE LAB",
-    "🎯 Sniper",
+    "🎯 Pusu",
     "⚖️ Trade Yasaları",
     "💾 Yedek / Arşiv",
 ])
 
-with tab1: render_active_positions(st.session_state.data)
+with tab1:
+    if st.session_state.get("pusu_fire") is not None:
+        fire_d = st.session_state.get("pusu_fire")
+        sym = fire_d.get("symbol","")
+        st.markdown(
+            f"<div style='background:#1a0d00;border:1px solid #f0b42960;"
+            f"border-left:3px solid #f0b429;border-radius:8px;"
+            f"padding:8px 14px;margin-bottom:8px;font-size:13px;color:#f0b429'>"
+            f"🔥 <b>{sym}</b> pususundan veriler forma aktarıldı — "
+            f"bakiye ve pozisyon boyutunu ayarla, ardından işlemi aç.</div>",
+            unsafe_allow_html=True)
+    render_active_positions(st.session_state.data)
 with tab2: render_closed_trades(st.session_state.data)
 with tab3: render_pnl_chart(st.session_state.data)
 with tab4: render_analytics(st.session_state.data)
 with tab5: render_arge_lab(st.session_state.data)
-with tab6: render_sniper()
+with tab6: render_pusu()
 with tab7: render_trade_rules()
 with tab8: render_backup(st.session_state.data)
