@@ -36,57 +36,118 @@ def _save_pusu(pusular: list):
 
 # ── Binance API ───────────────────────────────────────────────────────────────
 
+def _calc_ema(prices, n):
+    k = 2 / (n + 1)
+    e = prices[0]
+    for p in prices[1:]:
+        e = p * k + e * (1 - k)
+    return round(e, 4)
+
+def _calc_atr(highs, lows, closes, period=14):
+    trs = []
+    for i in range(1, len(closes)):
+        h, l, pc = highs[i], lows[i], closes[i-1]
+        trs.append(max(h-l, abs(h-pc), abs(l-pc)))
+    vals = trs[-period:]
+    return round(sum(vals)/len(vals), 4) if vals else 0
+
+def _parse_candles(candles):
+    """Klines listesini [open,high,low,close,vol,...] formatından parse et."""
+    closes = [float(c[4]) for c in candles]
+    highs  = [float(c[2]) for c in candles]
+    lows   = [float(c[3]) for c in candles]
+    return closes, highs, lows
+
+def _build_result(closes, highs, lows, source):
+    return {
+        "price":      closes[-1],
+        "ema20":      _calc_ema(closes, 20),
+        "ema50":      _calc_ema(closes, 50),
+        "ema200":     _calc_ema(closes, 200),
+        "atr":        _calc_atr(highs, lows, closes),
+        "source":     source,
+        "fetched_at": datetime.now().strftime("%H:%M:%S"),
+    }
+
 def _fetch_binance(symbol: str, interval: str) -> dict | None:
-    """EMA20/50/200 ve ATR hesapla. Başarısızsa None döner."""
+    """Binance → OKX → Bybit sırasıyla dener. Başarısızsa None döner."""
+    import requests
+
+    # Interval map'leri
+    okx_map   = {"1m":"1m","3m":"3m","5m":"5m","15m":"15m","30m":"30m",
+                 "1h":"1H","2h":"2H","4h":"4H","6h":"6H","12h":"12H",
+                 "1d":"1D","1w":"1W","1M":"1M"}
+    bybit_map = {"1m":"1","3m":"3","5m":"5","15m":"15","30m":"30",
+                 "1h":"60","2h":"120","4h":"240","6h":"360","12h":"720",
+                 "1d":"D","1w":"W","1M":"M"}
+
+    sym = symbol.upper()
+
+    # ── 1. Binance Spot ───────────────────────────────────────────────────
     try:
-        import requests
-        url = "https://api.binance.com/api/v3/klines"
-        r = requests.get(url,
-            params={"symbol": symbol.upper(), "interval": interval, "limit": 210},
-            timeout=8)
-        if r.status_code != 200:
-            # Futures endpoint dene
-            url2 = "https://fapi.binance.com/fapi/v1/klines"
-            r = requests.get(url2,
-                params={"symbol": symbol.upper(), "interval": interval, "limit": 210},
-                timeout=8)
-        if r.status_code != 200:
-            return None
-        candles = r.json()
-        if not isinstance(candles, list) or len(candles) < 50:
-            return None
+        r = requests.get("https://api.binance.com/api/v3/klines",
+            params={"symbol": sym, "interval": interval, "limit": 210},
+            timeout=7)
+        if r.status_code == 200:
+            candles = r.json()
+            if isinstance(candles, list) and len(candles) >= 50:
+                closes, highs, lows = _parse_candles(candles)
+                return _build_result(closes, highs, lows, "Binance")
+    except Exception:
+        pass
 
-        closes = [float(c[4]) for c in candles]
-        highs  = [float(c[2]) for c in candles]
-        lows   = [float(c[3]) for c in candles]
-        current_price = closes[-1]
+    # ── 2. Binance Futures ────────────────────────────────────────────────
+    try:
+        r = requests.get("https://fapi.binance.com/fapi/v1/klines",
+            params={"symbol": sym, "interval": interval, "limit": 210},
+            timeout=7)
+        if r.status_code == 200:
+            candles = r.json()
+            if isinstance(candles, list) and len(candles) >= 50:
+                closes, highs, lows = _parse_candles(candles)
+                return _build_result(closes, highs, lows, "Binance Futures")
+    except Exception:
+        pass
 
-        # EMA hesapla
-        def ema(prices, n):
-            k = 2 / (n + 1)
-            e = prices[0]
-            for p in prices[1:]:
-                e = p * k + e * (1 - k)
-            return round(e, 4)
+    # ── 3. OKX ────────────────────────────────────────────────────────────
+    try:
+        okx_sym = sym.replace("USDT","-USDT").replace("BTC","BTC") if "-" not in sym else sym
+        okx_bar = okx_map.get(interval, "4H")
+        r = requests.get("https://www.okx.com/api/v5/market/candles",
+            params={"instId": okx_sym, "bar": okx_bar, "limit": "210"},
+            timeout=7)
+        if r.status_code == 200:
+            data = r.json()
+            candles = data.get("data", [])
+            if len(candles) >= 50:
+                # OKX format: [ts, o, h, l, c, vol, volCcy, ...]
+                closes = [float(c[4]) for c in candles][::-1]
+                highs  = [float(c[2]) for c in candles][::-1]
+                lows   = [float(c[3]) for c in candles][::-1]
+                return _build_result(closes, highs, lows, "OKX")
+    except Exception:
+        pass
 
-        # ATR hesapla (14 periyot)
-        trs = []
-        for i in range(1, len(candles)):
-            h, l, pc = highs[i], lows[i], closes[i-1]
-            trs.append(max(h-l, abs(h-pc), abs(l-pc)))
-        atr_vals = trs[-14:]
-        atr = round(sum(atr_vals)/len(atr_vals), 4)
+    # ── 4. Bybit ──────────────────────────────────────────────────────────
+    try:
+        bybit_iv = bybit_map.get(interval, "240")
+        r = requests.get("https://api.bybit.com/v5/market/kline",
+            params={"symbol": sym, "interval": bybit_iv,
+                    "limit": "210", "category": "linear"},
+            timeout=7)
+        if r.status_code == 200:
+            data = r.json()
+            candles = data.get("result",{}).get("list",[])
+            if len(candles) >= 50:
+                # Bybit: [startTime, open, high, low, close, volume, turnover]
+                closes = [float(c[4]) for c in candles][::-1]
+                highs  = [float(c[2]) for c in candles][::-1]
+                lows   = [float(c[3]) for c in candles][::-1]
+                return _build_result(closes, highs, lows, "Bybit")
+    except Exception:
+        pass
 
-        return {
-            "price":  current_price,
-            "ema20":  ema(closes, 20),
-            "ema50":  ema(closes, 50),
-            "ema200": ema(closes, 200),
-            "atr":    atr,
-            "fetched_at": datetime.now().strftime("%H:%M:%S"),
-        }
-    except Exception as e:
-        return None
+    return None
 
 # ── Yardımcılar ───────────────────────────────────────────────────────────────
 
@@ -532,9 +593,12 @@ def render_pusu():
         atr    = _num(mv5, "ATR",          "pus_atr",    fetched.get("atr",0),     step=1.0, fmt="%.4f")
 
         if fetched:
+            src_lbl = fetched.get("source","?")
+            src_c   = {"Binance":_G,"Binance Futures":_G,"OKX":_B,"Bybit":_P}.get(src_lbl,_DT)
             st.markdown(
                 f"<div style='font-size:11px;color:{_DT2};margin-bottom:2px'>"
-                f"Son güncelleme: {fetched.get('fetched_at','—')} &nbsp;·&nbsp; "
+                f"<span style='color:{src_c};font-weight:600'>{src_lbl}</span>"
+                f" · {fetched.get('fetched_at','—')} &nbsp;·&nbsp; "
                 f"Manuel değiştirebilirsin</div>",
                 unsafe_allow_html=True)
 
