@@ -713,7 +713,7 @@ def render_pusu():
             if result_json and result_json != "ERROR" and isinstance(result_json, str):
                 try:
                     parsed = json.loads(result_json)
-                    st.session_state[fetched_key] = {
+                    fetched_data = {
                         "price":      float(parsed["price"]),
                         "ema20":      float(parsed["ema20"]),
                         "ema50":      float(parsed["ema50"]),
@@ -722,6 +722,13 @@ def render_pusu():
                         "source":     parsed.get("source","?"),
                         "fetched_at": parsed.get("now",""),
                     }
+                    st.session_state[fetched_key] = fetched_data
+                    # Doğrudan widget session_state key'lerine yaz → otomatik dolar
+                    st.session_state["pus_price"]  = fetched_data["price"]
+                    st.session_state["pus_ema20"]  = fetched_data["ema20"]
+                    st.session_state["pus_ema50"]  = fetched_data["ema50"]
+                    st.session_state["pus_ema200"] = fetched_data["ema200"]
+                    st.session_state["pus_atr"]    = fetched_data["atr"]
                     st.rerun()
                 except Exception:
                     st.error("Veri parse edilemedi.")
@@ -750,19 +757,21 @@ def render_pusu():
             unsafe_allow_html=True)
 
         mv1, mv2, mv3, mv4, mv5 = st.columns(5)
-        def _num(col, label, key, fetched_val, edit_val=None, fmt="%.2f", step=10.0):
-            init = edit_val if edit_val is not None else fetched_val if fetched_val else 0.0
+        def _num(col, label, key, default_val, fmt="%.2f", step=10.0):
+            # session_state'te yoksa default_val ile başlat
+            if key not in st.session_state:
+                st.session_state[key] = float(default_val) if default_val else 0.0
             with col:
                 st.markdown(f"<div style='font-size:10px;color:{_DT2};margin-bottom:2px'>{label}</div>",
                             unsafe_allow_html=True)
-                return st.number_input(label, value=float(init), format=fmt,
-                                       step=step, key=key, label_visibility="collapsed")
+                return st.number_input(label, format=fmt, step=step,
+                                       key=key, label_visibility="collapsed")
 
-        price  = _num(mv1, "Güncel Fiyat", "pus_price",  fetched.get("price",0),  step=10.0)
-        ema20  = _num(mv2, "EMA 20",       "pus_ema20",  fetched.get("ema20",0),   step=10.0)
-        ema50  = _num(mv3, "EMA 50",       "pus_ema50",  fetched.get("ema50",0),   step=10.0)
-        ema200 = _num(mv4, "EMA 200",      "pus_ema200", fetched.get("ema200",0),  step=10.0)
-        atr    = _num(mv5, "ATR",          "pus_atr",    fetched.get("atr",0),     step=1.0, fmt="%.4f")
+        price  = _num(mv1, "Güncel Fiyat", "pus_price",  0.0,  step=10.0)
+        ema20  = _num(mv2, "EMA 20",       "pus_ema20",  0.0,  step=10.0)
+        ema50  = _num(mv3, "EMA 50",       "pus_ema50",  0.0,  step=10.0)
+        ema200 = _num(mv4, "EMA 200",      "pus_ema200", 0.0,  step=10.0)
+        atr    = _num(mv5, "ATR",          "pus_atr",    0.0,  step=1.0, fmt="%.4f")
 
         ec1, ec2, ec3 = st.columns([1,1,1])
         with ec1: show_ema20  = st.checkbox("EMA20 Göster",  True, key="pus_se20")
