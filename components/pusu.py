@@ -640,113 +640,43 @@ def render_pusu():
             f"letter-spacing:0.08em;margin-bottom:8px'>📡 Binance Verisi</div>",
             unsafe_allow_html=True)
 
-        fc1, fc2, fc3 = st.columns([2, 2, 2])
-        with fc1:
+        fc1_col, fc2_col, fc3_col, fc4_col = st.columns([2, 2, 2, 1.5])
+        with fc1_col:
             symbol = st.text_input("Sembol", key="pus_symbol",
                 value=edit_data.get("symbol","BTCUSDT") if edit_data else
                       st.session_state.get("pus_symbol_val","BTCUSDT"),
                 label_visibility="collapsed",
                 placeholder="BTCUSDT").upper().strip()
             st.session_state["pus_symbol_val"] = symbol
-        with fc2:
+        with fc2_col:
             iv_label = st.selectbox("Interval", list(INTERVALS.keys()),
                                     index=2, key="pus_interval",
                                     label_visibility="collapsed")
             interval = INTERVALS[iv_label]
-        with fc3:
+        with fc3_col:
             direction = st.radio("Yön", ["LONG","SHORT"], horizontal=True,
                                  key="pus_dir", label_visibility="collapsed")
-
-        # ── Veri çekme: st_javascript ile tarayıcıdan fetch ─────────────
-        fetched_key  = f"pus_fetched_{symbol}_{interval}"
-        js_active_key = "pus_js_active"
-
-        fc4, fc5 = st.columns([1, 3])
-        with fc4:
+        with fc4_col:
             fetch_btn = st.button("🔄 Veri Çek", key="pus_fetch",
                                   use_container_width=True)
-        with fc5:
-            if st.session_state.get(js_active_key):
-                st.markdown(
-                    f"<div style='padding-top:8px;font-size:12px;color:{_B}'>"
-                    f"⏳ Veri çekiliyor...</div>",
-                    unsafe_allow_html=True)
+
+        fetched_key = f"pus_fetched_{symbol}_{interval}"
 
         if fetch_btn:
-            st.session_state[js_active_key] = True
-            st.session_state["pus_js_sym"] = symbol
-            st.session_state["pus_js_iv"]  = interval
-            st.rerun()
-
-        # JS her zaman render edilir — sonuç gelince yakalar
-        if st.session_state.get(js_active_key):
-            from streamlit_javascript import st_javascript
-
-            sym = st.session_state.get("pus_js_sym", symbol)
-            iv  = st.session_state.get("pus_js_iv",  interval)
-            bybit_iv = {"15m":"15","1h":"60","4h":"240","1d":"D","1w":"W"}
-            okx_iv   = {"15m":"15m","1h":"1H","4h":"4H","1d":"1D","1w":"1W"}
-            biv = bybit_iv.get(iv,"240")
-            oiv = okx_iv.get(iv,"4H")
-
-            js_code = f"""
-(async () => {{
-  function ema(p,n){{const k=2/(n+1);let e=p[0];for(let i=1;i<p.length;i++)e=p[i]*k+e*(1-k);return+e.toFixed(4)}}
-  function atr(h,l,c){{const t=[];for(let i=1;i<c.length;i++)t.push(Math.max(h[i]-l[i],Math.abs(h[i]-c[i-1]),Math.abs(l[i]-c[i-1])));const s=t.slice(-14);return+(s.reduce((a,b)=>a+b,0)/s.length).toFixed(4)}}
-  const sources=[
-    {{n:'Binance',   u:'https://api.binance.com/api/v3/klines?symbol={sym}&interval={iv}&limit=210',
-      p:d=>{{const c=d.map(x=>+x[4]),h=d.map(x=>+x[2]),l=d.map(x=>+x[3]);return{{c,h,l}}}}}},
-    {{n:'BinanceFut',u:'https://fapi.binance.com/fapi/v1/klines?symbol={sym}&interval={iv}&limit=210',
-      p:d=>{{const c=d.map(x=>+x[4]),h=d.map(x=>+x[2]),l=d.map(x=>+x[3]);return{{c,h,l}}}}}},
-    {{n:'OKX',       u:'https://www.okx.com/api/v5/market/candles?instId={sym.replace("USDT","-USDT")}&bar={oiv}&limit=210',
-      p:d=>{{const a=d.data.reverse();return{{c:a.map(x=>+x[4]),h:a.map(x=>+x[2]),l:a.map(x=>+x[3])}}}}}},
-    {{n:'Bybit',     u:'https://api.bybit.com/v5/market/kline?symbol={sym}&interval={biv}&limit=210&category=linear',
-      p:d=>{{const a=d.result.list.reverse();return{{c:a.map(x=>+x[4]),h:a.map(x=>+x[2]),l:a.map(x=>+x[3])}}}}}},
-  ];
-  for(const s of sources){{
-    try{{
-      const r=await fetch(s.u,{{signal:AbortSignal.timeout(8000)}});
-      if(!r.ok) continue;
-      const raw=await r.json();
-      const {{c,h,l}}=s.p(raw);
-      if(!c||c.length<50) continue;
-      return JSON.stringify({{price:c[c.length-1],ema20:ema(c,20),ema50:ema(c,50),ema200:ema(c,200),atr:atr(h,l,c),source:s.n,now:new Date().toLocaleTimeString('tr-TR')}});
-    }}catch(e){{}}
-  }}
-  return "ERROR";
-}})()
-"""
-            result_json = st_javascript(js_code, key=f"jsdata_{sym}_{iv}")
-
-            # default=0, gerçek sonuç str olarak gelir
-            if isinstance(result_json, str) and result_json not in ("0", "ERROR", ""):
-                try:
-                    parsed = json.loads(result_json)
-                    if parsed.get("price", 0) > 0:
-                        st.session_state[js_active_key] = False
-                        st.session_state[fetched_key] = {
-                            "price":      float(parsed["price"]),
-                            "ema20":      float(parsed["ema20"]),
-                            "ema50":      float(parsed["ema50"]),
-                            "ema200":     float(parsed["ema200"]),
-                            "atr":        float(parsed["atr"]),
-                            "source":     parsed.get("source","?"),
-                            "fetched_at": parsed.get("now",""),
-                        }
-                        st.session_state["pus_price"]  = float(parsed["price"])
-                        st.session_state["pus_ema20"]  = float(parsed["ema20"])
-                        st.session_state["pus_ema50"]  = float(parsed["ema50"])
-                        st.session_state["pus_ema200"] = float(parsed["ema200"])
-                        st.session_state["pus_atr"]    = float(parsed["atr"])
-                        st.rerun()
-                except Exception:
-                    pass
-            elif result_json == "ERROR":
-                st.session_state[js_active_key] = False
-                st.error("❌ Tüm kaynaklar başarısız. Değerleri manuel girin.")
+            with st.spinner(f"⏳ {symbol} {iv_label} çekiliyor..."):
+                result = _fetch_binance(symbol, interval)
+            if result:
+                st.session_state[fetched_key]  = result
+                st.session_state["pus_price"]  = float(result["price"])
+                st.session_state["pus_ema20"]  = float(result["ema20"])
+                st.session_state["pus_ema50"]  = float(result["ema50"])
+                st.session_state["pus_ema200"] = float(result["ema200"])
+                st.session_state["pus_atr"]    = float(result["atr"])
+                st.rerun()
+            else:
+                st.error("❌ Veri alınamadı. Sembolü kontrol et veya manuel gir.")
 
         fetched = st.session_state.get(fetched_key, {})
-
         if fetched:
             src_lbl = fetched.get("source","?")
             src_c   = {"Binance":_G,"BinanceFut":_G,"OKX":_B,"Bybit":_P}.get(src_lbl,_DT)
@@ -754,32 +684,25 @@ def render_pusu():
                 f"<div style='background:#0a140a;border:1px solid {_G}30;"
                 f"border-radius:6px;padding:5px 10px;font-size:11px;margin-bottom:4px'>"
                 f"✅ <span style='color:{src_c};font-weight:700'>{src_lbl}</span>"
-                f" · {fetched.get('fetched_at','')} &nbsp;·&nbsp; "
-                f"<span style='color:{_DT}'>Manuel değiştirebilirsin</span></div>",
+                f" · {fetched.get('fetched_at','')} — Manuel değiştirebilirsin</div>",
                 unsafe_allow_html=True)
 
         # ── Fiyat + EMA + ATR ─────────────────────────────────────────────
-        st.markdown(
-            f"<div style='font-size:11px;font-weight:600;color:{_DT};text-transform:uppercase;"
-            f"letter-spacing:0.08em;margin:6px 0 4px'>📊 Fiyat & Göstergeler</div>",
-            unsafe_allow_html=True)
-
         mv1, mv2, mv3, mv4, mv5 = st.columns(5)
-        def _num(col, label, key, default_val, fmt="%.2f", step=10.0):
-            # session_state'te yoksa default_val ile başlat
+        def _num(col, label, key, fmt="%.2f", step=10.0):
             if key not in st.session_state:
-                st.session_state[key] = float(default_val) if default_val else 0.0
+                st.session_state[key] = 0.0
             with col:
                 st.markdown(f"<div style='font-size:10px;color:{_DT2};margin-bottom:2px'>{label}</div>",
                             unsafe_allow_html=True)
                 return st.number_input(label, format=fmt, step=step,
                                        key=key, label_visibility="collapsed")
 
-        price  = _num(mv1, "Güncel Fiyat", "pus_price",  0.0,  step=10.0)
-        ema20  = _num(mv2, "EMA 20",       "pus_ema20",  0.0,  step=10.0)
-        ema50  = _num(mv3, "EMA 50",       "pus_ema50",  0.0,  step=10.0)
-        ema200 = _num(mv4, "EMA 200",      "pus_ema200", 0.0,  step=10.0)
-        atr    = _num(mv5, "ATR",          "pus_atr",    0.0,  step=1.0, fmt="%.4f")
+        price  = _num(mv1, "Güncel Fiyat", "pus_price",  step=10.0)
+        ema20  = _num(mv2, "EMA 20",       "pus_ema20",  step=10.0)
+        ema50  = _num(mv3, "EMA 50",       "pus_ema50",  step=10.0)
+        ema200 = _num(mv4, "EMA 200",      "pus_ema200", step=10.0)
+        atr    = _num(mv5, "ATR",          "pus_atr",    step=1.0, fmt="%.4f")
 
         ec1, ec2, ec3 = st.columns([1,1,1])
         with ec1: show_ema20  = st.checkbox("EMA20 Göster",  True, key="pus_se20")
