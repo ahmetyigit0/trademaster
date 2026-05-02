@@ -10,7 +10,26 @@ from utils.calculations import (
     calculate_rr, calculate_position_heat, rr_color
 )
 
-SETUP_TYPES  = ["Liquidity Sweep", "Breakout", "Trend Devamı", "Range", "Haber", "Diğer"]
+_BASE_SETUPS = ["Liquidity Sweep", "Breakout", "Trend Devamı", "Range", "Haber", "Diğer"]
+
+def _get_setup_types():
+    import json, os
+    extra = []
+    try:
+        if os.path.exists("arge_data.json"):
+            d = json.load(open("arge_data.json", encoding="utf-8"))
+            for s in d.get("strategies", []):
+                name = s.get("name","").strip()
+                if name and name not in _BASE_SETUPS:
+                    extra.append(name)
+    except Exception:
+        pass
+    return _BASE_SETUPS + extra
+
+def get_setup_types():
+    return _get_setup_types()
+
+SETUP_TYPES = _get_setup_types()
 EMOTIONS     = ["Sakin 😌", "FOMO 😰", "İntikam 😤", "Endişeli 😟", "Güvenli 💪"]
 MARKET_CONDS = ["Trend", "Range", "Volatil", "Düşük Hacim", "Haber"]
 SL_PRESETS   = [0.3, 0.5, 0.7, 1.0, 1.2, 1.5, 1.8, 2.0, 2.5, 3.0, 4.0, 5.0]
@@ -572,6 +591,7 @@ def _render_form(edit_id=None, draft_edit=None):
             label_visibility="collapsed",
         )
     with jc2:
+        SETUP_TYPES = _get_setup_types()
         si    = SETUP_TYPES.index(pos["setup_type"]) if editing and pos.get("setup_type") in SETUP_TYPES else 0
         setup = st.selectbox("Setup", SETUP_TYPES, index=si, key=f"{px}setup")
         mi    = MARKET_CONDS.index(pos["market_condition"]) if editing and pos.get("market_condition") in MARKET_CONDS else 0
