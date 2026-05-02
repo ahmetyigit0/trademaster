@@ -657,143 +657,96 @@ def render_pusu():
             direction = st.radio("Yön", ["LONG","SHORT"], horizontal=True,
                                  key="pus_dir", label_visibility="collapsed")
 
-        # ── HTML Widget: tarayıcıdan Binance/OKX/Bybit fetch ─────────────
+        # ── Veri çekme: st_javascript ile tarayıcıdan fetch ─────────────
         fetched_key = f"pus_fetched_{symbol}_{interval}"
 
-        widget_html = f"""
-<!DOCTYPE html><html><head><meta charset="utf-8">
-<style>
-*{{box-sizing:border-box;margin:0;padding:0}}
-body{{background:#0a0a0a;font-family:'Courier New',monospace;color:#e6edf3;font-size:12px;padding:8px}}
-.row{{display:flex;gap:6px;align-items:flex-end;flex-wrap:wrap;margin-bottom:6px}}
-.field{{flex:1;min-width:80px}}
-.lbl{{font-size:10px;color:#6e7681;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px}}
-input,select{{background:#111;border:1px solid #2a2a2a;border-radius:5px;color:#e6edf3;
-  padding:5px 8px;font-family:monospace;font-size:12px;width:100%}}
-button{{border:none;border-radius:6px;padding:7px 14px;font-family:monospace;
-  font-size:12px;cursor:pointer;font-weight:700;white-space:nowrap}}
-.btn-go{{background:#1a3a1a;color:#00ff88;border:1px solid #00ff8830}}
-.btn-send{{background:#1a2a3a;color:#58a6ff;border:1px solid #58a6ff30;display:none}}
-.st{{padding:5px 8px;border-radius:5px;font-size:11px;margin-top:4px;display:none}}
-.st.ok{{background:#051a0e;border:1px solid #00ff8830;color:#00ff88;display:block}}
-.st.err{{background:#1a0505;border:1px solid #ff444430;color:#ff4444;display:block}}
-.st.loading{{background:#0f1a2a;border:1px solid #58a6ff30;color:#58a6ff;display:block}}
-.results{{display:none;margin-top:6px}}
-.grid{{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin-bottom:4px}}
-.cell{{background:#111;border:1px solid #1e1e1e;border-radius:5px;padding:5px 7px}}
-.cell .v{{font-size:13px;font-weight:700;color:#e6edf3;font-family:monospace}}
-.cell .l{{font-size:10px;color:#6e7681;margin-bottom:1px}}
-</style></head><body>
-<div class="row">
-  <div class="field" style="max-width:110px">
-    <div class="lbl">Sembol</div>
-    <input id="sym" value="{symbol}" placeholder="BTCUSDT">
-  </div>
-  <div class="field" style="max-width:110px">
-    <div class="lbl">Interval</div>
-    <select id="iv">
-      <option value="15m"{'selected' if interval=='15m' else ''}>15 Dakika</option>
-      <option value="1h"{'selected' if interval=='1h' else ''}>1 Saat</option>
-      <option value="4h"{'selected' if interval=='4h' else ''}>4 Saat</option>
-      <option value="1d"{'selected' if interval=='1d' else ''}>1 Gün</option>
-      <option value="1w"{'selected' if interval=='1w' else ''}>1 Hafta</option>
-    </select>
-  </div>
-  <div style="padding-bottom:1px">
-    <button class="btn-go" onclick="go()">🔄 Veri Çek</button>
-  </div>
-  <div style="padding-bottom:1px">
-    <button class="btn-send" id="sendBtn" onclick="send()">✅ Forma Uygula</button>
-  </div>
-</div>
-<div id="st" class="st"></div>
-<div id="results" class="results">
-  <div class="grid">
-    <div class="cell"><div class="l">Fiyat</div><div class="v" id="r_price">—</div></div>
-    <div class="cell"><div class="l">EMA 20</div><div class="v" id="r_ema20" style="color:#ffffff">—</div></div>
-    <div class="cell"><div class="l">EMA 50</div><div class="v" id="r_ema50" style="color:#f0b429">—</div></div>
-    <div class="cell"><div class="l">EMA 200</div><div class="v" id="r_ema200" style="color:#ff4444">—</div></div>
-    <div class="cell"><div class="l">ATR (14)</div><div class="v" id="r_atr" style="color:#a371f7">—</div></div>
-  </div>
-  <div style="font-size:10px;color:#6e7681">Kaynak: <span id="r_src" style="color:#58a6ff"></span></div>
-</div>
-<script>
-let last = null;
+        fetch_btn = st.button("🔄 Veri Çek", key="pus_fetch",
+                              use_container_width=False)
 
-function ema(p,n){{const k=2/(n+1);let e=p[0];for(let i=1;i<p.length;i++)e=p[i]*k+e*(1-k);return+e.toFixed(4)}}
-function atr(h,l,c,per=14){{const t=[];for(let i=1;i<c.length;i++)t.push(Math.max(h[i]-l[i],Math.abs(h[i]-c[i-1]),Math.abs(l[i]-c[i-1])));const s=t.slice(-per);return+(s.reduce((a,b)=>a+b,0)/s.length).toFixed(4)}}
-function setst(msg,cls){{const e=document.getElementById('st');e.textContent=msg;e.className='st '+cls}}
+        if fetch_btn:
+            from streamlit_javascript import st_javascript
 
-async function go(){{
-  const sym=document.getElementById('sym').value.toUpperCase().trim();
-  const iv=document.getElementById('iv').value;
-  const bybitIv={{'1m':'1','3m':'3','5m':'5','15m':'15','30m':'30','1h':'60','2h':'120','4h':'240','6h':'360','12h':'720','1d':'D','1w':'W'}};
-  const okxIv={{'15m':'15m','1h':'1H','4h':'4H','1d':'1D','1w':'1W'}};
-  document.getElementById('results').style.display='none';
-  document.getElementById('sendBtn').style.display='none';
+            bybit_iv = {"15m":"15","1h":"60","4h":"240","1d":"D","1w":"W"}
+            okx_iv   = {"15m":"15m","1h":"1H","4h":"4H","1d":"1D","1w":"1W"}
+            biv = bybit_iv.get(interval,"240")
+            oiv = okx_iv.get(interval,"4H")
+            sym = symbol.upper()
 
-  const sources=[
-    {{name:'Binance',url:`https://api.binance.com/api/v3/klines?symbol=${{sym}}&interval=${{iv}}&limit=210`,
-      parse:d=>{{const c=d.map(x=>+x[4]),h=d.map(x=>+x[2]),l=d.map(x=>+x[3]);return{{c,h,l}}}}}},
-    {{name:'Binance Futures',url:`https://fapi.binance.com/fapi/v1/klines?symbol=${{sym}}&interval=${{iv}}&limit=210`,
-      parse:d=>{{const c=d.map(x=>+x[4]),h=d.map(x=>+x[2]),l=d.map(x=>+x[3]);return{{c,h,l}}}}}},
-    {{name:'OKX',url:`https://www.okx.com/api/v5/market/candles?instId=${{sym.replace('USDT','-USDT')}}&bar=${{okxIv[iv]||'4H'}}&limit=210`,
-      parse:d=>{{const a=d.data.reverse();const c=a.map(x=>+x[4]),h=a.map(x=>+x[2]),l=a.map(x=>+x[3]);return{{c,h,l}}}}}},
-    {{name:'Bybit',url:`https://api.bybit.com/v5/market/kline?symbol=${{sym}}&interval=${{bybitIv[iv]||'240'}}&limit=210&category=linear`,
-      parse:d=>{{const a=d.result.list.reverse();const c=a.map(x=>+x[4]),h=a.map(x=>+x[2]),l=a.map(x=>+x[3]);return{{c,h,l}}}}}}
+            js_code = f"""
+(async () => {{
+  function ema(p,n){{const k=2/(n+1);let e=p[0];for(let i=1;i<p.length;i++)e=p[i]*k+e*(1-k);return+e.toFixed(4)}}
+  function atr(h,l,c){{const t=[];for(let i=1;i<c.length;i++)t.push(Math.max(h[i]-l[i],Math.abs(h[i]-c[i-1]),Math.abs(l[i]-c[i-1])));const s=t.slice(-14);return+(s.reduce((a,b)=>a+b,0)/s.length).toFixed(4)}}
+
+  const sources = [
+    {{name:'Binance',   url:'https://api.binance.com/api/v3/klines?symbol={sym}&interval={interval}&limit=210',
+      parse: d => {{const c=d.map(x=>+x[4]),h=d.map(x=>+x[2]),l=d.map(x=>+x[3]);return{{c,h,l}}}}}},
+    {{name:'BinanceFut',url:'https://fapi.binance.com/fapi/v1/klines?symbol={sym}&interval={interval}&limit=210',
+      parse: d => {{const c=d.map(x=>+x[4]),h=d.map(x=>+x[2]),l=d.map(x=>+x[3]);return{{c,h,l}}}}}},
+    {{name:'OKX',       url:'https://www.okx.com/api/v5/market/candles?instId={sym.replace("USDT","-USDT")}&bar={oiv}&limit=210',
+      parse: d => {{const a=d.data.reverse();return{{c:a.map(x=>+x[4]),h:a.map(x=>+x[2]),l:a.map(x=>+x[3])}}}}}},
+    {{name:'Bybit',     url:'https://api.bybit.com/v5/market/kline?symbol={sym}&interval={biv}&limit=210&category=linear',
+      parse: d => {{const a=d.result.list.reverse();return{{c:a.map(x=>+x[4]),h:a.map(x=>+x[2]),l:a.map(x=>+x[3])}}}}}},
   ];
 
   for(const src of sources){{
     try{{
-      setst(`⏳ ${{src.name}} deneniyor...`,'loading');
-      const r=await fetch(src.url,{{signal:AbortSignal.timeout(7000)}});
+      const r = await fetch(src.url, {{signal: AbortSignal.timeout(8000)}});
       if(!r.ok) continue;
-      const raw=await r.json();
-      const {{c,h,l}}=src.parse(raw);
-      if(!c||c.length<50) continue;
-
-      const price=c[c.length-1];
-      const e20=ema(c,20),e50=ema(c,50),e200=ema(c,200),a=atr(h,l,c);
-      const now=new Date().toLocaleTimeString('tr-TR');
-
-      last={{price,ema20:e20,ema50:e50,ema200:e200,atr:a,source:src.name,sym,iv,now}};
-      document.getElementById('r_price').textContent=price.toFixed(2);
-      document.getElementById('r_ema20').textContent=e20.toFixed(2);
-      document.getElementById('r_ema50').textContent=e50.toFixed(2);
-      document.getElementById('r_ema200').textContent=e200.toFixed(2);
-      document.getElementById('r_atr').textContent=a.toFixed(4);
-      document.getElementById('r_src').textContent=src.name+' · '+now;
-      document.getElementById('results').style.display='block';
-      document.getElementById('sendBtn').style.display='inline-block';
-      setst(`✅ ${{src.name}} · ${{sym}} ${{iv}} · ${{c.length}} mum — Veri alındı`,'ok');
-      send();
-      return;
-    }}catch(e){{}}
+      const raw = await r.json();
+      const {{c,h,l}} = src.parse(raw);
+      if(!c || c.length < 50) continue;
+      return JSON.stringify({{
+        price:  c[c.length-1],
+        ema20:  ema(c,20), ema50: ema(c,50), ema200: ema(c,200),
+        atr:    atr(h,l,c),
+        source: src.name,
+        now:    new Date().toLocaleTimeString('tr-TR')
+      }});
+    }} catch(e) {{}}
   }}
-  setst('❌ Tüm kaynaklar başarısız. Değerleri manuel girin.','err');
-}}
+  return "ERROR";
+}})()
+"""
+            with st.spinner(f"⏳ {symbol} {iv_label} verisi çekiliyor..."):
+                result_json = st_javascript(js_code)
 
-function send(){{
-  if(!last) return;
-  window.parent.postMessage({{isStreamlitMessage:true,type:'streamlit:setComponentValue',value:last}},'*');
-}}
-</script></body></html>"""
-
-        # Widget — sadece gösterim ve hesaplama yapar
-        components.html(widget_html, height=220)
-
-        # ── Manuel veri girişi (widget değerleri buraya kopyalanır) ──────
-        st.markdown(
-            f"<div style='font-size:11px;color:{_DT2};margin:4px 0 6px'>"
-            f"👆 Yukarıdan veri çek → aşağıya yapıştır / güncelle</div>",
-            unsafe_allow_html=True)
+            if result_json and result_json != "ERROR" and isinstance(result_json, str):
+                try:
+                    parsed = json.loads(result_json)
+                    st.session_state[fetched_key] = {
+                        "price":      float(parsed["price"]),
+                        "ema20":      float(parsed["ema20"]),
+                        "ema50":      float(parsed["ema50"]),
+                        "ema200":     float(parsed["ema200"]),
+                        "atr":        float(parsed["atr"]),
+                        "source":     parsed.get("source","?"),
+                        "fetched_at": parsed.get("now",""),
+                    }
+                    st.rerun()
+                except Exception:
+                    st.error("Veri parse edilemedi.")
+            elif result_json == "ERROR":
+                st.error("❌ Tüm kaynaklar başarısız. Değerleri manuel girin.")
+            else:
+                st.info("⏳ Veri bekleniyor — tekrar dene.")
 
         fetched = st.session_state.get(fetched_key, {})
+
+        if fetched:
+            src_lbl = fetched.get("source","?")
+            src_c   = {"Binance":_G,"BinanceFut":_G,"OKX":_B,"Bybit":_P}.get(src_lbl,_DT)
+            st.markdown(
+                f"<div style='background:#0a140a;border:1px solid {_G}30;"
+                f"border-radius:6px;padding:5px 10px;font-size:11px;margin-bottom:4px'>"
+                f"✅ <span style='color:{src_c};font-weight:700'>{src_lbl}</span>"
+                f" · {fetched.get('fetched_at','')} &nbsp;·&nbsp; "
+                f"<span style='color:{_DT}'>Manuel değiştirebilirsin</span></div>",
+                unsafe_allow_html=True)
 
         # ── Fiyat + EMA + ATR ─────────────────────────────────────────────
         st.markdown(
             f"<div style='font-size:11px;font-weight:600;color:{_DT};text-transform:uppercase;"
-            f"letter-spacing:0.08em;margin:10px 0 6px'>📊 Fiyat & Göstergeler</div>",
+            f"letter-spacing:0.08em;margin:6px 0 4px'>📊 Fiyat & Göstergeler</div>",
             unsafe_allow_html=True)
 
         mv1, mv2, mv3, mv4, mv5 = st.columns(5)
@@ -810,16 +763,6 @@ function send(){{
         ema50  = _num(mv3, "EMA 50",       "pus_ema50",  fetched.get("ema50",0),   step=10.0)
         ema200 = _num(mv4, "EMA 200",      "pus_ema200", fetched.get("ema200",0),  step=10.0)
         atr    = _num(mv5, "ATR",          "pus_atr",    fetched.get("atr",0),     step=1.0, fmt="%.4f")
-
-        if fetched:
-            src_lbl = fetched.get("source","?")
-            src_c   = {"Binance":_G,"Binance Futures":_G,"OKX":_B,"Bybit":_P}.get(src_lbl,_DT)
-            st.markdown(
-                f"<div style='font-size:11px;color:{_DT2};margin-bottom:2px'>"
-                f"<span style='color:{src_c};font-weight:600'>{src_lbl}</span>"
-                f" · {fetched.get('fetched_at','—')} &nbsp;·&nbsp; "
-                f"Manuel değiştirebilirsin</div>",
-                unsafe_allow_html=True)
 
         ec1, ec2, ec3 = st.columns([1,1,1])
         with ec1: show_ema20  = st.checkbox("EMA20 Göster",  True, key="pus_se20")
